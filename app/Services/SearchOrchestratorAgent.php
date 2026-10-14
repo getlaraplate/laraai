@@ -7,6 +7,7 @@ namespace Modules\AI\Services;
 use Illuminate\Support\Facades\Cache;
 use Modules\AI\Data\Search\SearchPlanData;
 use Modules\Core\Search\Contracts\ISearchPlanner;
+use Modules\Core\Search\Support\SearchDegradations;
 use Throwable;
 
 /**
@@ -43,11 +44,21 @@ final readonly class SearchOrchestratorAgent implements ISearchPlanner
             $plan = $this->plan($query);
 
             if (! $this->isValidPlan($plan)) {
+                app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
+
                 return $this->fallbackPlan($query);
+            }
+
+            // A fallback plan is cached like any other for ten minutes, so a repeat of the query must still say
+            // that the model did not make this plan.
+            if (($plan['meta']['source'] ?? null) === 'fallback_rules') {
+                app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
             }
 
             return $plan;
         } catch (Throwable) {
+            app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
+
             return $this->fallbackPlan($query);
         }
     }

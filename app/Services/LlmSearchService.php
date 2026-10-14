@@ -10,6 +10,7 @@ use Modules\AI\Ai\Agents\ChatAgent;
 use Modules\AI\Data\Search\SearchIntentData;
 use Modules\AI\Data\Search\SearchPlanData;
 use Modules\AI\Enums\AiModelFeature;
+use Modules\Core\Search\Support\SearchDegradations;
 use NeuronAI\Chat\Messages\UserMessage;
 use Throwable;
 
@@ -58,6 +59,7 @@ class LlmSearchService
             Log::warning('LLM search plan generation failed; using rule-based fallback', [
                 'error' => $exception->getMessage(),
             ]);
+            app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
 
             return null;
         }
@@ -85,6 +87,7 @@ class LlmSearchService
             Log::warning('LLM intent extraction failed; falling back to the raw query', [
                 'error' => $exception->getMessage(),
             ]);
+            app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
         }
 
         $date_range = $intent?->filters->date_range?->toArray();

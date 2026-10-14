@@ -124,3 +124,22 @@ it('caches the plan of a query under a stable key', function (): void {
 
     expect(Illuminate\Support\Facades\Cache::has('search_orchestrator:' . md5('cached query')))->toBeTrue();
 });
+
+it('notes the unavailable model each time the plan is the rule-based fallback, cached or not', function (): void {
+    $degradations = app(Modules\Core\Search\Support\SearchDegradations::class);
+    $llm = Mockery::mock(LlmSearchService::class);
+    $llm->shouldReceive('generateSearchPlan')->once()->andReturnNull();
+    $agent = new SearchOrchestratorAgent($llm);
+    $query = 'degradation note ' . uniqid();
+
+    $degradations->reset();
+    $agent->safePlan($query);
+
+    expect($degradations->first())->toBe('llm_unavailable');
+
+    $degradations->reset();
+    $plan = $agent->safePlan($query);
+
+    expect($plan['meta']['source'])->toBe('fallback_rules')
+        ->and($degradations->first())->toBe('llm_unavailable');
+});

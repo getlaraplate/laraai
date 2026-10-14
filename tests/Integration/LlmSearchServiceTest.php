@@ -116,3 +116,16 @@ it('degrades to the raw query with a provider that is not supported', function (
     expect($intent['keywords'])->toBe([])
         ->and($intent['query_expansion']['must'])->toBe('climate change effects');
 });
+
+it('notes that the model was unavailable when the plan or the intent could not be asked for', function (): void {
+    $degradations = app(Modules\Core\Search\Support\SearchDegradations::class);
+    $degradations->reset();
+
+    expect(llmSearchServiceAnswering([])->generateSearchPlan('anything'))->toBeNull()
+        ->and($degradations->first())->toBe('llm_unavailable');
+
+    $degradations->reset();
+    llmSearchServiceAnswering([])->extractSearchIntent('anything');
+
+    expect($degradations->first())->toBe('llm_unavailable');
+});
