@@ -485,3 +485,23 @@ it('does not fetch a record through the detail tool for a user who may not read 
     expect($result)->toHaveKey('error')
         ->and($result)->not->toHaveKey('data');
 });
+
+it('refuses through the list tool a scope the entity exposes only to ACLs, without naming the model class', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    $model = DynamicEntity::resolve('cron_job', module: 'core');
+    $name = PermissionName::forModel($model, 'select');
+    Permission::factory()->create(['name' => $name, 'guard_name' => 'web']);
+    $user->givePermissionTo($name);
+    Config::set('ai.features.tools.crud.entities', ['core.cron_job' => ['list']]);
+
+    $list = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_list_core_cron_job');
+
+    /** @var array<string, mixed> $result */
+    $result = ($list->handler)(filters: [['scope' => 'active']]);
+
+    expect($result)->toHaveKey('error')
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['error'])->toContain('"active"')
+        ->and($result['error'])->not->toContain('Modules\\');
+});
