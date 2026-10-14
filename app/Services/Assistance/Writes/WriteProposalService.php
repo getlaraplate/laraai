@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Modules\AI\Services\Assistance\Writes;
 
 use Closure;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\AI\Enums\WriteProposalStatus;
 use Modules\AI\Models\WriteProposal;
@@ -103,7 +102,7 @@ final class WriteProposalService
      */
     public function confirm(WriteProposal $proposal, User $actor, Closure $apply): WriteProposal
     {
-        $claimed = DB::transaction(function () use ($proposal, $actor): ?WriteProposal {
+        $claimed = new WriteProposal()->getConnection()->transaction(function () use ($proposal, $actor): ?WriteProposal {
             /** @var WriteProposal $locked */
             $locked = WriteProposal::query()->lockForUpdate()->findOrFail($proposal->getKey());
 
@@ -154,7 +153,7 @@ final class WriteProposalService
      */
     public function reject(WriteProposal $proposal, User $actor): WriteProposal
     {
-        return DB::transaction(function () use ($proposal, $actor): WriteProposal {
+        return new WriteProposal()->getConnection()->transaction(function () use ($proposal, $actor): WriteProposal {
             /** @var WriteProposal $locked */
             $locked = WriteProposal::query()->lockForUpdate()->findOrFail($proposal->getKey());
 
