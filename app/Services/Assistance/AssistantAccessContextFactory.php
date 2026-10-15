@@ -8,6 +8,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Services\Assistance\Contracts\AssistantTenantResolverInterface;
+use Modules\Core\Helpers\LocaleContext;
 use Modules\Core\Models\User;
 use Throwable;
 use UnexpectedValueException;
@@ -81,7 +82,7 @@ final readonly class AssistantAccessContextFactory
 
     private function localeFor(User $user): string
     {
-        $fallback = (string) config('app.locale', 'en');
+        $fallback = LocaleContext::getDefault();
         $locale = $user->getAttribute('lang');
 
         if (! is_string($locale) || mb_trim($locale) === '') {

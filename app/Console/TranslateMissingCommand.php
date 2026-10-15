@@ -46,7 +46,7 @@ final class TranslateMissingCommand extends Command
         $locale = $this->option('locale');
         $sync = $this->option('sync');
 
-        $default_locale = config('app.locale');
+        $default_locale = LocaleContext::getDefault();
         $locales_to_check = $locale ? [$locale] : array_filter(
             LocaleContext::getAvailable(),
             fn (string $l): bool => $l !== $default_locale,

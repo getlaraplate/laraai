@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\Message;
 use Modules\AI\Services\Assistance\ConversationTitleService;
+use Modules\Core\Helpers\LocaleContext;
 
 /**
  * Gives a conversation its title after the first answer that is not a refusal. It carries the id of
@@ -52,7 +53,7 @@ final class GenerateConversationTitleJob implements ShouldQueue
             return;
         }
 
-        $result = $titles->titleFor($question->content, $answer->content, $conversation->user?->lang ?? (string) config('app.locale', 'en'));
+        $result = $titles->titleFor($question->content, $answer->content, $conversation->user?->lang ?? LocaleContext::getDefault());
 
         if ($result === null) {
             return;

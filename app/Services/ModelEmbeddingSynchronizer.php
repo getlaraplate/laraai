@@ -12,6 +12,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingDimensionProbe;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Contracts\IEmbeddingService;
 use Modules\Core\Events\ModelPreProcessingCompleted;
+use Modules\Core\Helpers\LocaleContext;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Search\Contracts\IProfileVectorIndex;
@@ -69,7 +70,7 @@ final readonly class ModelEmbeddingSynchronizer
     public function sync(iterable $models, ?string $locale = null, bool $announceCompletion = true, bool $reload = true): void
     {
         $model_key = $this->registry->active()->key;
-        $default_locale = (string) (config('app.locale') ?: 'en');
+        $default_locale = LocaleContext::getDefault();
 
         // Pass 1: plan the stale (model, locale) work and collect every text
         // that must be embedded across all models.

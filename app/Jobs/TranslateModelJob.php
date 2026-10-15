@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Modules\AI\Jobs;
 
-use function ai_config_string;
-
 use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -81,7 +79,7 @@ final class TranslateModelJob implements ShouldQueue
             return;
         }
 
-        $default_locale = ai_config_string('app.locale', 'en');
+        $default_locale = LocaleContext::getDefault();
         $default_translation = $this->resolveSourceTranslation($model, $default_locale);
 
         if (! $default_translation instanceof Model) {
@@ -169,7 +167,7 @@ final class TranslateModelJob implements ShouldQueue
             return;
         }
 
-        $default_locale = ai_config_string('app.locale', 'en');
+        $default_locale = LocaleContext::getDefault();
         $translatable_fields = $model::getTranslatableFields();
         $translated_data = [];
 

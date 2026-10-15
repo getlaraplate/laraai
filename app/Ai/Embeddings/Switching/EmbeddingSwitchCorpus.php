@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection as BaseCollection;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\AI\Services\ModelEmbeddingSynchronizer;
+use Modules\Core\Helpers\LocaleContext;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Models\ModelEmbedding;
 
@@ -204,7 +205,7 @@ final readonly class EmbeddingSwitchCorpus
         }
 
         $translated = class_uses_trait($model, HasTranslations::class);
-        $default = (string) (config('app.locale') ?: 'en');
+        $default = LocaleContext::getDefault();
         $rows = [];
 
         foreach ($model->prepareDataToEmbedByLocale() as $locale => $text) {
