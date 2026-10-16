@@ -45,42 +45,42 @@ final readonly class MediaAnalysisSchemaContributor implements IResourceSchemaCo
         }
 
         return [
-            Section::make('AI analysis')
+            Section::make(__('ai.sections.aiAnalysis'))
                 ->columns(2)
                 ->schema([
                     TextEntry::make('ai_analysis_status')
-                        ->label('Status')
+                        ->label(__('ai.fields.ai_analysis_status'))
                         ->badge()
                         ->state($analysis->analysis_status->value),
                     TextEntry::make('ai_analysis_model')
-                        ->label('Model')
+                        ->label(__('ai.fields.ai_analysis_model'))
                         ->state($analysis->analysis_model_version)
                         ->placeholder('—'),
                     TextEntry::make('ai_idea')
-                        ->label('Idea')
+                        ->label(__('ai.fields.ai_idea'))
                         ->columnSpanFull()
                         ->state($analysis->idea)
                         ->placeholder('—'),
                     TextEntry::make('ai_intent')
-                        ->label('Intent')
+                        ->label(__('ai.fields.ai_intent'))
                         ->columnSpanFull()
                         ->state($analysis->intent)
                         ->placeholder('—'),
                     TextEntry::make('ai_entities')
-                        ->label('Entities')
+                        ->label(__('ai.fields.ai_entities'))
                         ->badge()
                         ->state($analysis->entities ?? []),
                     TextEntry::make('ai_provenance')
-                        ->label('AI-generated fields')
+                        ->label(__('ai.fields.ai_provenance'))
                         ->badge()
                         ->state(array_keys($analysis->provenance ?? [])),
                     TextEntry::make('ai_transcript')
-                        ->label('Transcript')
+                        ->label(__('ai.fields.ai_transcript'))
                         ->columnSpanFull()
                         ->state($analysis->transcript)
                         ->placeholder('—'),
                     TextEntry::make('ai_ocr_text')
-                        ->label('OCR text')
+                        ->label(__('ai.fields.ai_ocr_text'))
                         ->columnSpanFull()
                         ->state($analysis->ocr_text)
                         ->placeholder('—'),
@@ -96,15 +96,15 @@ final readonly class MediaAnalysisSchemaContributor implements IResourceSchemaCo
 
         return [
             Action::make('reanalyzeMedia')
-                ->label('Re-analyze')
+                ->label(__('ai.actions.reanalyze'))
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->requiresConfirmation()
-                ->modalDescription('Queue a fresh AI analysis of this media file.')
+                ->modalDescription(__('ai.messages.reanalyzeDescription'))
                 ->action(static function () use ($record): void {
                     dispatch(new AnalyzeMediaJob($record));
 
                     Notification::make()
-                        ->title('Re-analysis queued')
+                        ->title(__('ai.messages.reanalysisQueued'))
                         ->success()
                         ->send();
                 }),
