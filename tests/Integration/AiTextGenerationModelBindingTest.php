@@ -21,9 +21,9 @@ it('binds the requested model and marshals the provider call over faked HTTP', f
 
     $provider->setHttpClient($client);
 
-    $message = $provider->chat(new UserMessage('rewrite this'));
+    $response = $provider->chat(new UserMessage('rewrite this'));
 
-    expect($message->getContent())->toBe('Ada Lovelace owns this area.')
+    expect($response->message()->getContent())->toBe('Ada Lovelace owns this area.')
         ->and($client->lastRequest)->not->toBeNull()
         ->and($client->lastRequest->uri)->toBe('http://ollama.test/api/chat')
         ->and($client->lastRequest->body['model'])->toBe('phi3');
