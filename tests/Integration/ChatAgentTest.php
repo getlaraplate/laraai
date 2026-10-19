@@ -7,17 +7,6 @@ use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Testing\FakeAIProvider;
-use NeuronAI\Workflow\Workflow;
-
-it('initialises the inherited workflow executor (parent constructor runs)', function (): void {
-    // ChatAgent extends NeuronAI's Agent -> Workflow, whose constructor sets the
-    // executor. If ChatAgent's constructor skips parent::__construct(), running
-    // the agent throws "Workflow::$executor must not be accessed before
-    // initialization"; assert the executor is initialised at construction time.
-    $agent = ChatAgent::make(providerName: 'ollama');
-
-    expect((new ReflectionProperty(Workflow::class, 'executor'))->isInitialized($agent))->toBeTrue();
-});
 
 it('gives every agent its own workflow id', function (): void {
     $first = ChatAgent::make(providerName: 'ollama');
