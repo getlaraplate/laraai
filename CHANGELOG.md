@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-10-19
+
+### 🚀 Features
+
+- *(ai)* OPENAI_BASE_URL points the OpenAI provider at an OpenAI-compatible server
+
 ## [3.0.0] - 2026-10-19
 
 ### 🚀 Features
