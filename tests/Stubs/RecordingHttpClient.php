@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Tests\Stubs;
 
+use NeuronAI\Exceptions\HttpException;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\HttpClient\HttpResponse;
@@ -32,29 +33,17 @@ final class RecordingHttpClient implements HttpClientInterface
     {
         $this->lastRequest = $request;
 
-        return new HttpResponse($this->statusCode, (string) json_encode($this->responseBody));
+        $response = new HttpResponse($this->statusCode, (string) json_encode($this->responseBody));
+
+        if ($response->statusCode >= 400) {
+            throw HttpException::statusError($request, $response);
+        }
+
+        return $response;
     }
 
     public function stream(HttpRequest $request): StreamInterface
     {
         throw new RuntimeException('The recording HTTP client does not support streaming.');
-    }
-
-    public function withBaseUri(string $baseUri): HttpClientInterface
-    {
-        return $this;
-    }
-
-    /**
-     * @param  array<string, string>  $headers
-     */
-    public function withHeaders(array $headers): HttpClientInterface
-    {
-        return $this;
-    }
-
-    public function withTimeout(float $timeout): HttpClientInterface
-    {
-        return $this;
     }
 }
