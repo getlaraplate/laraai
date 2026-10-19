@@ -2,6 +2,167 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-10-19
+
+### 🚀 Features
+
+- *(ai)* Ai:tune-retrieval grid-searches fusion parameters against the application content evaluation
+- *(ai)* Ai:tune-retrieval guards against overfitting its dataset
+- *(ai)* Ai:tune-retrieval declares no winner for a gain within the noise
+- *(ai)* The embeddings repair is scheduled, checks the model and jobs fail visibly
+- *(ai)* Private evaluation datasets, cases run in their locale, reports record their context
+- *(ai)* Report whether the reranker ran, and fail instead of faking scores
+- *(ai)* The cross-encoder client posts to {url}/score, with the service key and no built-in address
+- *(ai)* The evaluation reports say which reranker model they measured
+- *(ai)* Embedding profiles declare their dimensions and can be overridden for one call
+- *(ai)* Measure a profile's vector length with a probe, and expose it as ai:embeddings:probe
+- *(ai)* Embed with an explicit profile, and refuse to store a vector of the wrong length
+- *(ai)* The embedding model is a setting, with a managed active profile and switch state
+- *(ai)* Preview what an embedding model switch costs
+- *(ai)* Ai:embeddings:switch starts a guarded switch after a preflight
+- *(ai)* Changing the embedding model asks for confirmation and starts a guarded switch
+- *(ai)* Ai:embeddings:switch re-embeds, rebuilds the indexes, verifies and activates the new model
+- *(search)* PostgreSQL stores vectors of any length, with one partial index per embedding profile
+- *(ai)* Embedding switch writes index documents in chunk jobs
+- *(ai)* Embedding switch writes the RAG documentation in chunk jobs
+- *(ai)* The page a client reports becomes the assistant's application context only through one resolver
+- *(ai)* GET /app/ai/capabilities tells a client what the in-app assistant offers
+- *(ai)* The assistant proposes interface changes the user confirms, and never reports one as applied
+- *(ai)* What the assistant stores goes with its owner: bounded suggestion context, retention, purge on user and conversation deletion
+- *(ai)* Automatic conversation title as a Neuron structured output, and the streaming agent endpoint
+- *(ai)* Trailing-wildcard tool names in assistant policy sets
+- *(ai)* Governed_writes policy capability for the in-app profile
+- *(ai)* Crud write offer fail-closed, no model votes, per-turn write budget
+- *(ai)* Assistant writes are proposed and applied only on the person's confirmation
+- *(ai)* The assistant reports proposed writes as such
+- *(ai)* State the acting user and what the assistant may do for them
+- *(ai)* Confine the assistant to the application and harden against injection
+- *(ai)* Audit assistant writes
+- *(ai)* Guard the graph tool results too, and log what is withheld
+- *(ai)* Text generation, vector store, policy version and moderation queue are settings
+- *(ai)* Normalize documentation chunk metadata and stop on an unknown audience
+- *(ai)* Add RAG query analytics index and settings
+- *(ai)* Add RAG query analytics writer
+- *(ai)* Log answered RAG queries off the hot path
+- *(ai)* Retention and erasure for RAG query analytics
+- *(ai)* Mark the parts of a conversation for related-record authorization
+- *(ai)* Overlay search through one strategy resolver
+- *(ai)* Deep search allows two retries
+- *(ai)* Note llm_unavailable when the planner or intent parser falls back
+- *(ai)* Media analysis panel strings from the ai lang file
+- *(ai)* Schema tool properties cast leniently (Neuron 4)
+
+### 🐛 Bug Fixes
+
+- *(ai)* Moderation votes as the seeded system user
+- *(ai)* Documentation reindex batches never split a source
+- *(ai)* Ai:embeddings:repair reaches hidden rows and reports --sync failures
+- *(ai)* Keep moderation votes coherent with the required quorum
+- *(ai)* Act as the moderation system user without logging in and out
+- *(ai)* Fail closed when the prompt injection check cannot give a verdict
+- *(ai)* Retry a failed vision analysis instead of storing it empty
+- *(ai)* Run DocumentationAgent's parent constructor
+- *(ai)* Keep a queue worker's job timeout instead of refusing the content deadline
+- *(ai)* Measure the suggestion cooldown from the last suggestion forward
+- *(ai)* Read search.reranker.enabled without a default of its own
+- *(ai)* The cross-encoder client gives up connecting after 2 seconds
+- *(ai)* Keep the repair probe's original failure messages and tidy the probe tests
+- *(ai)* Repair --stale selects records with no row of the active key, so it converges
+- *(ai)* The vector guard answers no_vectors when no active embedding profile resolves
+- *(ai)* Report a refused confirmed switch, roll back an unqueued start, bound the preview probe
+- *(ai)* Record a switch failure only under the start lock, flush the suspension after commit
+- *(ai)* The switch empties equal-dimension indexes, refreshes documents before verifying, and counts only fresh target rows
+- *(search)* A failing index drop no longer fails an embedding switch activation
+- *(ai)* Embedding switch fix wave: own queue, resume re-embeds, profile model per provider, abandon checks the service
+- *(ai)* Embedding switch review fixes for the chunked index phases
+- *(ai)* Read the stored serving model as a full Setting row
+- *(ai)* Embeddings dimensions, one file for the documentation vector store, dead keys and stubs removed
+- *(ai)* Documentation answers cite the documents they used and apply the retrieval that is evaluated
+- *(ai)* Documentation chunks are embedded as passages, through one embeddings decorator
+- *(ai)* A tool that fails or runs too often does not refuse the whole turn
+- *(ai)* Derive the write proposal transactions from the model connection
+- *(ai)* Read the default locale through LocaleContext
+- *(ai)* Keep the 60-second request timeout on Neuron 4 providers
+- *(ai)* Every agent runs with its own workflow id (Neuron 4)
+- *(ai)* Structured outputs keep tolerating the sections a model leaves out (Neuron 4)
+- *(ai)* Static analysis follows the Neuron 4 types
+- *(ai)* A partial vision analysis is stored, as on Neuron 3
+- *(ai)* The review's minor findings
+
+### 💼 Other
+
+- Own AI runtime setting definition tests
+
+Moved from Core so Core tests no longer depend on AI.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016bQ9UWLJjnRQA6sGEYNGPL
+
+### 🚜 Refactor
+
+- *(ai)* Name the cross-encoder settings like sentence_transformers
+- *(ai)* The serving embedding model is Core's search.vector.model; drop features.embeddings.active
+- *(ai)* One copy of the evaluation statistics, the dataset reader and the report writer
+- *(ai)* The model's JSON goes through Neuron's structured output
+- *(ai)* Agents are built in one place and the tests use Neuron's fakes
+- *(ai)* Remove the unfed ActionRequest approval path
+- *(ai)* One gate for embeddings and one for translation
+- *(ai)* Remove the duplicated message route, the methods only tests call and IntelligentSearchAction
+- *(ai)* Remove UnknownToolException, unused since the global tool registry went
+- *(ai)* Remove the guardrails path that nothing called
+- *(ai)* Tools are built as a CallbackTool class (Neuron 4)
+- *(ai)* Tool errors and fake tool calls use Neuron 4's ToolCall
+- *(ai)* The Elasticsearch RAG store implements the Neuron 4 search contract
+- *(ai)* Documents are read and written through Neuron 4 accessors
+- *(ai)* Instructions are system messages (Neuron 4)
+
+### 📚 Documentation
+
+- *(ai)* The SAO evaluation gate moved to the application tests
+- *(ai)* The CMS evaluation gate moved to the application tests
+- *(ai)* The evaluation locale is the language the results are requested in
+- *(ai)* The sentencetransformer service reranks with a default model
+- Embedding profiles, the model switch and its commands; drop the removed embedding env vars
+- *(ai)* The adaptive assistance contract, what the assistant stores, and the stream endpoint
+- *(ai)* The shared evaluation code and the report writer are documented
+- *(ai)* Governed assistant writes
+- *(ai)* Remove the documentation of the chat path that is gone
+- *(ai)* AI_SEARCH_ORCHESTRATION_ENABLED stays an env variable (read at boot)
+- *(ai)* Record the measured RAG retrieval decision (vector-only; hybrid, reranking and graph deferred)
+- *(ai)* Privacy review of the RAG query analytics log
+- *(ai)* Document RAG query analytics
+- *(ai)* Search is overlaid through one strategy resolver
+- Verbatim AGPL-3.0 licence text, copyright in the README
+- *(ai)* Neuron 4 in the glossaries; the structured output required rule
+
+### 🧪 Testing
+
+- *(ai)* Moderation analysis verdicts, retry and the AI-then-human rejection
+- *(ai)* Comment source translation test follows the factory's default body
+- *(ai)* Own media analysis fixtures by a Core model, not CMS content
+- *(ai)* Cover translation triggers and sources without CMS comments
+- *(ai)* Moderate a stub model through Core's approval flow, not CMS comments
+- *(ai)* Expect a malformed Lakera response to be rejected
+- *(ai)* Evaluation cases for assistant proposals, with proposal and pending-report metrics
+- *(ai)* Restore the translation stub that HasTranslations finds by naming convention
+- *(ai)* One construction of the in-app service for the assistant tests
+- *(ai)* The detail tool fetches a record for a permitted user and refuses the rest
+- *(ai)* The CRUD list tool refuses an ACL-only scope filter (scope filters task 4 review)
+- *(ai)* The recording HTTP client follows the Neuron 4 contract
+- *(ai)* A tool called without a required argument gets Neuron's error output
+- *(ai)* Drop the reflection on the removed workflow executor
+- *(ai)* Fakes and provider calls follow Neuron 4
+- *(ai)* ChatService instructions are read as a system message
+
+### ⚙️ Miscellaneous Tasks
+
+- *(ai)* Module priority 10, first tier after Core
+- *(ai)* Update command descriptions to include module reference
+- *(ai)* Update TuneRetrievalCommand description to include module reference
+- *(ai)* Require AWS SDK and Google auth for Bedrock and Vertex providers
+- *(ai)* Remove the unused nwidart module scaffold
+- *(ai)* Require neuron-ai 4.1
+
 ## [2.20.0] - 2026-09-29
 
 ### 🚀 Features

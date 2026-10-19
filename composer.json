@@ -2,7 +2,7 @@
   "name": "swolley/laraplate-ai",
   "vendor": "swolley",
   "description": "AI Module contains all the necessary functionalities for build up a new AI integrated application",
-  "version": "v2.20.0",
+  "version": "v3.0.0",
   "keywords": [
     "laravel",
     "laraplate",
