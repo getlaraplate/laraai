@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use Modules\AI\Ai\Agents\ChatAgent;
+use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Providers\AIProviderInterface;
+use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Workflow\Workflow;
 
 it('initialises the inherited workflow executor (parent constructor runs)', function (): void {
@@ -14,6 +17,24 @@ it('initialises the inherited workflow executor (parent constructor runs)', func
     $agent = ChatAgent::make(providerName: 'ollama');
 
     expect((new ReflectionProperty(Workflow::class, 'executor'))->isInitialized($agent))->toBeTrue();
+});
+
+it('gives every agent its own workflow id', function (): void {
+    $first = ChatAgent::make(providerName: 'ollama');
+    $second = ChatAgent::make(providerName: 'ollama');
+
+    expect($first->getWorkflowId())->toBeString()->not->toBeEmpty()
+        ->and($second->getWorkflowId())->toBeString()->not->toBe($first->getWorkflowId());
+});
+
+it('runs a chat on an agent that has a workflow id', function (): void {
+    $agent = ChatAgent::make(providerName: 'ollama', systemPrompt: 'Be brief.');
+    $agent->setAiProvider($provider = new FakeAIProvider(new AssistantMessage('Hello back.')));
+
+    $answer = $agent->chat(new UserMessage('Hello'))->getMessage()->getContent();
+
+    expect($answer)->toBe('Hello back.');
+    $provider->assertCallCount(1);
 });
 
 it('creates a ChatAgent via static make', function (): void {

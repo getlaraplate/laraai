@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\AI\Ai\Agents;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Modules\AI\Ai\Providers\AiModelChoice;
 use Modules\AI\Ai\Providers\ProviderFactory;
 use Modules\AI\Enums\AiModelFeature;
@@ -31,11 +32,8 @@ class ChatAgent extends Agent
         protected ?int $maxOutputTokens = null,
         protected ?float $timeout = null,
     ) {
-        // Agent extends NeuronAI's Workflow, whose constructor initialises the
-        // workflow executor. Without this call the executor stays uninitialised
-        // and running the agent throws "Workflow::$executor must not be accessed
-        // before initialization".
-        parent::__construct();
+        // Neuron runs nothing without a thread id; the application keeps its own conversations, so each agent gets a throwaway one.
+        parent::__construct(workflowId: (string) Str::uuid7());
     }
 
     /**

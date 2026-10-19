@@ -792,3 +792,11 @@ it('validates sources that all declare a known audience', function (): void {
         File::deleteDirectory($tmp_dir);
     }
 });
+
+it('gives every documentation agent its own workflow id', function (): void {
+    $first = DocumentationAgent::make('ollama', 'memory');
+    $second = DocumentationAgent::make('ollama', 'memory');
+
+    expect($first->getWorkflowId())->toBeString()->not->toBeEmpty()
+        ->and($second->getWorkflowId())->toBeString()->not->toBe($first->getWorkflowId());
+});

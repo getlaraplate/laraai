@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Agents;
 
+use Illuminate\Support\Str;
 use Modules\AI\Ai\Embeddings\EmbeddingsProviderFactory;
 use Modules\AI\Ai\Providers\AiModelChoice;
 use Modules\AI\Ai\Providers\ProviderFactory;
@@ -42,9 +43,8 @@ class DocumentationAgent extends RAG
         protected int $topK = 5,
         protected DocumentationIndexProfile $indexProfile = DocumentationIndexProfile::Developer,
     ) {
-        // RAG extends NeuronAI's Workflow, whose constructor initialises the workflow
-        // executor: without it, chat() fails before reaching the provider.
-        parent::__construct();
+        // Neuron runs nothing without a thread id; the application keeps its own conversations, so each agent gets a throwaway one.
+        parent::__construct(workflowId: (string) Str::uuid7());
     }
 
     /**
