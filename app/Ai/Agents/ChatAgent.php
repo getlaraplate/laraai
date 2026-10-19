@@ -91,13 +91,7 @@ class ChatAgent extends Agent
 
     protected function provider(): AIProviderInterface
     {
-        $provider = ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens);
-
-        if ($this->timeout !== null && method_exists($provider, 'getHttpClient')) {
-            $provider->getHttpClient()->withTimeout($this->timeout);
-        }
-
-        return $provider;
+        return ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens, $this->timeout);
     }
 
     protected function instructions(): string

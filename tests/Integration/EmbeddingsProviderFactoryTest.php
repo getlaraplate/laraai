@@ -72,6 +72,22 @@ it('also accepts hyphenated sentence-transformers key', function (): void {
     expect(factoryProviderBehindPrefixes($provider))->toBeInstanceOf(SentenceTransformersEmbeddingsProvider::class);
 });
 
+it('keeps the 60-second request timeout of Neuron 3 on the embeddings providers that call an API', function (string $name, array $config): void {
+    foreach ($config as $key => $value) {
+        config()->set($key, $value);
+    }
+
+    $provider = factoryProviderBehindPrefixes(EmbeddingsProviderFactory::make($name));
+    $client = (fn (): object => $this->httpClient)->call($provider);
+
+    expect((fn (): float => $this->timeout)->call($client))->toBe(60.0);
+})->with([
+    'openai' => ['openai', ['ai.providers.openai.api_key' => 'test-key']],
+    'ollama' => ['ollama', ['ai.providers.ollama.api_url' => 'http://localhost:11434']],
+    'mistral' => ['mistral', ['ai.providers.mistral.api_key' => 'test-key']],
+    'voyageai' => ['voyageai', ['ai.providers.voyageai.api_key' => 'test-key']],
+]);
+
 it('throws exception for unsupported embeddings provider', function (): void {
     EmbeddingsProviderFactory::make('non-existent');
 })->throws(Exception::class, 'Unsupported embeddings provider: non-existent');

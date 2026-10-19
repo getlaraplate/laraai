@@ -9,7 +9,9 @@ use function ai_config_nullable_string;
 use function ai_config_string;
 
 use InvalidArgumentException;
+use Modules\AI\Ai\Providers\ProviderFactory;
 use Modules\Core\Exceptions\ConfigurationException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 use NeuronAI\RAG\Embeddings\MistralEmbeddingsProvider;
 use NeuronAI\RAG\Embeddings\OllamaEmbeddingsProvider;
@@ -62,6 +64,7 @@ final class EmbeddingsProviderFactory
             key: ai_config_string('ai.providers.openai.api_key'),
             model: $model,
             dimensions: $dimensions !== null && str_starts_with($model, 'text-embedding-3') ? $dimensions : null,
+            httpClient: self::httpClient(),
         );
     }
 
@@ -73,6 +76,7 @@ final class EmbeddingsProviderFactory
         return new OllamaEmbeddingsProvider(
             model: $model ?? ai_config_string('ai.providers.ollama.model', 'nomic-embed-text'),
             url: mb_rtrim($url, '/') . '/api',
+            httpClient: self::httpClient(),
         );
     }
 
@@ -81,6 +85,7 @@ final class EmbeddingsProviderFactory
         return new MistralEmbeddingsProvider(
             key: ai_config_string('ai.providers.mistral.api_key'),
             model: $model ?? ai_config_string('ai.providers.mistral.model', 'mistral-embed'),
+            httpClient: self::httpClient(),
         );
     }
 
@@ -89,6 +94,7 @@ final class EmbeddingsProviderFactory
         return new VoyageEmbeddingsProvider(
             key: ai_config_string('ai.providers.voyageai.api_key'),
             model: $model ?? ai_config_string('ai.providers.voyageai.model', 'voyage-3-lite'),
+            httpClient: self::httpClient(),
         );
     }
 
@@ -105,6 +111,14 @@ final class EmbeddingsProviderFactory
             batch_size: ai_config_int('ai.providers.sentence_transformers.batch_size', 32),
             model: $model,
         );
+    }
+
+    /**
+     * The client Neuron 3 gave every provider by default had a 60-second limit; Neuron 4's own allows 300.
+     */
+    private static function httpClient(): CurlHttpClient
+    {
+        return new CurlHttpClient(timeout: ProviderFactory::HTTP_TIMEOUT);
     }
 
     private static function registry(): EmbeddingModelRegistry
