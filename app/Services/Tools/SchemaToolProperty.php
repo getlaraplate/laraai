@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Services\Tools;
 
+use NeuronAI\ScalarCaster;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\ToolPropertyInterface;
 
@@ -47,9 +48,17 @@ final readonly class SchemaToolProperty implements ToolPropertyInterface
         return false;
     }
 
+    /**
+     * What the model sends in the wrong type is converted when nothing is lost ("42" to 42, 42 to "42",
+     * "true" to true), as Neuron converts its own scalar properties. Unlike them, a value that cannot be
+     * converted is not refused here: it reaches the tool unchanged, as it did before Neuron 4.
+     */
     public function cast(mixed $input): mixed
     {
-        return $input;
+        return match ($this->type) {
+            PropertyType::ARRAY, PropertyType::OBJECT => $input,
+            default => ScalarCaster::cast($input, $this->type->value) ?? $input,
+        };
     }
 
     /**
