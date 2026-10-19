@@ -23,6 +23,8 @@ use Throwable;
 /**
  * General-purpose chat agent powered by NeuronAI.
  * Supports multi-provider configuration via ProviderFactory.
+ *
+ * @method static static make(?string $providerName = null, ?string $systemPrompt = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null)
  */
 class ChatAgent extends Agent
 {
@@ -54,7 +56,7 @@ class ChatAgent extends Agent
      */
     public function ask(string $prompt): string
     {
-        return mb_trim($this->chat(new UserMessage($prompt))->getMessage()->getContent() ?? '');
+        return mb_trim($this->chat(new UserMessage($prompt))->getMessage()?->getContent() ?? '');
     }
 
     /**

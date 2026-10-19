@@ -27,6 +27,8 @@ use Override;
 
 /**
  * RAG agent for answering questions using indexed documentation.
+ *
+ * @method static static make(?string $providerName = null, ?string $vectorStoreDriver = null, ?string $vectorStorePath = null, int $topK = 5, DocumentationIndexProfile $indexProfile = DocumentationIndexProfile::Developer)
  */
 class DocumentationAgent extends RAG
 {

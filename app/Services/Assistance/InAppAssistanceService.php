@@ -419,7 +419,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $agent->addTool($tool);
         }
 
-        return $agent->chat(new UserMessage($input))->getMessage()->getContent() ?? '';
+        return $agent->chat(new UserMessage($input))->getMessage()?->getContent() ?? '';
     }
 
     /**

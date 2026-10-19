@@ -389,7 +389,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             $embedding = $source['embedding'] ?? null;
 
             if (is_array($embedding) && $embedding !== []) {
-                $document->setEmbedding($embedding);
+                $document->setEmbedding(array_map(floatval(...), $embedding));
             }
 
             if (is_string($source['neuron_id'] ?? null)) {

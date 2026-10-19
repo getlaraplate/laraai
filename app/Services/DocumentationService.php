@@ -142,7 +142,7 @@ final readonly class DocumentationService
         $agent = $factory();
 
         $response = $agent->chat(new UserMessage($question));
-        $answer = $response->getMessage()->getContent() ?? '';
+        $answer = $response->getMessage()?->getContent() ?? '';
         $citations = $this->buildCitations($agent->retrievedDocuments());
 
         $formatted_answer = $answer;

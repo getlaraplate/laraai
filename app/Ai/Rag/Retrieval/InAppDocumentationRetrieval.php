@@ -106,7 +106,7 @@ final readonly class InAppDocumentationRetrieval
 
             $safe_documents[] = (new Document($document->getContent()))
                 ->setSourceType('documentation')
-                ->setSourceName($metadata['safe_source_label'])
+                ->setSourceName((string) $metadata['safe_source_label'])
                 ->setMetadata(array_intersect_key($metadata, array_flip([
                     'audience',
                     'heading_breadcrumb',
