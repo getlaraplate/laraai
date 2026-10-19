@@ -79,7 +79,7 @@ Canonical English names for AI entities in this module. Use these terms in code,
 | Term | Meaning |
 |------|---------|
 | **EmbeddingsProviderFactory** | Resolves embedding provider from `config('ai.*')`. |
-| **Neuron AI** | The agent framework (`neuron-core/neuron-ai` v3) behind every model call: providers, tools, RAG, structured output. It replaced LLPhant, which is no longer a dependency. |
+| **Neuron AI** | The agent framework (`neuron-core/neuron-ai` v4) behind every model call: providers, tools, RAG, structured output. It replaced LLPhant, which is no longer a dependency. |
 
 ## Related reading
 
