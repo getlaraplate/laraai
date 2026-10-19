@@ -83,7 +83,7 @@ function chatAgentToolErrorFor(Throwable $exception): string
     $agent = ChatAgent::make(systemPrompt: 'x');
     $handler = (new ReflectionMethod($agent, 'resolveToolErrorHandler'))->invoke($agent);
 
-    return $handler($exception, NeuronAI\Tools\Tool::make('lookup', 'A tool'));
+    return $handler($exception, NeuronAI\Tools\ToolCall::make(name: 'lookup', callId: 'call_1', inputs: []));
 }
 
 it('answers the model with a fixed message when a tool fails, never with the exception text', function (): void {

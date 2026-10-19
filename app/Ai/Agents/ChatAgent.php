@@ -13,7 +13,8 @@ use NeuronAI\Agent\Agent;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ToolRunsExceededException;
 use NeuronAI\Providers\AIProviderInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Tools\ToolOutput;
 use Override;
 use Throwable;
 
@@ -72,16 +73,18 @@ class ChatAgent extends Agent
      * can try again or answer without it. The message never carries the exception's text, which can name
      * a parameter, a class or a record. A policy violation is not a failure of the tool and is not
      * handled here: it ends the turn as it always did.
+     *
+     * @return (callable(Throwable, ToolCall): (string|ToolOutput|null))|null
      */
     #[Override]
     protected function resolveToolErrorHandler(): ?callable
     {
-        return $this->toolErrorHandler ?? static function (Throwable $exception, ToolInterface $tool): string {
+        return $this->toolErrorHandler ?? static function (Throwable $exception, ToolCall $call): string {
             if ($exception instanceof AssistancePolicyViolationException) {
                 throw $exception;
             }
 
-            Log::warning('Assistant tool call failed', ['tool' => $tool->getName(), 'exception' => $exception::class]);
+            Log::warning('Assistant tool call failed', ['tool' => $call->getName(), 'exception' => $exception::class]);
 
             return $exception instanceof ToolRunsExceededException
                 ? 'This tool has been called too many times in this conversation turn. Answer with what you already have.'

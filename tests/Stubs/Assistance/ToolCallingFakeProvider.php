@@ -6,8 +6,10 @@ namespace Modules\AI\Tests\Stubs\Assistance;
 
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolCallMessage;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\RequestRecord;
+use NeuronAI\Tools\ToolCall;
 use Override;
 use RuntimeException;
 
@@ -35,7 +37,7 @@ final class ToolCallingFakeProvider extends FakeAIProvider
     }
 
     #[Override]
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         if ($this->calls === []) {
             return parent::chat(...$messages);
@@ -47,12 +49,12 @@ final class ToolCallingFakeProvider extends FakeAIProvider
             $tool = collect($this->tools)->first(static fn ($candidate): bool => $name === $candidate->getName())
                 ?? throw new RuntimeException("The agent has no tool named {$name}.");
 
-            $tools[] = (clone $tool)->setCallId('call_' . ($index + 1))->setInputs($inputs);
+            $tools[] = ToolCall::make(name: $tool->getName(), callId: 'call_' . ($index + 1), inputs: $inputs);
         }
 
         $this->calls = [];
         $this->recorded[] = new RequestRecord(method: 'chat', messages: $messages, systemPrompt: $this->systemPrompt, tools: $this->tools);
 
-        return new ToolCallMessage(null, $tools);
+        return new ProviderResponse(message: new ToolCallMessage(null, $tools));
     }
 }

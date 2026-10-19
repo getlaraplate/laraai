@@ -149,7 +149,7 @@ it('completes the turn when the model calls a tool without a required argument, 
     $events = agentEvents(($this->run)(['context' => ['page' => ['resource' => 'erp/orders', 'proposable' => [agentLayoutTarget()]]]])->streamedContent());
     $finished = end($events);
     $messages = $provider->getRecorded()[1]->messages;
-    $result = end($messages)->getTools()[0]->getResult();
+    $result = end($messages)->getToolCalls()[0]->getResult();
 
     expect($finished)->toMatchArray(['type' => 'RunFinished', 'outcome' => ['type' => 'success']])
         ->and(array_column($events, 'type'))->not->toContain('RunError')
