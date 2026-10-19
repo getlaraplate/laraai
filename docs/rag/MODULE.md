@@ -269,11 +269,12 @@ Where the module needs the model's answer as data, it asks through Neuron's stru
 schema, extracts the JSON (a Markdown fence is fine), deserializes and validates it, and when any step
 fails asks the model again with the list of what was wrong, up to `$maxRetries` times, then throws.
 
-A property without a default is required: the schema lists it and the deserializer refuses an answer that
-leaves it out (that is a failure like any other, and costs a retry). A section that a constructor fills
-(`SearchPlanData`, `SearchIntentData`) is declared `required: false` so that an answer without it still
-reads; the fields of `ImageAnalysisData`, `GeneratedConversationTitle` and `ModerationVerdictData` are
-`required: true` on purpose.
+A property that cannot be null and has no default is one the model must send (`SchemaProperty::isRequired()`,
+unless `required:` says otherwise): the schema lists it and the deserializer refuses an answer that leaves it
+out, which is a failure like any other and costs a retry. The classes whose answer may leave something out say
+so with `required: false`: the sections that a constructor fills (`SearchPlanData`, `SearchIntentData`) and the
+fields of `ImageAnalysisData` (all have a default), so a partial answer is read, not retried. A title and a
+moderation verdict (`GeneratedConversationTitle`, `ModerationVerdictData`) stay `required: true`.
 
 | Call | Class | Retries | When it never fits |
 |------|-------|---------|--------------------|

@@ -59,8 +59,18 @@ it('reads the analysis from what the model answers, in a fence or not', function
     'in a Markdown fence' => ["```json\n{\"caption\": \"A cat\", \"entities\": [\"cat\"], \"idea\": \" rest \", \"intent\": \"inform\", \"ocr_text\": \"  \"}\n```"],
 ]);
 
+it('stores what the model answers when it leaves fields out, instead of failing the analysis', function (): void {
+    $result = withVisionImage(fn (string $path) => visionAnalyzerAnswering(['{"caption":"A cat","entities":["cat"]}'])->analyze($path, 'image/png', visionProfile()));
+
+    expect($result->caption)->toBe('A cat')
+        ->and($result->entities)->toBe(['cat'])
+        ->and($result->idea)->toBeNull()
+        ->and($result->intent)->toBeNull()
+        ->and($result->ocrText)->toBeNull();
+});
+
 it('sends the image and the schema of the analysis', function (): void {
-    $analyzer = visionAnalyzerAnswering(['{"caption":"A cat","entities":["cat"],"idea":"rest","intent":"inform","ocr_text":""}'], $provider);
+    $analyzer = visionAnalyzerAnswering(['{"caption":"A cat"}'], $provider);
     withVisionImage(fn (string $path) => $analyzer->analyze($path, 'image/png', visionProfile()));
 
     $record = $provider->getRecorded()[0];
@@ -80,7 +90,7 @@ it('throws when the answer never fits, so the job retries instead of storing an 
 ])->throws(Exception::class);
 
 it('asks again once when the first answer is not an analysis', function (): void {
-    $analyzer = visionAnalyzerAnswering(['Sorry, no.', '{"caption":"A dog","entities":["dog"],"idea":"rest","intent":"inform","ocr_text":""}'], $provider);
+    $analyzer = visionAnalyzerAnswering(['Sorry, no.', '{"caption":"A dog"}'], $provider);
     $result = withVisionImage(fn (string $path) => $analyzer->analyze($path, 'image/png', visionProfile()));
 
     $provider->assertCallCount(2);
