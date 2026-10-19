@@ -19,11 +19,7 @@ final readonly class DocumentAudiencePolicy
             return true;
         }
 
-        $metadata = $document->metadata;
-
-        if (! is_array($metadata)) {
-            return false;
-        }
+        $metadata = $document->getMetadata();
 
         if (! in_array($metadata['audience'] ?? null, ['user', 'shared'], true)) {
             return false;

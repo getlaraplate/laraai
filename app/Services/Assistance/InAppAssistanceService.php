@@ -442,7 +442,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
 
     private function metadataString(Document $document, string $key): ?string
     {
-        $value = $document->metadata[$key] ?? null;
+        $value = $document->getMetadata()[$key] ?? null;
 
         return is_string($value) ? $value : null;
     }

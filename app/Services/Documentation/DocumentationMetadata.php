@@ -46,10 +46,10 @@ final class DocumentationMetadata
         ];
 
         foreach ($defaults as $key => $default) {
-            $value = $document->metadata[$key] ?? null;
+            $value = $document->getMetadata()[$key] ?? null;
 
             if ($value === null || (is_string($value) && mb_trim($value) === '')) {
-                $document->metadata[$key] = $default;
+                $document->addMetadata($key, $default);
             }
         }
     }

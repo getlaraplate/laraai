@@ -14,8 +14,8 @@ it('carries the cross_cutting_user frontmatter marker into document metadata', f
         $documents = (new FileDocumentReader($path))->getDocuments();
 
         expect($documents)->toHaveCount(1)
-            ->and($documents[0]->metadata['cross_cutting_user'] ?? null)->toBeTrue()
-            ->and($documents[0]->metadata['module'] ?? null)->toBe('core');
+            ->and($documents[0]->getMetadata()['cross_cutting_user'] ?? null)->toBeTrue()
+            ->and($documents[0]->getMetadata()['module'] ?? null)->toBe('core');
     } finally {
         @unlink($path);
         @rmdir($dir);

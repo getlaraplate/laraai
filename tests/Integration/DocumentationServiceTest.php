@@ -38,7 +38,7 @@ it('never splits one source across two reindexBySource batches', function (): vo
             $per_source = [];
 
             foreach ($documents as $document) {
-                $key = $document->sourceType . ':' . $document->sourceName;
+                $key = $document->getSourceType() . ':' . $document->getSourceName();
                 $per_source[$key] = ($per_source[$key] ?? 0) + 1;
             }
 
@@ -118,10 +118,10 @@ MARKDOWN);
         ->once()
         ->with(Mockery::on(function (array $documents): bool {
             return count($documents) === 1
-                && $documents[0]->metadata['audience'] === 'user'
-                && $documents[0]->metadata['canonical_source'] === 'cms/content/editing'
-                && $documents[0]->metadata['permissions_metadata_validated'] === true
-                && $documents[0]->metadata['required_permissions_count'] === 0;
+                && $documents[0]->getMetadata()['audience'] === 'user'
+                && $documents[0]->getMetadata()['canonical_source'] === 'cms/content/editing'
+                && $documents[0]->getMetadata()['permissions_metadata_validated'] === true
+                && $documents[0]->getMetadata()['required_permissions_count'] === 0;
         }));
 
     $service = new DocumentationService(fn () => $agent_mock);
@@ -414,11 +414,9 @@ function documentationServiceOver(array $hits, string $answer = 'The answer.', ?
 
 function retrievedDocument(string $source, string $content, float $score): Document
 {
-    $document = new Document($content);
-    $document->sourceName = $source;
-    $document->setScore($score);
-
-    return $document;
+    return (new Document($content))
+        ->setSourceName($source)
+        ->setScore($score);
 }
 
 it('answerQuestion answers without sources when nothing was retrieved', function (): void {
@@ -427,6 +425,19 @@ it('answerQuestion answers without sources when nothing was retrieved', function
     $result = documentationServiceOver([], 'The answer is X.')->answerQuestion('What is X?');
 
     expect($result)->toBe(['answer' => 'The answer is X.', 'citations' => []]);
+});
+
+it('answerQuestion cites a document that carries no score with a null score', function (): void {
+    config()->set('ai.features.faq.format_citations', true);
+    config()->set('ai.features.faq.min_similarity', 0.0);
+
+    $result = documentationServiceOver([
+        (new Document('Unscored excerpt.'))->setSourceName('unscored.md'),
+    ])->answerQuestion('Question?');
+
+    expect($result['citations'])->toBe([
+        ['source' => 'unscored.md', 'excerpt' => 'Unscored excerpt.', 'score' => null],
+    ]);
 });
 
 it('answerQuestion cites the documents that reached the model', function (): void {
@@ -676,11 +687,11 @@ it('stores every developer corpus chunk with the normalized metadata, declared v
             ->and($count)->toBeGreaterThan(2);
 
         foreach ($stored as $chunk) {
-            expect($chunk->metadata)->toHaveKeys(['audience', 'module', 'locale', 'canonical_source', 'heading_breadcrumb', 'source_type']);
+            expect($chunk->getMetadata())->toHaveKeys(['audience', 'module', 'locale', 'canonical_source', 'heading_breadcrumb', 'source_type']);
             $prefix_and_name = explode('/', $chunk->getSourceName(), 2);
 
             if ($prefix_and_name[1] === 'legacy.md') {
-                expect($chunk->metadata)->toMatchArray([
+                expect($chunk->getMetadata())->toMatchArray([
                     'audience' => 'shared',
                     'module' => 'app',
                     'locale' => 'und',
@@ -691,7 +702,7 @@ it('stores every developer corpus chunk with the normalized metadata, declared v
                 continue;
             }
 
-            expect($chunk->metadata)->toMatchArray([
+            expect($chunk->getMetadata())->toMatchArray([
                 'audience' => 'developer',
                 'module' => 'core',
                 'locale' => 'und',
@@ -743,7 +754,7 @@ MARKDOWN);
     try {
         expect($service->indexDocuments($tmp_dir, false, DocumentationIndexProfile::User))->toBe(1)
             ->and($stored[0]->getSourceName())->toEndWith('/user.md')
-            ->and($stored[0]->metadata)->not->toHaveKey('source_type');
+            ->and($stored[0]->getMetadata())->not->toHaveKey('source_type');
     } finally {
         File::deleteDirectory($tmp_dir);
     }

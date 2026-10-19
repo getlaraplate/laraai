@@ -190,6 +190,8 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             return $this;
         }
 
+        $this->validateDocuments($documents);
+
         $body = [];
 
         foreach ($documents as $document) {

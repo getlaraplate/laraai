@@ -20,14 +20,13 @@ final class ManyChunksSplitter implements SplitterInterface
     #[Override]
     public function splitDocument(Document $document): array
     {
-        $count = str_contains($document->sourceName, 'large') ? 150 : 3;
+        $count = str_contains($document->getSourceName(), 'large') ? 150 : 3;
         $chunks = [];
 
         for ($i = 0; $i < $count; $i++) {
-            $chunk = new Document($document->getContent() . ' #' . $i);
-            $chunk->sourceType = $document->sourceType;
-            $chunk->sourceName = $document->sourceName;
-            $chunks[] = $chunk;
+            $chunks[] = (new Document($document->getContent() . ' #' . $i))
+                ->setSourceType($document->getSourceType())
+                ->setSourceName($document->getSourceName());
         }
 
         return $chunks;

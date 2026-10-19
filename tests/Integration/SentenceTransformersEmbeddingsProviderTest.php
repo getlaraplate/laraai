@@ -5,7 +5,6 @@ declare(strict_types=1);
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Response;
 use Modules\AI\Ai\Embeddings\SentenceTransformersEmbeddingsProvider;
-use Modules\AI\Tests\Stubs\Embeddings\DocumentWithArrayFormattedContent;
 use Modules\Core\Search\Exceptions\EmbeddingsException;
 use NeuronAI\RAG\Document;
 
@@ -55,8 +54,8 @@ it('embedDocuments processes batches and sets embedding on documents', function 
     $result = $provider->embedDocuments([$doc1, $doc2]);
 
     expect($result)->toHaveCount(2)
-        ->and($result[0]->embedding)->toBe($emb1)
-        ->and($result[1]->embedding)->toBe($emb2);
+        ->and($result[0]->getEmbedding())->toBe($emb1)
+        ->and($result[1]->getEmbedding())->toBe($emb2);
 });
 
 it('throws exception on unexpected format', function (): void {
@@ -140,25 +139,6 @@ it('prepends http when missing from URL', function (): void {
     expect(true)->toBeTrue();
 });
 
-it('uses an empty text when document formatted content is not a string', function (): void {
-    $document = new DocumentWithArrayFormattedContent;
-
-    $embeddings = array_fill(0, 512, 0.1);
-    $this->mockClient->shouldReceive('post')
-        ->once()
-        ->with('embed', Mockery::on(fn (array $arg): bool => $arg['json']['texts'] === ['']))
-        ->andReturn(new Response(200, [], json_encode(['embeddings' => [$embeddings]])));
-
-    $provider = new SentenceTransformersEmbeddingsProvider('http://localhost:8000');
-    $reflection = new ReflectionClass($provider);
-    $clientProp = $reflection->getProperty('client');
-    $clientProp->setValue($provider, $this->mockClient);
-
-    $result = $provider->embedDocuments([$document]);
-
-    expect($result[0]->embedding)->toBe($embeddings);
-});
-
 it('sets authorization header when api_key is provided', function (): void {
     $provider = new SentenceTransformersEmbeddingsProvider(
         url: 'http://localhost:8000',
@@ -233,7 +213,7 @@ it('halves the batch and retries when the embedding service strains', function (
     $result = $provider->embedDocuments([new Document('a'), new Document('b'), new Document('c'), new Document('d')]);
 
     expect($result)->toHaveCount(4)
-        ->and($result[0]->embedding)->toBe($emb);
+        ->and($result[0]->getEmbedding())->toBe($emb);
 });
 
 it('splits documents into requests according to the configured batch size', function (): void {

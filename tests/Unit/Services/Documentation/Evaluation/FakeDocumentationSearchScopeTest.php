@@ -34,7 +34,7 @@ it('under ERP module scope returns ERP and cross-cutting docs but excludes CMS',
     ]);
 
     $docs = $retrieval->retrieve('q', erpAccess(), new AssistantScope('erp', DataAccess::Module, DocScope::Module));
-    $labels = array_map(static fn ($d): string => $d->sourceName, $docs);
+    $labels = array_map(static fn ($d): string => $d->getSourceName(), $docs);
 
     expect($labels)->toContain('ERP · Orders')
         ->and($labels)->toContain('Core · Approve modification')

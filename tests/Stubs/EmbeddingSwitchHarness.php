@@ -291,8 +291,8 @@ final class EmbeddingSwitchHarness
                     throw new RuntimeException("refused to embed {$text}");
                 }
 
-                $document = new Document($text);
-                $document->embedding = array_fill(0, $profile->dimensions, self::vectorValue($profile->key));
+                $document = (new Document($text))
+                    ->setEmbedding(array_fill(0, $profile->dimensions, self::vectorValue($profile->key)));
 
                 return [$document];
             }, $texts);

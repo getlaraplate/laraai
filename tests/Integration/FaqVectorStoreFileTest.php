@@ -60,7 +60,7 @@ it('writes the vectors to the file that the service checks, whatever its extensi
     $agent->addDocuments([new Document('Paris is the capital of France.')]);
 
     expect(is_file($path))->toBeTrue()
-        ->and(glob($this->directory . '/*'))->toBe([$path])
+        ->and(glob($this->directory . '/*'))->toBe([$path, $path . '.lock'])
         ->and((new DocumentationService)->isAvailable())->toBeTrue();
 })->with(['store' => '.store', 'json' => '.json', 'none' => '']);
 

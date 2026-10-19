@@ -22,16 +22,15 @@ it('embeds a question with the query prefix and a chunk with the passage prefix'
 });
 
 it('copies the vector back and leaves the content the model reads untouched', function (): void {
-    $document = new Document('Open the list and use the export action.');
-    $document->sourceName = 'exports.md';
+    $document = (new Document('Open the list and use the export action.'))->setSourceName('exports.md');
 
     $embedded = new PrefixingEmbeddingsProvider(new RecordingEmbeddingsProvider, 'query: ', 'passage: ')->embedDocuments([$document]);
 
     expect($embedded)->toHaveCount(1)
         ->and($embedded[0])->toBe($document)
-        ->and($document->content)->toBe('Open the list and use the export action.')
-        ->and($document->embedding)->toBe([0.1, 0.2, 0.3])
-        ->and($document->sourceName)->toBe('exports.md');
+        ->and($document->getContent())->toBe('Open the list and use the export action.')
+        ->and($document->getEmbedding())->toBe([0.1, 0.2, 0.3])
+        ->and($document->getSourceName())->toBe('exports.md');
 });
 
 it('keeps the order of the documents it embeds', function (): void {
@@ -40,7 +39,7 @@ it('keeps the order of the documents it embeds', function (): void {
     $inner = new RecordingEmbeddingsProvider;
     new PrefixingEmbeddingsProvider($inner, '', 'passage: ')->embedDocuments($documents);
 
-    expect(array_map(static fn (Document $document): string => $document->content, $documents))->toBe(['a', 'b', 'c'])
+    expect(array_map(static fn (Document $document): string => $document->getContent(), $documents))->toBe(['a', 'b', 'c'])
         ->and($inner->textsSent)->toBe(['passage: a', 'passage: b', 'passage: c']);
 });
 

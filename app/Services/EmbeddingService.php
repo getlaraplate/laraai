@@ -100,9 +100,9 @@ final readonly class EmbeddingService implements IEmbeddingService
         $content = preg_replace("/\s+/", ' ', (string) $content);
         $content = mb_trim((string) $content);
 
-        $document = new Document($content);
-        $document->sourceType = 'inline';
-        $document->sourceName = 'document';
+        $document = (new Document($content))
+            ->setSourceType('inline')
+            ->setSourceName('document');
 
         $splitter = $this->splitter ?? SplitterFactory::make();
 

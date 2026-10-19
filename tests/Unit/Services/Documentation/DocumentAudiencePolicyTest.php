@@ -9,10 +9,7 @@ use NeuronAI\RAG\Document;
 
 function documentation_document(array $metadata): Document
 {
-    $document = new Document('Safe application usage guidance.');
-    $document->metadata = $metadata;
-
-    return $document;
+    return (new Document('Safe application usage guidance.'))->setMetadata($metadata);
 }
 
 function valid_user_documentation_metadata(string $audience = 'user'): array
@@ -68,12 +65,11 @@ it('denies unsafe or incomplete documentation from the user corpus', function (a
 ]);
 
 it('never admits a document to the user corpus on the developer defaults alone', function (): void {
-    $document = documentation_document(['heading_breadcrumb' => []]);
-    $document->sourceName = 'faq-module-Core/LEGACY.md';
+    $document = documentation_document(['heading_breadcrumb' => []])->setSourceName('faq-module-Core/LEGACY.md');
 
     DocumentationMetadata::applyDeveloperDefaults($document);
 
-    expect($document->metadata['audience'])->toBe('shared')
+    expect($document->getMetadata()['audience'])->toBe('shared')
         ->and((new DocumentAudiencePolicy('in-app-docs-v1'))->allows($document, DocumentationIndexProfile::User))->toBeFalse()
         ->and((new DocumentAudiencePolicy('in-app-docs-v1'))->allows($document, DocumentationIndexProfile::Developer))->toBeTrue();
 });

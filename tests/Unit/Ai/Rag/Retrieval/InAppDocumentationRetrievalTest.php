@@ -138,10 +138,10 @@ it('returns only safe citations from authorized scoped hits', function (): void 
     $embedding_service = Mockery::mock(IEmbeddingService::class);
     $embedding_service->shouldReceive('embedText')->once()->with('Come modifico un contenuto?')->andReturn([0.1, 0.2, 0.3]);
 
-    $hit = new Document('Apri il contenuto e seleziona Modifica.');
-    $hit->sourceName = '/internal/path/content.md';
-    $hit->metadata = safe_retrieval_hit_metadata();
-    $hit->setScore(0.91);
+    $hit = (new Document('Apri il contenuto e seleziona Modifica.'))
+        ->setSourceName('/internal/path/content.md')
+        ->setMetadata(safe_retrieval_hit_metadata())
+        ->setScore(0.91);
 
     $retrieval = new InAppDocumentationRetrieval(
         embedding_service: $embedding_service,
@@ -156,8 +156,8 @@ it('returns only safe citations from authorized scoped hits', function (): void 
     $documents = $retrieval->retrieve('Come modifico un contenuto?', in_app_access_context());
 
     expect($documents)->toHaveCount(1)
-        ->and($documents[0]->sourceName)->toBe('Modifica dei contenuti')
-        ->and($documents[0]->metadata)->not->toHaveKeys(['required_permissions', 'tenant_id', 'canonical_source'])
+        ->and($documents[0]->getSourceName())->toBe('Modifica dei contenuti')
+        ->and($documents[0]->getMetadata())->not->toHaveKeys(['required_permissions', 'tenant_id', 'canonical_source'])
         ->and($documents[0]->getScore())->toBe(0.91);
 });
 
@@ -167,10 +167,10 @@ it('drops documents scoring below the configured minimum similarity', function (
     $embedding_service = Mockery::mock(IEmbeddingService::class);
     $embedding_service->shouldReceive('embedText')->once()->andReturn([0.1, 0.2, 0.3]);
 
-    $hit = new Document('Weakly related passage.');
-    $hit->sourceName = '/internal/path/content.md';
-    $hit->metadata = safe_retrieval_hit_metadata();
-    $hit->setScore(0.90);
+    $hit = (new Document('Weakly related passage.'))
+        ->setSourceName('/internal/path/content.md')
+        ->setMetadata(safe_retrieval_hit_metadata())
+        ->setScore(0.90);
 
     $retrieval = new InAppDocumentationRetrieval(
         embedding_service: $embedding_service,

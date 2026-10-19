@@ -26,7 +26,7 @@ use NeuronAI\RAG\Document;
 function repairEmbeddingDocument(array $vector): Document
 {
     $document = new Document('');
-    $document->embedding = $vector;
+    $document->setEmbedding($vector);
 
     return $document;
 }

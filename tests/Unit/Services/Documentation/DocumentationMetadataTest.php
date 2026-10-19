@@ -7,12 +7,10 @@ use NeuronAI\RAG\Document;
 
 function legacy_documentation_document(array $metadata = ['heading_breadcrumb' => []]): Document
 {
-    $document = new Document('# Legacy');
-    $document->sourceType = 'files';
-    $document->sourceName = 'faq-module-Core/nested/LEGACY.md';
-    $document->metadata = $metadata;
-
-    return $document;
+    return (new Document('# Legacy'))
+        ->setSourceType('files')
+        ->setSourceName('faq-module-Core/nested/LEGACY.md')
+        ->setMetadata($metadata);
 }
 
 it('gives a legacy document the neutral developer corpus metadata', function (): void {
@@ -20,7 +18,7 @@ it('gives a legacy document the neutral developer corpus metadata', function ():
 
     DocumentationMetadata::applyDeveloperDefaults($document);
 
-    expect($document->metadata)->toBe([
+    expect($document->getMetadata())->toBe([
         'heading_breadcrumb' => [],
         'audience' => 'shared',
         'module' => 'app',
@@ -42,7 +40,7 @@ it('keeps the metadata a document declares and fills only what is missing or bla
 
     DocumentationMetadata::applyDeveloperDefaults($document);
 
-    expect($document->metadata)->toBe([
+    expect($document->getMetadata())->toBe([
         'audience' => 'developer',
         'module' => 'core',
         'locale' => 'und',

@@ -165,13 +165,11 @@ final readonly class FileDocumentReader
 
         $metadata['heading_breadcrumb'] ??= [];
 
-        $document = new Document($content);
-        $document->sourceType = 'files';
-        $document->sourceName = $this->qualifiedSourceName($source_name);
-        $document->id = hash('sha256', $content);
-        $document->metadata = $metadata;
-
-        return $document;
+        return (new Document($content))
+            ->setSourceType('files')
+            ->setSourceName($this->qualifiedSourceName($source_name))
+            ->setId(hash('sha256', $content))
+            ->setMetadata($metadata);
     }
 
     /**

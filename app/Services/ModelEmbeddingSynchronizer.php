@@ -212,7 +212,7 @@ final readonly class ModelEmbeddingSynchronizer
 
             foreach ($plan['stale'] as $item) {
                 $vectors = $item['vectors'] ?? array_map(
-                    static fn (Document $document): mixed => $document->embedding,
+                    static fn (Document $document): mixed => $document->getEmbedding(),
                     $embedded[$item['text_index']],
                 );
 

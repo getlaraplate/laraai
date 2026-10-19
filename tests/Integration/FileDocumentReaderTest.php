@@ -23,7 +23,7 @@ it('reads a single markdown file from a file path', function (): void {
         expect($documents)->toHaveCount(1)
             ->and($documents[0]->getContent())->toBe('# Hello docs')
             ->and($documents[0]->getSourceName())->toBe(basename($path))
-            ->and($documents[0]->sourceType)->toBe('files');
+            ->and($documents[0]->getSourceType())->toBe('files');
     } finally {
         @unlink($path);
     }
@@ -113,7 +113,7 @@ MARKDOWN);
 
         expect($document->getContent())->toStartWith('# Modifica')
             ->and($document->getContent())->not->toContain('policy_classification')
-            ->and($document->metadata)->toMatchArray([
+            ->and($document->getMetadata())->toMatchArray([
                 'audience' => 'user',
                 'module' => 'CMS',
                 'required_permissions' => ['cms.content.view'],
@@ -129,7 +129,7 @@ it('invents no metadata for a document without front matter', function (): void 
     file_put_contents($path, "# Legacy\n\nNo front matter.");
 
     try {
-        expect((new FileDocumentReader($path))->getDocuments()[0]->metadata)->toBe(['heading_breadcrumb' => []]);
+        expect((new FileDocumentReader($path))->getDocuments()[0]->getMetadata())->toBe(['heading_breadcrumb' => []]);
     } finally {
         @unlink($path);
     }
@@ -140,7 +140,7 @@ it('accepts every known audience value', function (string $audience): void {
     file_put_contents($path, "---\naudience: {$audience}\n---\n# Doc\n");
 
     try {
-        expect((new FileDocumentReader($path))->getDocuments()[0]->metadata['audience'])->toBe($audience);
+        expect((new FileDocumentReader($path))->getDocuments()[0]->getMetadata()['audience'])->toBe($audience);
     } finally {
         @unlink($path);
     }

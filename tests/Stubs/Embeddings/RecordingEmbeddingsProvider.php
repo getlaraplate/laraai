@@ -29,11 +29,9 @@ final class RecordingEmbeddingsProvider implements EmbeddingsProviderInterface
 
     public function embedDocument(Document $document): Document
     {
-        $text = $document->formattedContent ?? $document->content;
-        $this->textsSent[] = is_string($text) ? $text : $document->content;
-        $document->embedding = [0.1, 0.2, 0.3];
+        $this->textsSent[] = $document->getContent();
 
-        return $document;
+        return $document->setEmbedding([0.1, 0.2, 0.3]);
     }
 
     /**

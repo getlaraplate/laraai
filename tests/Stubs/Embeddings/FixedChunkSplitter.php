@@ -21,11 +21,12 @@ final class FixedChunkSplitter extends AbstractSplitter
     #[Override]
     public function splitDocument(Document $document): array
     {
-        $half = (int) ceil(mb_strlen($document->content) / 2);
+        $content = $document->getContent();
+        $half = (int) ceil(mb_strlen($content) / 2);
 
         return [
-            new Document(mb_substr($document->content, 0, $half)),
-            new Document(mb_substr($document->content, $half)),
+            new Document(mb_substr($content, 0, $half)),
+            new Document(mb_substr($content, $half)),
         ];
     }
 }

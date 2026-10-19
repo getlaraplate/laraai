@@ -96,10 +96,7 @@ final class FakeDocumentationSearch
         string $module = 'core',
         bool $crossCuttingUser = false,
     ): Document {
-        $document = new Document($content);
-        $document->sourceType = 'documentation';
-        $document->sourceName = $label;
-        $document->metadata = [
+        $metadata = [
             'audience' => 'user',
             'module' => $module,
             'locale' => $locale,
@@ -117,12 +114,14 @@ final class FakeDocumentationSearch
         ];
 
         if ($tenantId !== null) {
-            $document->metadata['tenant_id'] = $tenantId;
+            $metadata['tenant_id'] = $tenantId;
         }
 
-        $document->setScore(1.0);
-
-        return $document;
+        return (new Document($content))
+            ->setSourceType('documentation')
+            ->setSourceName($label)
+            ->setMetadata($metadata)
+            ->setScore(1.0);
     }
 
     /**
@@ -136,7 +135,7 @@ final class FakeDocumentationSearch
 
     private function isVisible(Document $document, DocumentationRetrievalContext $context): bool
     {
-        $metadata = $document->metadata;
+        $metadata = $document->getMetadata();
 
         if (($metadata['locale'] ?? null) !== $context->locale) {
             return false;

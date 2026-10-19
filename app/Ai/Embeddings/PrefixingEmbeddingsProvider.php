@@ -56,9 +56,11 @@ final readonly class PrefixingEmbeddingsProvider implements EmbeddingsProviderIn
         $copies = [];
 
         foreach ($documents as $index => $document) {
-            $copy = clone $document;
-            $copy->content = $this->passagePrefix . $document->content;
-            $copies[$index] = $copy;
+            $copies[$index] = (new Document($this->passagePrefix . $document->getContent()))
+                ->setId($document->getId())
+                ->setSourceType($document->getSourceType())
+                ->setSourceName($document->getSourceName())
+                ->setMetadata($document->getMetadata());
         }
 
         $embedded = array_values($this->inner->embedDocuments($copies));
@@ -66,7 +68,7 @@ final readonly class PrefixingEmbeddingsProvider implements EmbeddingsProviderIn
         $position = 0;
 
         foreach ($documents as $document) {
-            $document->embedding = $embedded[$position++]->embedding;
+            $document->setEmbedding($embedded[$position++]->getEmbedding());
         }
 
         return $documents;

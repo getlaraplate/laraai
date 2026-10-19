@@ -86,7 +86,7 @@ it('points chat at the Ollama api path of the configured base URL', function ():
 
     $provider = ProviderFactory::make('ollama', 'llama3.2:3b');
 
-    expect((new ReflectionProperty($provider, 'url'))->getValue($provider))->toBe('http://ollama.test/api');
+    expect((new ReflectionProperty($provider, 'baseUri'))->getValue($provider))->toBe('http://ollama.test/api');
 });
 
 it('caps the output of each provider with the parameter it names it by', function (): void {

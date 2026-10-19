@@ -198,6 +198,16 @@ test('add documents sends bulk index operations', function (): void {
     expect(true)->toBeTrue();
 });
 
+test('add document refuses a document without an embedding, and sends nothing to elasticsearch', function (): void {
+    $client = Mockery::mock(Client::class);
+    $client->shouldNotReceive('bulk');
+
+    $document = (new Document('No vector yet'))->setSourceType('file')->setSourceName('faq-module-AI');
+
+    expect(fn () => make_rag_vector_store($client)->addDocument($document))
+        ->toThrow(VectorStoreException::class, 'must have an embedding');
+});
+
 test('delete by source type and name issues delete by query', function (): void {
     $client = Mockery::mock(Client::class);
     $client->shouldReceive('deleteByQuery')

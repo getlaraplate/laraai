@@ -446,7 +446,7 @@ it('embeds a record saved while a switch runs with the target profile', function
     $service->shouldReceive('embedDocumentsBatch')
         ->andReturnUsing(static fn (array $texts): array => array_map(static function (): array {
             $document = new Document('');
-            $document->embedding = array_fill(0, 384, 0.2);
+            $document->setEmbedding(array_fill(0, 384, 0.2));
 
             return [$document];
         }, $texts));

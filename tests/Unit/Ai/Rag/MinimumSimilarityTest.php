@@ -9,11 +9,9 @@ use NeuronAI\RAG\Document;
 
 function scoredDocument(string $source, float $score): Document
 {
-    $document = new Document($source);
-    $document->sourceName = $source;
-    $document->setScore($score);
-
-    return $document;
+    return (new Document($source))
+        ->setSourceName($source)
+        ->setScore($score);
 }
 
 it('keeps what scores at least the threshold and drops the rest', function (): void {
@@ -21,7 +19,7 @@ it('keeps what scores at least the threshold and drops the rest', function (): v
 
     $kept = MinimumSimilarity::filter([scoredDocument('a', 0.9), scoredDocument('b', 0.89), scoredDocument('c', 0.95)]);
 
-    expect(array_map(static fn (Document $document): string => $document->sourceName, $kept))->toBe(['a', 'c']);
+    expect(array_map(static fn (Document $document): string => $document->getSourceName(), $kept))->toBe(['a', 'c']);
 });
 
 it('filters nothing when the threshold is zero, unset or malformed', function (mixed $threshold): void {

@@ -9,7 +9,7 @@ use NeuronAI\RAG\Splitter\SplitterInterface;
 
 it('embedDocument returns embeddings from mocked provider', function (): void {
     $doc = new Document('chunk content');
-    $doc->embedding = [0.1, 0.2, 0.3];
+    $doc->setEmbedding([0.1, 0.2, 0.3]);
 
     $providerMock = Mockery::mock(EmbeddingsProviderInterface::class);
     $providerMock->shouldReceive('embedDocuments')
@@ -23,7 +23,7 @@ it('embedDocument returns embeddings from mocked provider', function (): void {
     expect($result)->toBeArray()
         ->and($result)->toHaveCount(1)
         ->and($result[0])->toBeInstanceOf(Document::class)
-        ->and($result[0]->embedding)->toBe([0.1, 0.2, 0.3]);
+        ->and($result[0]->getEmbedding())->toBe([0.1, 0.2, 0.3]);
 });
 
 it('embedText returns embeddings from mocked provider', function (): void {
@@ -91,7 +91,7 @@ it('embeds several texts in one batched provider call and slices results back pe
     $splitter->shouldReceive('splitDocument')->andReturnUsing(
         static fn (Document $document): array => array_map(
             static fn (string $part): Document => new Document($part),
-            explode('|', $document->content),
+            explode('|', $document->getContent()),
         ),
     );
 
@@ -100,7 +100,7 @@ it('embeds several texts in one batched provider call and slices results back pe
         ->once() // a single batched call for every chunk of every text
         ->andReturnUsing(static function (array $chunks): array {
             foreach ($chunks as $index => $chunk) {
-                $chunk->embedding = [(float) $index];
+                $chunk->setEmbedding([(float) $index]);
             }
 
             return $chunks;
@@ -113,5 +113,5 @@ it('embeds several texts in one batched provider call and slices results back pe
     expect($result)->toHaveCount(2)
         ->and($result[0])->toHaveCount(2)
         ->and($result[1])->toHaveCount(1)
-        ->and($result[1][0]->embedding)->toBe([2.0]);
+        ->and($result[1][0]->getEmbedding())->toBe([2.0]);
 });

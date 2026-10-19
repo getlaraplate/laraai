@@ -21,20 +21,18 @@ function protectedAssistanceService(
     return ScriptedAssistantFixtures::inAppService($request, $complete, $retrieve);
 }
 
-function protectedAssistanceDocument(string $content = 'Use the visible settings screen.'): Document
+function protectedAssistanceDocument(string $content = 'Use the visible settings screen.', ?float $score = 0.9): Document
 {
-    $document = new Document($content);
-    $document->sourceName = 'Application settings';
-    $document->metadata = [
-        'heading_breadcrumb' => 'Settings > Profile',
-        'locale' => 'en',
-        'module' => 'core',
-        'safe_source_label' => 'Application settings',
-        'version' => '1',
-    ];
-    $document->setScore(0.9);
-
-    return $document;
+    return (new Document($content))
+        ->setSourceName('Application settings')
+        ->setMetadata([
+            'heading_breadcrumb' => 'Settings > Profile',
+            'locale' => 'en',
+            'module' => 'core',
+            'safe_source_label' => 'Application settings',
+            'version' => '1',
+        ])
+        ->setScore($score);
 }
 
 beforeEach(function (): void {
@@ -72,6 +70,19 @@ it('persists only validated input and output built from the user corpus context'
     expect($message->content)->toBe('Open Settings and select Profile.')
         ->and($this->conversation->messages()->pluck('role')->all())->toBe(['user', 'assistant'])
         ->and($message->metadata['citations'][0]['label'])->toBe('Application settings');
+});
+
+it('cites a retrieved document that carries no score with a null score', function (): void {
+    $service = protectedAssistanceService(
+        $this->request,
+        static fn (): array => [protectedAssistanceDocument(score: null)],
+        static fn (): string => 'Open Settings and select Profile.',
+    );
+
+    $message = $service->respond($this->conversation, $this->user, 'How do I update my profile?', ['verbosity' => 'concise']);
+
+    expect($message->metadata['citations'][0]['label'])->toBe('Application settings')
+        ->and($message->metadata['citations'][0]['score'])->toBeNull();
 });
 
 it('refuses restricted input before retrieval or model execution', function (): void {

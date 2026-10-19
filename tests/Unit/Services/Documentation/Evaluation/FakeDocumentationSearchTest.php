@@ -35,9 +35,9 @@ it('returns ranked safe documents and strips unsafe metadata', function (): void
     $docs = $retrieval->retrieve('how do I export a grid?', docAccess());
 
     expect($docs)->toHaveCount(1)
-        ->and($docs[0]->sourceName)->toBe('Core · Grid export')
-        ->and($docs[0]->sourceType)->toBe('documentation')
-        ->and(array_key_exists('canonical_source', $docs[0]->metadata))->toBeFalse();
+        ->and($docs[0]->getSourceName())->toBe('Core · Grid export')
+        ->and($docs[0]->getSourceType())->toBe('documentation')
+        ->and(array_key_exists('canonical_source', $docs[0]->getMetadata()))->toBeFalse();
 });
 
 it('excludes a permission-gated document the principal cannot see', function (): void {

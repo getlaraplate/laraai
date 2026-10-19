@@ -97,26 +97,25 @@ final readonly class InAppDocumentationRetrieval
                 throw new RuntimeException;
             }
 
-            $metadata = $document->metadata;
+            $metadata = $document->getMetadata();
 
             if (($metadata['permissions_metadata_validated'] ?? null) !== true
                 || ($metadata['required_permissions_count'] ?? null) !== count($metadata['required_permissions'])) {
                 throw new RuntimeException;
             }
 
-            $safe_document = new Document($document->getContent());
-            $safe_document->sourceType = 'documentation';
-            $safe_document->sourceName = $metadata['safe_source_label'];
-            $safe_document->metadata = array_intersect_key($metadata, array_flip([
-                'audience',
-                'heading_breadcrumb',
-                'locale',
-                'module',
-                'safe_source_label',
-                'version',
-            ]));
-            $safe_document->setScore($document->getScore());
-            $safe_documents[] = $safe_document;
+            $safe_documents[] = (new Document($document->getContent()))
+                ->setSourceType('documentation')
+                ->setSourceName($metadata['safe_source_label'])
+                ->setMetadata(array_intersect_key($metadata, array_flip([
+                    'audience',
+                    'heading_breadcrumb',
+                    'locale',
+                    'module',
+                    'safe_source_label',
+                    'version',
+                ])))
+                ->setScore($document->getScore());
         }
 
         return $safe_documents;

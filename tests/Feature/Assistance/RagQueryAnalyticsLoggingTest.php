@@ -34,11 +34,9 @@ function rag_logging_service(Request $request, array $documents): InAppAssistanc
 
 function rag_logging_document(): Document
 {
-    $document = new Document('Open Settings, then Profile, to change your password.');
-    $document->sourceName = 'Application settings';
-    $document->metadata = ['heading_breadcrumb' => 'Settings > Profile', 'locale' => 'en'];
-
-    return $document;
+    return (new Document('Open Settings, then Profile, to change your password.'))
+        ->setSourceName('Application settings')
+        ->setMetadata(['heading_breadcrumb' => 'Settings > Profile', 'locale' => 'en']);
 }
 
 function rag_logging_access(string $userId): AssistantAccessContext

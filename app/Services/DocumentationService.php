@@ -375,10 +375,10 @@ final readonly class DocumentationService
 
         if ($profile === DocumentationIndexProfile::User) {
             foreach ($documents as $document) {
-                $document->metadata['permissions_metadata_validated'] = true;
-                $document->metadata['required_permissions_count'] = count(
-                    $document->metadata['required_permissions'],
-                );
+                $document->addMetadata('permissions_metadata_validated', true);
+                $document->addMetadata('required_permissions_count', count(
+                    $document->getMetadata()['required_permissions'],
+                ));
             }
         }
 

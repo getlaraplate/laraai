@@ -29,7 +29,7 @@ function vectorReuseService(int $expectedTexts, array $vectors): IEmbeddingServi
         ->withArgs(static fn (array $texts): bool => $expectedTexts === count($texts))
         ->andReturnUsing(static fn (array $texts): array => array_map(static function (int $index) use ($vectors): array {
             $document = new Document('');
-            $document->embedding = $vectors[$index];
+            $document->setEmbedding($vectors[$index]);
 
             return [$document];
         }, array_keys($texts)));

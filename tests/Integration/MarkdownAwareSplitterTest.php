@@ -204,13 +204,13 @@ it('splits a single oversized sentence into max word pieces after flushing curre
 });
 
 it('preserves Document metadata across all emitted chunks', function (): void {
-    $document = new Document("# T\n\nParagraph content for the test.");
-    $document->sourceType = 'files';
-    $document->sourceName = 'erp/MODULE.md';
-    $document->metadata = [
-        'audience' => 'user',
-        'heading_breadcrumb' => [],
-    ];
+    $document = (new Document("# T\n\nParagraph content for the test."))
+        ->setSourceType('files')
+        ->setSourceName('erp/MODULE.md')
+        ->setMetadata([
+            'audience' => 'user',
+            'heading_breadcrumb' => [],
+        ]);
 
     $splitter = new MarkdownAwareSplitter(maxWords: 200);
     $chunks = $splitter->splitDocument($document);
@@ -220,8 +220,8 @@ it('preserves Document metadata across all emitted chunks', function (): void {
     foreach ($chunks as $chunk) {
         expect($chunk->getSourceType())->toBe('files');
         expect($chunk->getSourceName())->toBe('erp/MODULE.md');
-        expect($chunk->metadata)->toMatchArray(['audience' => 'user']);
-        expect($chunk->metadata['heading_breadcrumb'])->toBe(['T']);
+        expect($chunk->getMetadata())->toMatchArray(['audience' => 'user']);
+        expect($chunk->getMetadata()['heading_breadcrumb'])->toBe(['T']);
     }
 });
 
@@ -245,20 +245,20 @@ it('exposes splitDocuments as a thin wrapper over splitDocument', function (): v
 });
 
 it('gives every chunk of a developer corpus document the normalized metadata', function (): void {
-    $document = new Document("# Guide\n\nFirst part of the guide.\n\n## Details\n\nSecond part of the guide.");
-    $document->sourceType = 'files';
-    $document->sourceName = 'faq-app-rag/GUIDE.md';
-    $document->metadata = ['heading_breadcrumb' => []];
+    $document = (new Document("# Guide\n\nFirst part of the guide.\n\n## Details\n\nSecond part of the guide."))
+        ->setSourceType('files')
+        ->setSourceName('faq-app-rag/GUIDE.md')
+        ->setMetadata(['heading_breadcrumb' => []]);
     DocumentationMetadata::applyDeveloperDefaults($document);
 
     $chunks = (new MarkdownAwareSplitter(maxWords: 20))->splitDocument($document);
 
     expect($chunks)->toHaveCount(2)
-        ->and($chunks[0]->metadata['heading_breadcrumb'])->toBe(['Guide'])
-        ->and($chunks[1]->metadata['heading_breadcrumb'])->toBe(['Guide', 'Details']);
+        ->and($chunks[0]->getMetadata()['heading_breadcrumb'])->toBe(['Guide'])
+        ->and($chunks[1]->getMetadata()['heading_breadcrumb'])->toBe(['Guide', 'Details']);
 
     foreach ($chunks as $chunk) {
-        expect($chunk->metadata)->toMatchArray([
+        expect($chunk->getMetadata())->toMatchArray([
             'audience' => 'shared',
             'module' => 'app',
             'locale' => 'und',

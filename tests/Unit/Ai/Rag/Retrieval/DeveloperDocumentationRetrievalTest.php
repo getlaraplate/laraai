@@ -13,10 +13,10 @@ it('returns developer index hits without an ACL or permission gate', function ()
         ->with('How do I register a module?')
         ->andReturn([0.1, 0.2, 0.3]);
 
-    $hit = new Document('Register the module in module.json.');
-    $hit->sourceName = 'core/modules/registration';
-    $hit->metadata = ['audience' => 'developer', 'module' => 'Core', 'locale' => 'en'];
-    $hit->setScore(0.87);
+    $hit = (new Document('Register the module in module.json.'))
+        ->setSourceName('core/modules/registration')
+        ->setMetadata(['audience' => 'developer', 'module' => 'Core', 'locale' => 'en'])
+        ->setScore(0.87);
 
     $retrieval = new DeveloperDocumentationRetrieval(
         embedding_service: $embedding_service,
@@ -30,7 +30,7 @@ it('returns developer index hits without an ACL or permission gate', function ()
     $documents = $retrieval->retrieve('How do I register a module?');
 
     expect($documents)->toHaveCount(1)
-        ->and($documents[0]->sourceName)->toBe('core/modules/registration')
+        ->and($documents[0]->getSourceName())->toBe('core/modules/registration')
         ->and($documents[0]->getScore())->toBe(0.87);
 });
 
@@ -40,12 +40,12 @@ it('drops documents scoring below the configured minimum similarity', function (
     $embedding_service = Mockery::mock(IEmbeddingService::class);
     $embedding_service->shouldReceive('embedText')->once()->andReturn([0.1, 0.2, 0.3]);
 
-    $high = new Document('Relevant.');
-    $high->sourceName = 'faq-module-Core/EVENT_ORCHESTRATION.md';
-    $high->setScore(0.95);
-    $low = new Document('Barely related.');
-    $low->sourceName = 'faq-module-Core/GLOSSARY.md';
-    $low->setScore(0.80);
+    $high = (new Document('Relevant.'))
+        ->setSourceName('faq-module-Core/EVENT_ORCHESTRATION.md')
+        ->setScore(0.95);
+    $low = (new Document('Barely related.'))
+        ->setSourceName('faq-module-Core/GLOSSARY.md')
+        ->setScore(0.80);
 
     $retrieval = new DeveloperDocumentationRetrieval(
         embedding_service: $embedding_service,
@@ -55,7 +55,7 @@ it('drops documents scoring below the configured minimum similarity', function (
     $documents = $retrieval->retrieve('anything');
 
     expect($documents)->toHaveCount(1)
-        ->and($documents[0]->sourceName)->toBe('faq-module-Core/EVENT_ORCHESTRATION.md');
+        ->and($documents[0]->getSourceName())->toBe('faq-module-Core/EVENT_ORCHESTRATION.md');
 });
 
 it('rejects a blank developer question', function (): void {

@@ -36,7 +36,7 @@ function profileTestService(array $vector): IEmbeddingService
     $service->shouldReceive('embedDocumentsBatch')
         ->andReturnUsing(static fn (array $texts): array => array_map(static function () use ($vector): array {
             $document = new Document('');
-            $document->embedding = $vector;
+            $document->setEmbedding($vector);
 
             return [$document];
         }, $texts));

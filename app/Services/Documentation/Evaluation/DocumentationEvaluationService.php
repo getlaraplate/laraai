@@ -40,11 +40,11 @@ final readonly class DocumentationEvaluationService
                 $documents = $retrieval($case->query, $case->accessContext(), $case);
 
                 foreach ($documents as $document) {
-                    if (! $document instanceof Document || ! is_string($document->sourceName)) {
+                    if (! $document instanceof Document) {
                         throw new RuntimeException('Invalid evaluation document.');
                     }
 
-                    $labels[] = $document->sourceName;
+                    $labels[] = $document->getSourceName();
                 }
             } catch (Throwable) {
                 $unavailable = true;

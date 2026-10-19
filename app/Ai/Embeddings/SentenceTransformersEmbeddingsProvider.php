@@ -134,7 +134,7 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
         $processed = [];
 
         for ($i = 0; $i < $batch_count; $i++) {
-            $batch[$i]->embedding = $embeddings[$i];
+            $batch[$i]->setEmbedding($embeddings[$i]);
             $processed[] = $batch[$i];
         }
 
@@ -143,13 +143,7 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
 
     private function documentText(Document $document): string
     {
-        $content = $document->formattedContent ?? $document->content;
-
-        if (! is_string($content)) {
-            return '';
-        }
-
-        return mb_convert_encoding($content, 'UTF-8', 'UTF-8');
+        return mb_convert_encoding($document->getContent(), 'UTF-8', 'UTF-8');
     }
 
     /**
