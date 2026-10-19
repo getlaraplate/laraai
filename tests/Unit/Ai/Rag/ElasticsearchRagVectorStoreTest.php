@@ -7,6 +7,10 @@ use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
 use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Filter\Filter;
+use NeuronAI\RAG\VectorStore\SearchRequest;
 
 function make_rag_vector_store(
     Client $client,
@@ -110,13 +114,63 @@ test('similarity search maps knn hits to neuron documents', function (): void {
         ]));
 
     $store = make_rag_vector_store($client);
-    $documents = $store->similaritySearch([0.1, 0.2, 0.3]);
+    $documents = iterator_to_array($store->search(new SearchRequest([0.1, 0.2, 0.3])), false);
 
     expect($documents)->toHaveCount(2)
         ->and($documents[0]->getContent())->toBe('First chunk')
-        ->and($documents[0]->sourceName)->toBe('faq-module-AI')
+        ->and($documents[0]->getSourceName())->toBe('faq-module-AI')
         ->and($documents[0]->getScore())->toBe(0.91)
         ->and($documents[1]->getContent())->toBe('Second chunk');
+});
+
+test('a hit written by neuron 3 maps back to a document with its content, source and metadata', function (): void {
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('search')->once()->andReturn(make_elasticsearch_response([
+        'hits' => [
+            'hits' => [
+                [
+                    '_id' => 'es-id',
+                    '_score' => 0.5,
+                    '_source' => [
+                        'content' => 'Written by 3.x',
+                        'sourceType' => 'file',
+                        'sourceName' => 'faq-module-AI',
+                        'embedding' => [0.1, 0.2, 0.3],
+                        'metadata' => ['audience' => 'user', 'module' => 'AI', 'heading_breadcrumb' => 'Setup > Models'],
+                        'neuron_id' => 'chunk-1',
+                        'indexed_at' => '2026-10-01T10:00:00+00:00',
+                    ],
+                ],
+            ],
+        ],
+    ]));
+
+    $document = iterator_to_array(make_rag_vector_store($client)->search(new SearchRequest([0.1, 0.2, 0.3])), false)[0];
+
+    expect($document->getId())->toBe('chunk-1')
+        ->and($document->getContent())->toBe('Written by 3.x')
+        ->and($document->getSourceType())->toBe('file')
+        ->and($document->getSourceName())->toBe('faq-module-AI')
+        ->and($document->getMetadata())->toBe(['audience' => 'user', 'module' => 'AI', 'heading_breadcrumb' => 'Setup > Models'])
+        ->and($document->getEmbedding())->toBe([0.1, 0.2, 0.3]);
+});
+
+test('search takes the result limit of the request over the one of the store', function (): void {
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('search')
+        ->once()
+        ->with(Mockery::on(fn (array $params): bool => $params['body']['size'] === 4
+            && $params['body']['knn']['k'] === 4
+            && $params['body']['knn']['num_candidates'] === 40))
+        ->andReturn(make_elasticsearch_response(['hits' => ['hits' => []]]));
+
+    iterator_to_array(make_rag_vector_store($client)->search(new SearchRequest([0.1, 0.2, 0.3], topK: 4)), false);
+
+    expect(true)->toBeTrue();
+});
+
+test('the store declares the default document schema', function (): void {
+    expect(make_rag_vector_store(Mockery::mock(Client::class))->getSchema())->toBeInstanceOf(DocumentSchema::class);
 });
 
 test('add documents sends bulk index operations', function (): void {
@@ -133,10 +187,10 @@ test('add documents sends bulk index operations', function (): void {
         }))
         ->andReturn(make_elasticsearch_response(['errors' => false]));
 
-    $document = new Document('Chunk body');
-    $document->sourceType = 'file';
-    $document->sourceName = 'faq-module-AI';
-    $document->embedding = [0.1, 0.2, 0.3];
+    $document = (new Document('Chunk body'))
+        ->setSourceType('file')
+        ->setSourceName('faq-module-AI')
+        ->setEmbedding([0.1, 0.2, 0.3]);
 
     $store = make_rag_vector_store($client);
     $store->addDocuments([$document]);
@@ -159,7 +213,7 @@ test('delete by source type and name issues delete by query', function (): void 
         ->andReturn(make_elasticsearch_response(['deleted' => 1]));
 
     $store = make_rag_vector_store($client);
-    $store->deleteBy('file', 'faq-module-AI');
+    $store->delete(Filter::where('sourceType', 'file')->where('sourceName', 'faq-module-AI'));
 
     expect(true)->toBeTrue();
 });
@@ -177,9 +231,15 @@ test('delete by source type only matches file vector store semantics', function 
         ->andReturn(make_elasticsearch_response(['deleted' => 2]));
 
     $store = make_rag_vector_store($client);
-    $store->deleteBy('file', null);
+    $store->delete(Filter::eq('sourceType', 'file'));
 
     expect(true)->toBeTrue();
+});
+
+test('delete refuses a filter on a field the store does not know, and sends nothing', function (): void {
+    $store = make_rag_vector_store(Mockery::mock(Client::class));
+
+    expect(fn () => $store->delete(Filter::eq('tenant', 'acme')))->toThrow(DocumentSchemaException::class);
 });
 
 test('similarity search fails fast on elasticsearch errors', function (): void {
@@ -190,6 +250,6 @@ test('similarity search fails fast on elasticsearch errors', function (): void {
 
     $store = make_rag_vector_store($client);
 
-    expect(fn () => $store->similaritySearch([0.1, 0.2, 0.3]))
+    expect(fn () => iterator_to_array($store->search(new SearchRequest([0.1, 0.2, 0.3])), false))
         ->toThrow(VectorStoreException::class, 'Elasticsearch RAG similarity search failed');
 });

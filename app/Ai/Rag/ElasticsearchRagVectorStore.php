@@ -20,7 +20,16 @@ use Modules\AI\Ai\Rag\Retrieval\DocumentationRetrievalContext;
 use Modules\Core\Services\ElasticsearchService;
 use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\VectorStore\Filter\Filter;
+use NeuronAI\RAG\VectorStore\Filter\FilterCombinator;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
+use NeuronAI\RAG\VectorStore\Filter\FilterGroup;
+use NeuronAI\RAG\VectorStore\Filter\FilterOperator;
+use NeuronAI\RAG\VectorStore\HasDocumentSchema;
+use NeuronAI\RAG\VectorStore\SearchRequest;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
+use Override;
 use stdClass;
 use Throwable;
 
@@ -31,6 +40,8 @@ use Throwable;
  */
 final class ElasticsearchRagVectorStore implements VectorStoreInterface
 {
+    use HasDocumentSchema;
+
     public function __construct(
         private readonly Client $client,
         private readonly DocumentationIndexProfile $indexProfile,
@@ -42,6 +53,8 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         if ($this->embedding_dims <= 0) {
             throw new InvalidArgumentException('Elasticsearch RAG embedding dimensions must be positive.');
         }
+
+        $this->initializeSchema(null);
     }
 
     public static function fromConfig(DocumentationIndexProfile $profile, int $topK): self
@@ -180,7 +193,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         $body = [];
 
         foreach ($documents as $document) {
-            $id = (string) $document->id;
+            $id = (string) $document->getId();
             $body[] = ['index' => ['_index' => $this->indexProfile->indexName(), '_id' => $id]];
             $body[] = $this->documentToSource($document);
         }
@@ -204,28 +217,21 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         return $this;
     }
 
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    /**
+     * Deletes the documents of a source: the filters Neuron sends are on `sourceType` and `sourceName`, and
+     * the index stores both as keywords.
+     */
+    #[Override]
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $must = [['term' => ['sourceType' => $sourceType]]];
-
-        if ($sourceName !== null) {
-            $must[] = ['term' => ['sourceName' => $sourceName]];
-        }
+        $this->validateFilters($filters);
+        $query = $this->filterQuery($filters);
 
         try {
             $this->client->deleteByQuery([
                 'index' => $this->indexProfile->indexName(),
                 'body' => [
-                    'query' => [
-                        'bool' => [
-                            'must' => $must,
-                        ],
-                    ],
+                    'query' => $query,
                 ],
             ]);
         } catch (Throwable $throwable) {
@@ -240,12 +246,20 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @param  float[]  $embedding
      * @return Document[]
      */
-    public function similaritySearch(array $embedding): array
+    #[Override]
+    public function search(SearchRequest $request): array
     {
-        return $this->search($embedding);
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
+        return $this->knnSearch(
+            $request->embedding,
+            $request->filters instanceof FilterExpression ? $this->filterQuery($request->filters) : null,
+            $request->topK ?? $this->topK,
+        );
     }
 
     /**
@@ -260,11 +274,12 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             throw new InvalidArgumentException('Scoped in-app retrieval requires the user documentation index.');
         }
 
-        return $this->search(
+        return $this->knnSearch(
             $embedding,
             $context->elasticsearchFilter(
                 ai_config_string('ai.features.faq.policy_classification_version', 'in-app-docs-v1'),
             ),
+            $this->topK,
         );
     }
 
@@ -273,13 +288,13 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
      * @param  array<string, mixed>|null  $filter
      * @return Document[]
      */
-    private function search(array $embedding, ?array $filter = null): array
+    private function knnSearch(array $embedding, ?array $filter, int $topK): array
     {
-        $num_candidates = min($this->topK * 10, 100);
+        $num_candidates = min($topK * 10, 100);
         $knn = [
             'field' => 'embedding',
             'query_vector' => $embedding,
-            'k' => $this->topK,
+            'k' => $topK,
             'num_candidates' => $num_candidates,
         ];
 
@@ -291,7 +306,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             $response = $this->client->search([
                 'index' => $this->indexProfile->indexName(),
                 'body' => [
-                    'size' => $this->topK,
+                    'size' => $topK,
                     'knn' => $knn,
                 ],
             ])->asArray();
@@ -304,6 +319,32 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         return $this->mapHitsToDocuments($response);
+    }
+
+    /**
+     * The Elasticsearch query of the filters Neuron sends: an equality on one field, alone or all of them together.
+     *
+     * @return array<string, mixed>
+     */
+    private function filterQuery(FilterExpression $filters): array
+    {
+        return ['bool' => ['must' => $this->termQueries($filters)]];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function termQueries(FilterExpression $filters): array
+    {
+        if ($filters instanceof Filter && $filters->operator === FilterOperator::Eq) {
+            return [['term' => [$filters->field => $filters->value]]];
+        }
+
+        if ($filters instanceof FilterGroup && $filters->operator() === FilterCombinator::And) {
+            return array_merge(...array_map($this->termQueries(...), $filters->conditions()));
+        }
+
+        throw new VectorStoreException('The Elasticsearch RAG store filters by equality, all conditions together, only.');
     }
 
     /**
@@ -337,15 +378,23 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
                 continue;
             }
 
-            $document = new Document($content);
-            $document->sourceType = is_string($source['sourceType'] ?? null) ? $source['sourceType'] : 'manual';
-            $document->sourceName = is_string($source['sourceName'] ?? null) ? $source['sourceName'] : 'manual';
-            $document->embedding = is_array($source['embedding'] ?? null) ? $source['embedding'] : [];
-            $document->metadata = is_array($source['metadata'] ?? null) ? $source['metadata'] : [];
-            $document->id = is_string($source['neuron_id'] ?? null)
-                ? $source['neuron_id']
-                : (is_string($hit['_id'] ?? null) ? $hit['_id'] : $document->id);
-            $document->setScore((float) ($hit['_score'] ?? 0.0));
+            $document = (new Document($content))
+                ->setSourceType(is_string($source['sourceType'] ?? null) ? $source['sourceType'] : 'manual')
+                ->setSourceName(is_string($source['sourceName'] ?? null) ? $source['sourceName'] : 'manual')
+                ->setMetadata(is_array($source['metadata'] ?? null) ? array_diff_key($source['metadata'], array_flip(DocumentSchema::RESERVED_FIELDS)) : [])
+                ->setScore((float) ($hit['_score'] ?? 0.0));
+
+            $embedding = $source['embedding'] ?? null;
+
+            if (is_array($embedding) && $embedding !== []) {
+                $document->setEmbedding($embedding);
+            }
+
+            if (is_string($source['neuron_id'] ?? null)) {
+                $document->setId($source['neuron_id']);
+            } elseif (is_string($hit['_id'] ?? null)) {
+                $document->setId($hit['_id']);
+            }
 
             $documents[] = $document;
         }
@@ -360,11 +409,11 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
     {
         return [
             'content' => $document->getContent(),
-            'sourceType' => $document->sourceType,
-            'sourceName' => $document->sourceName,
-            'embedding' => $document->embedding,
-            'metadata' => $document->metadata,
-            'neuron_id' => (string) $document->id,
+            'sourceType' => $document->getSourceType(),
+            'sourceName' => $document->getSourceName(),
+            'embedding' => $document->getEmbedding(),
+            'metadata' => $document->getMetadata(),
+            'neuron_id' => (string) $document->getId(),
             'indexed_at' => now()->toIso8601String(),
         ];
     }

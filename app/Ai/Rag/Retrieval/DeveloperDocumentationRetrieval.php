@@ -12,6 +12,7 @@ use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
 use Modules\AI\Contracts\IEmbeddingService;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\VectorStore\SearchRequest;
 use RuntimeException;
 use Throwable;
 
@@ -68,9 +69,9 @@ final readonly class DeveloperDocumentationRetrieval
         $top_k = min(max(ai_config_int('ai.features.faq.max_documents', 5), 1), 10);
         $store = ElasticsearchRagVectorStore::fromConfig(DocumentationIndexProfile::Developer, $top_k);
 
-        // similaritySearch() is declared iterable: the caller wants a list, and a
+        // search() is declared iterable: the caller wants a list, and a
         // generator would satisfy the interface while breaking every array use below.
-        $documents = iterator_to_array($store->similaritySearch($embedding), false);
+        $documents = iterator_to_array($store->search(new SearchRequest($embedding)), false);
 
         if ($documents === [] && ! $store->hasDocuments()) {
             throw new RuntimeException;
