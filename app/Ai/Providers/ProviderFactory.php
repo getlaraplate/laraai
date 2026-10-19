@@ -15,6 +15,7 @@ use NeuronAI\Providers\Anthropic\Anthropic;
 use NeuronAI\Providers\Mistral\Mistral;
 use NeuronAI\Providers\Ollama\Ollama;
 use NeuronAI\Providers\OpenAI\OpenAI;
+use NeuronAI\Providers\OpenAILike;
 
 /**
  * Factory for creating NeuronAI provider instances from application config.
@@ -71,17 +72,30 @@ final class ProviderFactory
         return true;
     }
 
+    /**
+     * With `ai.providers.openai.base_url` set, the provider talks to that OpenAI-compatible server
+     * (llama.cpp, vLLM, LM Studio...), which may need no key; without it, to api.openai.com.
+     */
     private static function createOpenAI(?string $model, ?int $maxOutputTokens, ?float $timeout): OpenAI
     {
         $api_key = ai_config_string('ai.providers.openai.api_key');
+        $base_url = ai_config_string('ai.providers.openai.base_url');
+        $model ??= ai_config_string('ai.providers.openai.model', 'gpt-4o-mini');
+        $parameters = $maxOutputTokens === null ? [] : ['max_completion_tokens' => $maxOutputTokens];
+
+        if ($base_url !== '') {
+            return new OpenAILike(
+                baseUri: mb_rtrim($base_url, '/'),
+                key: $api_key === '' ? 'none' : $api_key,
+                model: $model,
+                parameters: $parameters,
+                httpClient: self::httpClient($timeout),
+            );
+        }
+
         throw_if($api_key === '', ConfigurationException::class, 'OpenAI API key is not configured');
 
-        return new OpenAI(
-            key: $api_key,
-            model: $model ?? ai_config_string('ai.providers.openai.model', 'gpt-4o-mini'),
-            parameters: $maxOutputTokens === null ? [] : ['max_completion_tokens' => $maxOutputTokens],
-            httpClient: self::httpClient($timeout),
-        );
+        return new OpenAI(key: $api_key, model: $model, parameters: $parameters, httpClient: self::httpClient($timeout));
     }
 
     private static function createOllama(?string $model, ?int $maxOutputTokens, ?float $timeout): Ollama

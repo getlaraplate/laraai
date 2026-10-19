@@ -219,6 +219,8 @@ return [
     'providers' => [
         'openai' => [
             'api_key' => env('OPENAI_API_KEY'),
+            // Optional: base URL of an OpenAI-compatible server (e.g. http://localhost:8080/v1). Chat only.
+            'base_url' => env('OPENAI_BASE_URL'),
             'model' => env('OPENAI_MODEL'),
         ],
 

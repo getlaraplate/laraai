@@ -18,6 +18,7 @@ test('provider factory throws invalid argument for unsupported provider', functi
 
 test('provider factory throws configuration exception when openai api key is missing', function (): void {
     config()->set('ai.providers.openai.api_key', '');
+    config()->set('ai.providers.openai.base_url', '');
 
     ProviderFactory::make('openai');
 })->throws(ConfigurationException::class, 'OpenAI API key is not configured');

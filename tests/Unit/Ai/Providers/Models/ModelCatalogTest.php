@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
 use Modules\AI\Ai\Providers\Models\ModelCatalog;
+use Modules\AI\Ai\Providers\Models\OpenAiModelLister;
 use Modules\AI\Enums\AiModelFeature;
 use Modules\AI\Enums\ProviderListingStatus;
 
@@ -13,6 +14,7 @@ beforeEach(function (): void {
     }
 
     config()->set('core.deepl_api_key', '');
+    config()->set('ai.providers.openai.base_url', '');
     config()->set('ai.providers.ollama.api_url', '');
     config()->set('ai.providers.whisper.url', '');
 });
@@ -109,4 +111,12 @@ it('keeps the previous entries when a provider answers with something that is no
 
     expect($result->choices['features.text_generation.model'])->toBe(['mistral:mistral-large-latest'])
         ->and($result->outcomes['mistral']->status)->toBe(ProviderListingStatus::Failed);
+});
+
+it('keeps every model of an OpenAI-compatible server behind a base URL', function (): void {
+    Http::fake(['localhost:8080/v1/models' => Http::response(['data' => [['id' => 'qwen2.5-1.5b-instruct-q4_k_m.gguf']]])]);
+
+    $models = (new OpenAiModelLister('', 'http://localhost:8080/v1'))->list();
+
+    expect(array_map(static fn ($m) => $m->id, $models))->toBe(['qwen2.5-1.5b-instruct-q4_k_m.gguf']);
 });

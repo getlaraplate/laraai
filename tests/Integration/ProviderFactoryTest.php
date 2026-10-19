@@ -7,6 +7,7 @@ use NeuronAI\Providers\Anthropic\Anthropic;
 use NeuronAI\Providers\Mistral\Mistral;
 use NeuronAI\Providers\Ollama\Ollama;
 use NeuronAI\Providers\OpenAI\OpenAI;
+use NeuronAI\Providers\OpenAILike;
 
 it('creates an OpenAI provider when configured', function (): void {
     config()->set('ai.providers.openai.api_key', 'test-key');
@@ -15,6 +16,20 @@ it('creates an OpenAI provider when configured', function (): void {
     $provider = ProviderFactory::make('openai');
 
     expect($provider)->toBeInstanceOf(OpenAI::class);
+});
+
+it('builds an OpenAI-compatible provider without a key when a base URL is set', function (): void {
+    config()->set('ai.providers.openai.api_key', '');
+    config()->set('ai.providers.openai.base_url', 'http://localhost:8080/v1/');
+
+    expect(ProviderFactory::make('openai', 'local'))->toBeInstanceOf(OpenAILike::class);
+});
+
+it('keeps the plain OpenAI provider when no base URL is set', function (): void {
+    config()->set('ai.providers.openai.api_key', 'test-key');
+    config()->set('ai.providers.openai.base_url', '');
+
+    expect(ProviderFactory::make('openai'))->not->toBeInstanceOf(OpenAILike::class);
 });
 
 it('creates an Ollama provider when configured', function (): void {
@@ -59,6 +74,7 @@ it('uses default provider from config when none specified', function (): void {
 
 it('throws when OpenAI API key is missing', function (): void {
     config()->set('ai.providers.openai.api_key', '');
+    config()->set('ai.providers.openai.base_url', '');
 
     ProviderFactory::make('openai');
 })->throws(Exception::class, 'OpenAI API key is not configured');

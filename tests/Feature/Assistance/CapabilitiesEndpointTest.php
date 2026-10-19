@@ -84,7 +84,7 @@ it('is not configured while the chat provider lacks what it needs', function (st
         ->assertJsonPath('data.configured', false);
 })->with([
     'ollama without a url' => ['ollama:llama3.2:3b', ['ai.providers.ollama.api_url' => '']],
-    'openai without a key' => ['openai:gpt-4o-mini', ['ai.providers.openai.api_key' => '']],
+    'openai without a key' => ['openai:gpt-4o-mini', ['ai.providers.openai.api_key' => '', 'ai.providers.openai.base_url' => '']],
     'an unsupported provider' => ['nowhere:model', []],
 ]);
 

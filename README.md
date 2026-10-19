@@ -85,7 +85,8 @@ Feature switches and tuning are runtime settings managed from Filament > Setting
 # no longer an env var. Configure the provider's key or URL (below); only configured profiles are offered.
 
 # OpenAI Configuration
-OPENAI_API_KEY=                      # OpenAI API key
+OPENAI_API_KEY=                      # OpenAI API key (optional with OPENAI_BASE_URL)
+OPENAI_BASE_URL=                     # OpenAI-compatible server for chat, e.g. http://localhost:8080/v1 (llama.cpp); empty = api.openai.com
 OPENAI_MODEL=                        # Model used by embeddings with OpenAI (AI features take their model from Settings)
 
 # Ollama Configuration
