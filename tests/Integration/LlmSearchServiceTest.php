@@ -99,6 +99,16 @@ it('keeps the raw query when the intent has no expansion, and no filter when it 
     ]);
 });
 
+it('reads an intent that names only keywords, and keeps the raw query', function (): void {
+    $intent = llmSearchServiceAnswering(['{"keywords":["climate"]}'])->extractSearchIntent('climate change effects');
+
+    expect($intent)->toBe([
+        'keywords' => ['climate'],
+        'filters' => [],
+        'query_expansion' => ['must' => 'climate change effects'],
+    ]);
+});
+
 it('degrades to the raw query when intent extraction fails', function (array $replies): void {
     $intent = llmSearchServiceAnswering($replies)->extractSearchIntent('climate change effects');
 

@@ -60,7 +60,7 @@ it('reads the analysis from what the model answers, in a fence or not', function
 ]);
 
 it('sends the image and the schema of the analysis', function (): void {
-    $analyzer = visionAnalyzerAnswering(['{"caption":"A cat"}'], $provider);
+    $analyzer = visionAnalyzerAnswering(['{"caption":"A cat","entities":["cat"],"idea":"rest","intent":"inform","ocr_text":""}'], $provider);
     withVisionImage(fn (string $path) => $analyzer->analyze($path, 'image/png', visionProfile()));
 
     $record = $provider->getRecorded()[0];
@@ -80,7 +80,7 @@ it('throws when the answer never fits, so the job retries instead of storing an 
 ])->throws(Exception::class);
 
 it('asks again once when the first answer is not an analysis', function (): void {
-    $analyzer = visionAnalyzerAnswering(['Sorry, no.', '{"caption":"A dog"}'], $provider);
+    $analyzer = visionAnalyzerAnswering(['Sorry, no.', '{"caption":"A dog","entities":["dog"],"idea":"rest","intent":"inform","ocr_text":""}'], $provider);
     $result = withVisionImage(fn (string $path) => $analyzer->analyze($path, 'image/png', visionProfile()));
 
     $provider->assertCallCount(2);

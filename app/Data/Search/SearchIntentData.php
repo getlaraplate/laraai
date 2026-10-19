@@ -19,14 +19,15 @@ final class SearchIntentData
     #[SchemaProperty(description: 'The most important search terms of the query.')]
     public array $keywords = [];
 
-    #[SchemaProperty(description: 'The filters the query asks for.')]
+    #[SchemaProperty(description: 'The filters the query asks for.', required: false)]
     public SearchFilters $filters;
 
-    #[SchemaProperty(description: 'The query rewritten for a better search.')]
+    #[SchemaProperty(description: 'The query rewritten for a better search.', required: false)]
     public SearchQueryExpansion $query_expansion;
 
     /**
-     * Neuron builds the object without it and calls it afterwards: it fills the sections that the answer left out.
+     * Neuron sets what the answer holds and then runs this: it fills the sections that the answer left out, which the
+     * sections declare as not required.
      */
     public function __construct()
     {

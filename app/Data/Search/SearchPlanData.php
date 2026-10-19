@@ -16,26 +16,27 @@ final class SearchPlanData
     #[SchemaProperty(description: 'The retrieval strategy: fulltext, vector or hybrid.')]
     public string $strategy = 'hybrid';
 
-    #[SchemaProperty(description: 'Which retrievals run and how many candidates they return.')]
+    #[SchemaProperty(description: 'Which retrievals run and how many candidates they return.', required: false)]
     public SearchRetrievalPlan $retrieval;
 
-    #[SchemaProperty(description: 'How the results of the retrievals are merged.')]
+    #[SchemaProperty(description: 'How the results of the retrievals are merged.', required: false)]
     public SearchEnsemblePlan $ensemble;
 
-    #[SchemaProperty(description: 'How the merged results are ranked.')]
+    #[SchemaProperty(description: 'How the merged results are ranked.', required: false)]
     public SearchRankingPlan $ranking;
 
-    #[SchemaProperty(description: 'The part of the vector search in the final score.')]
+    #[SchemaProperty(description: 'The part of the vector search in the final score.', required: false)]
     public SearchVectorPlan $vector;
 
-    #[SchemaProperty(description: 'The filters the query asks for.')]
+    #[SchemaProperty(description: 'The filters the query asks for.', required: false)]
     public SearchFilters $filters;
 
-    #[SchemaProperty(description: 'When a search that scored badly is run again.')]
+    #[SchemaProperty(description: 'When a search that scored badly is run again.', required: false)]
     public SearchRetryPolicy $retry_policy;
 
     /**
-     * Neuron builds the object without it and calls it afterwards: it fills the sections that the answer left out.
+     * Neuron sets what the answer holds and then runs this: it fills the sections that the answer left out, which the
+     * sections declare as not required.
      */
     public function __construct()
     {
