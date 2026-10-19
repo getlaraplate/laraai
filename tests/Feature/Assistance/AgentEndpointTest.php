@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\Agents\ChatAgent;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
@@ -16,6 +17,7 @@ use Modules\Core\Models\User;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\Tool;
+use NeuronAI\Tools\ToolOutput;
 
 /**
  * The real in-app service, whose model is Neuron's fake provider: what the endpoint streams is what the
@@ -144,6 +146,7 @@ it('ends the run with an interrupt when the assistant proposes a change, and app
 });
 
 it('completes the turn when the model calls a tool without a required argument, and tells it so without the exception text', function (): void {
+    Log::spy();
     agentFakeModel($provider = new ToolCallingFakeProvider([['propose_preference_change', []]], new AssistantMessage('I could not suggest a change, but you can pick the layout in Settings.')));
 
     $events = agentEvents(($this->run)(['context' => ['page' => ['resource' => 'erp/orders', 'proposable' => [agentLayoutTarget()]]]])->streamedContent());
@@ -154,9 +157,13 @@ it('completes the turn when the model calls a tool without a required argument, 
     expect($finished)->toMatchArray(['type' => 'RunFinished', 'outcome' => ['type' => 'success']])
         ->and(array_column($events, 'type'))->not->toContain('RunError')
         ->and(array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'TextMessageContent'))[0]['delta'])->toBe('I could not suggest a change, but you can pick the layout in Settings.')
-        ->and($result)->toBeString()->not->toContain('Missing required parameter')->not->toContain('namespace')
+        ->and($result)->toBeInstanceOf(ToolOutput::class)
+        ->and($result->isError())->toBeTrue()
+        ->and($result->getText())->toBe('Parameter "namespace" is required.')
+        ->and(json_encode($events))->not->toContain('is required')
         ->and($this->conversation->messages()->where('role', 'assistant')->first()->metadata)->not->toHaveKey('refused');
 
+    Log::shouldNotHaveReceived('warning', ['Assistant tool call failed', Mockery::any()]);
     $provider->assertCallCount(2);
 });
 
