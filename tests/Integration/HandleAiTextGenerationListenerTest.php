@@ -45,7 +45,7 @@ it('fulfils the request with the generated text when enabled, asking the model f
     expect($event->response)->toBe('Ada Lovelace owns this area.')
         ->and($event->isFulfilled())->toBeTrue()
         ->and((string) $provider->getRecorded()[0]->messages[0]->getContent())->toBe('rewrite this')
-        ->and($provider->getRecorded()[0]->systemPrompt)->toBe('Rewrite.');
+        ->and($provider->getRecorded()[0]->systemPrompt?->getContent())->toBe('Rewrite.');
 });
 
 it('does not overwrite an already-fulfilled request, and does not call the model', function (): void {

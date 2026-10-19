@@ -18,8 +18,8 @@ it('instructions returns documentation system prompt', function (): void {
     $reflection = new ReflectionMethod($agent, 'instructions');
     $instructions = $reflection->invoke($agent);
 
-    expect($instructions)->toContain('documentation assistant')
-        ->and($instructions)->toContain('context documents');
+    expect($instructions->getContent())->toContain('documentation assistant')
+        ->and($instructions->getContent())->toContain('context documents');
 });
 
 it('provider returns AIProviderInterface', function (): void {

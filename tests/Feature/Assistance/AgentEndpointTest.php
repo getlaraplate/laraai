@@ -231,7 +231,7 @@ it('keeps what the page claims out of the policy, the tools and the prompt, and 
         ($this->run)($body)->streamedContent();
 
         $record = $provider->getRecorded()[0];
-        $sent[] = ['system' => $record->systemPrompt, 'tools' => $provider->getRecorded()[0]->tools, 'all' => json_encode([$record->systemPrompt, array_map(static fn ($message) => $message->getContent(), $record->messages)])];
+        $sent[] = ['system' => $record->systemPrompt?->getContent(), 'tools' => $provider->getRecorded()[0]->tools, 'all' => json_encode([$record->systemPrompt?->getContent(), array_map(static fn ($message) => $message->getContent(), $record->messages)])];
     }
 
     foreach ($sent as $request) {

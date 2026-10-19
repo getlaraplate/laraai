@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Modules\AI\Ai\Agents\ChatAgent;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Testing\FakeAIProvider;
@@ -45,7 +46,8 @@ it('uses default system prompt when none provided', function (): void {
     $reflection = new ReflectionMethod($agent, 'instructions');
     $instructions = $reflection->invoke($agent);
 
-    expect($instructions)->toBe('You are a helpful AI assistant.');
+    expect($instructions)->toBeInstanceOf(SystemMessage::class)
+        ->and($instructions->getContent())->toBe('You are a helpful AI assistant.');
 });
 
 it('uses custom system prompt when provided', function (): void {
@@ -57,7 +59,7 @@ it('uses custom system prompt when provided', function (): void {
     $reflection = new ReflectionMethod($agent, 'instructions');
     $instructions = $reflection->invoke($agent);
 
-    expect($instructions)->toBe('You are a translator.');
+    expect($instructions->getContent())->toBe('You are a translator.');
 });
 
 it('resolves provider via ProviderFactory', function (): void {

@@ -11,6 +11,7 @@ use Modules\AI\Ai\Providers\ProviderFactory;
 use Modules\AI\Enums\AiModelFeature;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use NeuronAI\Agent\Agent;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ToolRunsExceededException;
 use NeuronAI\Providers\AIProviderInterface;
@@ -95,8 +96,9 @@ class ChatAgent extends Agent
         return ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens, $this->timeout);
     }
 
-    protected function instructions(): string
+    #[Override]
+    protected function instructions(): SystemMessage
     {
-        return $this->systemPrompt ?? 'You are a helpful AI assistant.';
+        return new SystemMessage($this->systemPrompt ?? 'You are a helpful AI assistant.');
     }
 }

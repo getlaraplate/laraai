@@ -177,7 +177,7 @@ it('gives the model the two messages and nothing else', function (): void {
     runTitleJob($answer, titleJobService(['Export the orders list'], $provider));
 
     $record = $provider->getRecorded()[0];
-    $sent = json_encode([(string) $record->messages[0]->getContent(), $record->systemPrompt]);
+    $sent = json_encode([(string) $record->messages[0]->getContent(), $record->systemPrompt?->getContent()]);
 
     expect($sent)->toContain('How do I export the orders list?')->toContain('Open the list and use the export action.')->not->toContain('SECRET')
         ->and($record->messages)->toHaveCount(1)

@@ -453,7 +453,7 @@ it('answerQuestion cites the documents that reached the model', function (): voi
         ->and($result['citations'][0])->toBe(['source' => 'doc.md', 'excerpt' => 'Excerpt from doc.', 'score' => 0.95])
         ->and(mb_strlen($result['citations'][1]['excerpt']))->toBeLessThanOrEqual(303)
         ->and($result['answer'])->toContain('The answer.')->toContain('**Sources:**')->toContain('[1] doc.md')->toContain('[2] other.md')
-        ->and($provider->getRecorded()[0]->systemPrompt)->toContain('Source Name: doc.md');
+        ->and($provider->getRecorded()[0]->messages[0]->getContent())->toContain('Source Name: doc.md');
 });
 
 it('answerQuestion does not cite, or show the model, a document below the minimum similarity', function (): void {
@@ -464,8 +464,10 @@ it('answerQuestion does not cite, or show the model, a document below the minimu
         retrievedDocument('barely.md', 'Barely related.', 0.80),
     ], 'The answer.', $provider)->answerQuestion('Question?');
 
+    $question = $provider->getRecorded()[0]->messages[0]->getContent();
+
     expect(array_column($result['citations'], 'source'))->toBe(['relevant.md'])
-        ->and($provider->getRecorded()[0]->systemPrompt)->not->toContain('barely.md');
+        ->and($question)->toContain('Source Name: relevant.md')->not->toContain('barely.md');
 });
 
 it('answerQuestion keeps the sources of each question apart', function (): void {

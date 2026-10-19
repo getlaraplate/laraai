@@ -14,6 +14,7 @@ use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
 use Modules\AI\Ai\Rag\RecordingPostProcessor;
 use Modules\AI\Ai\Rag\Retrieval\MinimumSimilarity;
 use Modules\AI\Enums\AiModelFeature;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
@@ -83,7 +84,6 @@ class DocumentationAgent extends RAG
         $threshold = MinimumSimilarity::postProcessor();
 
         return [
-            ...parent::postProcessors(),
             ...($threshold === null ? [] : [$threshold]),
             $this->recorder(),
         ];
@@ -100,14 +100,15 @@ class DocumentationAgent extends RAG
         return ProviderFactory::make($choice->provider, $choice->model);
     }
 
-    protected function instructions(): string
+    #[Override]
+    protected function instructions(): SystemMessage
     {
-        return <<<'PROMPT'
+        return new SystemMessage(<<<'PROMPT'
 You are a documentation assistant. Answer questions based on the provided context documents.
 If the context doesn't contain enough information, say so honestly.
 Always reference specific documents when possible.
 Respond in the same language as the question.
-PROMPT;
+PROMPT);
     }
 
     /**
