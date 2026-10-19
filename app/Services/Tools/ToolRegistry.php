@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Services\Tools;
 
+use Closure;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
 use Modules\AI\Services\Assistance\Policies\ToolNameMatcher;
 use NeuronAI\Tools\PropertyType;
@@ -64,17 +65,10 @@ final class ToolRegistry
 
     private function buildNeuronTool(ToolDefinition $definition): Tool
     {
-        $tool = $this->buildNeuronToolStructure($definition);
-        $tool->setCallable($definition->handler);
-
-        return $tool;
-    }
-
-    private function buildNeuronToolStructure(ToolDefinition $definition): Tool
-    {
-        $tool = Tool::make(
+        $tool = new CallbackTool(
             $definition->name,
             $definition->description,
+            Closure::fromCallable($definition->handler),
         );
 
         if ($definition->maxRuns !== null) {

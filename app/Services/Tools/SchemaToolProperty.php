@@ -42,6 +42,16 @@ final readonly class SchemaToolProperty implements ToolPropertyInterface
         return $this->required;
     }
 
+    public function isNullable(): bool
+    {
+        return false;
+    }
+
+    public function cast(mixed $input): mixed
+    {
+        return $input;
+    }
+
     /**
      * @return array<string, mixed>
      */

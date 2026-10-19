@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Modules\AI\Services\Tools\CallbackTool;
 use Modules\AI\Services\Tools\ToolDefinition;
 use Modules\AI\Services\Tools\ToolRegistry;
 use NeuronAI\Tools\Tool;
@@ -27,6 +28,24 @@ it('builds NeuronAI Tool instances from definitions', function (): void {
         ->and($tools[0])->toBeInstanceOf(Tool::class)
         ->and($tools[0]->getName())->toBe('search')
         ->and($tools[0]->getDescription())->toBe('Search something');
+});
+
+it('builds every tool as a callable class with the definition name, description and properties', function (): void {
+    $tools = $this->registry->getNeuronToolsForDefinitions([
+        registryDefinition('add', fn (int $a, int $b): string => 'sum:' . ($a + $b), 'Add two numbers', [
+            ['name' => 'a', 'type' => 'integer', 'description' => 'First number'],
+            ['name' => 'b', 'type' => 'integer', 'description' => 'Second number'],
+        ]),
+    ]);
+    $tool = $tools[0];
+    $tool->setInputs(['a' => 2, 'b' => 3]);
+    $tool->execute();
+
+    expect($tool)->toBeInstanceOf(CallbackTool::class)
+        ->and($tool->getName())->toBe('add')
+        ->and($tool->getDescription())->toBe('Add two numbers')
+        ->and(array_map(static fn ($property): string => $property->getName(), $tool->getProperties()))->toBe(['a', 'b'])
+        ->and($tool->getResult())->toBe('sum:5');
 });
 
 it('builds tools with correct parameter properties', function (): void {
