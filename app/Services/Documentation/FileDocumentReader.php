@@ -6,6 +6,7 @@ namespace Modules\AI\Services\Documentation;
 
 use Modules\AI\Exceptions\UnknownDocumentAudienceException;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
 use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
@@ -165,11 +166,15 @@ final readonly class FileDocumentReader
 
         $metadata['heading_breadcrumb'] ??= [];
 
-        return (new Document($content))
-            ->setSourceType('files')
-            ->setSourceName($this->qualifiedSourceName($source_name))
-            ->setId(hash('sha256', $content))
-            ->setMetadata($metadata);
+        try {
+            return (new Document($content))
+                ->setSourceType('files')
+                ->setSourceName($this->qualifiedSourceName($source_name))
+                ->setId(hash('sha256', $content))
+                ->setMetadata($metadata);
+        } catch (DocumentSchemaException $exception) {
+            throw new DocumentSchemaException("Front matter of {$path}: {$exception->getMessage()}", 0, $exception);
+        }
     }
 
     /**

@@ -80,7 +80,38 @@ it('removes the file that the store wrote when the documentation is rebuilt in f
 
     (new DocumentationService)->indexDocuments($docs, true);
 
-    expect(is_file($path))->toBeFalse();
+    expect(is_file($path))->toBeFalse()
+        ->and(is_file($path . '.lock'))->toBeFalse();
     unlink($docs . '/empty.md');
     rmdir($docs);
+});
+
+it('leaves the lock file of a store that another process is writing', function (): void {
+    $path = $this->directory . '/documentation.json';
+    config()->set('ai.features.faq.enabled', true);
+    config()->set('ai.features.faq.vector_store', 'filesystem');
+    config()->set('ai.features.faq.vector_store_path', $path);
+
+    $agent = DocumentationAgent::make(vectorStoreDriver: 'filesystem', vectorStorePath: $path);
+    $agent->setEmbeddingsProvider(new FakeEmbeddingsProvider);
+    $agent->addDocuments([new Document('Paris is the capital of France.')]);
+
+    $docs = $this->directory . '/guides';
+    mkdir($docs);
+    file_put_contents($docs . '/empty.md', "---\nmodule: core\naudience: developer\n---\n");
+
+    $writer = fopen($path . '.lock', 'c');
+    flock($writer, LOCK_EX);
+
+    try {
+        (new DocumentationService)->indexDocuments($docs, true);
+
+        expect(is_file($path))->toBeFalse()
+            ->and(is_file($path . '.lock'))->toBeTrue();
+    } finally {
+        flock($writer, LOCK_UN);
+        fclose($writer);
+        unlink($docs . '/empty.md');
+        rmdir($docs);
+    }
 });

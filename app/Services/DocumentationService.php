@@ -519,6 +519,28 @@ final readonly class DocumentationService
         if (is_file($store_path)) {
             unlink($store_path);
         }
+
+        $this->removeStoreLock($store_path . '.lock');
+    }
+
+    /**
+     * The 4.x file store keeps a lock file beside its store. It is removed only when nobody holds it,
+     * so that a process writing to the store keeps its lock.
+     */
+    private function removeStoreLock(string $lock_path): void
+    {
+        $lock = is_file($lock_path) ? @fopen($lock_path, 'r') : false;
+
+        if ($lock === false) {
+            return;
+        }
+
+        if (flock($lock, LOCK_EX | LOCK_NB)) {
+            unlink($lock_path);
+            flock($lock, LOCK_UN);
+        }
+
+        fclose($lock);
     }
 
     /**

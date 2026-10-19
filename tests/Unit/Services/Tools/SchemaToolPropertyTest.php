@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Modules\AI\Services\Tools\CallbackTool;
 use Modules\AI\Services\Tools\SchemaToolProperty;
+use NeuronAI\Exceptions\InvalidToolInput;
 use NeuronAI\Tools\PropertyType;
+use NeuronAI\Tools\ToolOutput;
 
 function schemaToolProperty(PropertyType $type): SchemaToolProperty
 {
@@ -37,6 +39,36 @@ it('lets arrays and objects through as they are', function (PropertyType $type, 
     'array' => [PropertyType::ARRAY, ['a', 'b']],
     'object' => [PropertyType::OBJECT, ['key' => 'value']],
 ]);
+
+it('converts a value before it checks it against the enum', function (): void {
+    $property = new SchemaToolProperty('priority', PropertyType::INTEGER, 'Ticket priority', true, [1, 2, 3]);
+
+    expect($property->cast('2'))->toBe(2);
+});
+
+it('refuses a value outside the enum, telling the model what is allowed', function (): void {
+    $property = new SchemaToolProperty('locale', PropertyType::STRING, 'A locale', true, ['en', 'it']);
+
+    $property->cast('de');
+})->throws(InvalidToolInput::class, 'must be one of "en", "it"; "de" given');
+
+it('answers the model with an error and does not run the tool for a value outside the enum', function (): void {
+    $ran = false;
+    $tool = new CallbackTool('pick', 'Pick a locale', static function (string $locale) use (&$ran): string {
+        $ran = true;
+
+        return $locale;
+    });
+    $tool->addProperty(new SchemaToolProperty('locale', PropertyType::STRING, 'A locale', true, ['en', 'it']));
+
+    $tool->setInputs(['locale' => 'de']);
+    $tool->execute();
+
+    expect($ran)->toBeFalse()
+        ->and($tool->getResult())->toBeInstanceOf(ToolOutput::class)
+        ->and($tool->getResult()->isError())->toBeTrue()
+        ->and($tool->getResult()->getText())->toBe('Parameter "locale" must be one of "en", "it"; "de" given.');
+});
 
 it('runs a tool whose id is declared a string when the model sends a number', function (): void {
     $tool = new CallbackTool('lookup', 'Look a record up', static fn (string $id): string => "record:{$id}");

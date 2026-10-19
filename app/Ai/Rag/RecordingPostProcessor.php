@@ -10,7 +10,7 @@ use NeuronAI\RAG\PostProcessor\PostProcessorInterface;
 
 /**
  * Keeps the documents that a RAG agent hands to the model, so that the answer can cite them: Neuron
- * puts the retrieved documents into the instructions and nowhere on the answer. Put it last in the
+ * sends the retrieved documents with the question and nowhere on the answer. Put it last in the
  * chain, after any filter, and it leaves the documents as it found them.
  */
 final class RecordingPostProcessor implements PostProcessorInterface

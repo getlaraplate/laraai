@@ -48,6 +48,24 @@ it('builds every tool as a callable class with the definition name, description 
         ->and($tool->getResult())->toBe('sum:5');
 });
 
+it('lets the handler apply the default of a parameter the model leaves out or sends as null', function (array $inputs, string $expected): void {
+    $tool = $this->registry->getNeuronToolsForDefinitions([
+        registryDefinition('search', fn (string $q, int $limit = 10): string => "{$q}:{$limit}", 'Search', [
+            ['name' => 'q', 'type' => 'string', 'description' => 'Query'],
+            ['name' => 'limit', 'type' => 'integer', 'description' => 'How many', 'required' => false],
+        ]),
+    ])[0];
+
+    $tool->setInputs($inputs);
+    $tool->execute();
+
+    expect((string) $tool->getResult())->toBe($expected);
+})->with([
+    'left out' => [['q' => 'x'], 'x:10'],
+    'sent as null' => [['q' => 'x', 'limit' => null], 'x:10'],
+    'given' => [['q' => 'x', 'limit' => 3], 'x:3'],
+]);
+
 it('builds tools with correct parameter properties', function (): void {
     $tools = $this->registry->getNeuronToolsForDefinitions([
         registryDefinition('calculate', fn (int $a, int $b): int => $a + $b, 'Add two numbers', [

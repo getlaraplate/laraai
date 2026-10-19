@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\File;
 use Modules\AI\Exceptions\UnknownDocumentAudienceException;
 use Modules\AI\Services\Documentation\FileDocumentReader;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
 
 it('returns no documents when the path does not exist', function (): void {
     $reader = new FileDocumentReader(sys_get_temp_dir() . '/lp-reader-missing-' . uniqid());
@@ -145,6 +146,18 @@ it('accepts every known audience value', function (string $audience): void {
         @unlink($path);
     }
 })->with(['user', 'developer', 'shared']);
+
+it('names the file when its front matter uses a key that Neuron reserves', function (string $key): void {
+    $path = sys_get_temp_dir() . '/lp-reader-reserved-' . uniqid() . '.md';
+    file_put_contents($path, "---\n{$key}: something\n---\n# Doc\n");
+
+    try {
+        expect(fn (): array => (new FileDocumentReader($path))->getDocuments())
+            ->toThrow(DocumentSchemaException::class, $path);
+    } finally {
+        @unlink($path);
+    }
+})->with(['id', 'content', 'metadata', 'sourceName']);
 
 it('rejects an unknown audience naming the file and the value', function (string $front_matter, string $shown_value): void {
     $base = sys_get_temp_dir() . '/lp-reader-bad-audience-' . uniqid();
