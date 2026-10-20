@@ -103,11 +103,11 @@ MISTRAL_MODEL=mistral-large-latest  # Model used by embeddings with Mistral (AI 
 
 # Sentence Transformers Configuration
 SENTENCE_TRANSFORMERS_URL=http://localhost:8000  # Sentence Transformers API URL
-SENTENCE_TRANSFORMERS_API_KEY=       # Sentence Transformers API key (optional)
+SENTENCE_TRANSFORMERS_API_KEY=       # Bearer key; same value as SENTENCE_TRANSFORMERS_API_KEY on the service (unset = no auth)
 SENTENCE_TRANSFORMERS_TIMEOUT=30     # Per-request HTTP timeout in seconds (raise for slow CPU-bound services)
 SENTENCE_TRANSFORMERS_BATCH_SIZE=32  # Documents per /embed batch (lower it if one batch exceeds the timeout)
 CROSS_ENCODER_URL=                   # Base URL of the service exposing POST /score; falls back to SENTENCE_TRANSFORMERS_URL (no built-in address)
-CROSS_ENCODER_API_KEY=               # Key for that service; falls back to SENTENCE_TRANSFORMERS_API_KEY
+CROSS_ENCODER_API_KEY=               # Key for that service; falls back to SENTENCE_TRANSFORMERS_API_KEY (a distinct key must be listed on the service too)
 
 # Embedding model switch
 AI_EMBEDDINGS_INDEX_CHUNK_SIZE=250   # Records per IndexDocumentsChunkJob when a switch writes the search indexes (embeddings-index queue); below 1 or not a number: 250, capped at 2000

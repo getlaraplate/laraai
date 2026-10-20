@@ -19,11 +19,12 @@ For Sentence Transformers you only need the **embeddings** provider and its URL.
 ## Architecture
 
 ```text
-[Laravel + Horizon]  --POST /embed-->  [Python host: Flask + sentence-transformers]
+[Laravel + Horizon]  --POST /embed (Bearer key)-->  [Python host: gunicorn + Flask + sentence-transformers]
      .env: SENTENCE_TRANSFORMERS_URL=http://HOST:PORT
+           SENTENCE_TRANSFORMERS_API_KEY=<same key as the service>
 ```
 
-The Laravel application needs outbound HTTP access to the embedding host. Restrict inbound access on the embedding host to trusted clients (VPN, private network, or firewall rules).
+The Laravel application needs outbound HTTP access to the embedding host. Restrict inbound access on the embedding host to trusted clients (VPN, private network, or firewall rules) and set an API key on both sides (see *Security* below): the service is open when it has no key.
 
 ---
 
@@ -45,7 +46,7 @@ Content-Type: application/json
 }
 ```
 
-### Batch (up to 128 texts per request)
+### Batch (up to `SENTENCE_TRANSFORMERS_BATCH_SIZE` texts per request, default 32)
 
 ```json
 {
@@ -68,6 +69,8 @@ Content-Type: application/json
 }
 ```
 
+Errors Laraplate can receive besides `5xx`: `400` for a malformed body, too many or too long texts, or a `model` the service does not allow; `401` without a valid key; `413` for a body over the service's size limit. The embedding call fails on any of them, like on a `5xx`.
+
 ### Input prefixes (`input_type`) and who applies them
 
 Some models (e5, nomic, …) need a `query:` / `passage:` prefix; others (MiniLM)
@@ -85,15 +88,19 @@ other, prefix-unaware clients without changing Laraplate.
 
 ### Discovery: `GET /models`
 
-Returns the default model, the currently resident models, and the prefix
-families that support `input_type`, so a client can discover behavior instead of
-hardcoding it:
+Returns the default model, the models a request may name (`allowed_models`,
+`null` when the host allows any), the currently resident models, the text
+limits and the prefix families that support `input_type`, so a client can
+discover behavior instead of hardcoding it. It requires the key like `/embed`.
 
 ```json
 {
   "default_model": "intfloat/multilingual-e5-small",
+  "allowed_models": ["intfloat/multilingual-e5-small"],
   "loaded_models": ["intfloat/multilingual-e5-small"],
   "model_cache": 2,
+  "max_texts": 256,
+  "max_text_chars": 100000,
   "input_types": ["query", "passage"],
   "prefix_families": {
     "e5": { "query": "query: ", "passage": "passage: " },
@@ -108,7 +115,11 @@ The `model` field is **optional**. Laraplate sends the active embedding profile'
 
 The service loads models **lazily** and keeps up to `EMBEDDING_MODEL_CACHE` of them resident (LRU), so switching the active model, or embedding with two models while a switch runs, needs no service restart. `/health` reports the default and the currently loaded models. Models of different output sizes can be served side by side: each Laraplate profile declares its own `dimensions`, and changing the model goes through `ai:embeddings:switch`, which rebuilds the indexes for the new length (see *Choose a model*).
 
-Optional authentication: if you configure an API key on the Python service, Laraplate sends `Authorization: Bearer {key}` (env `SENTENCE_TRANSFORMERS_API_KEY`).
+A request may only name a model the host allows: its `EMBEDDING_MODEL` default, or one listed in `EMBEDDING_ALLOWED_MODELS` (comma-separated). Any other answers `400` without being downloaded. The entry must be the exact string Laraplate sends, which is the part of the profile key after `sentence_transformers:` (`all-MiniLM-L6-v2` for the profile `sentence_transformers:all-MiniLM-L6-v2`, not `sentence-transformers/all-MiniLM-L6-v2`).
+
+### Security
+
+When the service has a key (`SENTENCE_TRANSFORMERS_API_KEY` on the embedding host), `/embed`, `/score` and `/models` require `Authorization: Bearer {key}`, which Laraplate sends from its own `SENTENCE_TRANSFORMERS_API_KEY` (and `CROSS_ENCODER_API_KEY` for `/score`). Set the **same value on both sides**; a missing or wrong key answers `401`. `/health` stays open, which is what `EmbeddingServiceIdentity::healthModel()` reads. The service also caps the body size (`EMBEDDING_MAX_REQUEST_MB`, default 16), the texts per request (`EMBEDDING_MAX_TEXTS`, default 256) and the characters per text (`EMBEDDING_MAX_TEXT_CHARS`, default 100000); the defaults leave room for what Laraplate sends. It speaks plain HTTP: outside a private network, put it behind a TLS-terminating reverse proxy. Every service variable is listed in the [service README](https://github.com/getlaraplate/sentence-transformers-api#configuration-environment-variables).
 
 Implementation reference:
 
@@ -150,7 +161,7 @@ Recommended models (384-d output):
 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 384 | Alternative multilingual model; no prefixes. Not shipped as a profile: add one (below). |
 | `sentence-transformers/all-MiniLM-L6-v2` | 384 | Lighter; English-centric; no prefixes. |
 
-The service is **multi-model**: `EMBEDDING_MODEL` is only the default served when a request omits `model`. Keep the default equal to the active profile's `service_model` so `/health` matches what `ai:embeddings:repair` expects. To use another model, add a profile keyed `sentence_transformers:<hugging face model>`, run `php artisan ai:embeddings:probe <key>` and put the measured length in its `dimensions`, then choose it in the setting `features.embeddings.model`: the confirmation starts `ai:embeddings:switch`, which re-embeds everything, rebuilds the index mappings when the length differs, verifies and activates it. Vector search is off meanwhile. Steps and commands: [rag/MODULE.md](rag/MODULE.md), section *Embedding model and model switch*.
+The service is **multi-model**: `EMBEDDING_MODEL` is only the default served when a request omits `model`. Keep the default equal to the active profile's `service_model` so `/health` matches what `ai:embeddings:repair` expects. To use another model, add a profile keyed `sentence_transformers:<hugging face model>`, add its service model to `EMBEDDING_ALLOWED_MODELS` on the embedding host and restart the service (otherwise the probe and the switch get `400`), run `php artisan ai:embeddings:probe <key>` and put the measured length in its `dimensions`, then choose it in the setting `features.embeddings.model`: the confirmation starts `ai:embeddings:switch`, which re-embeds everything, rebuilds the index mappings when the length differs, verifies and activates it. Vector search is off meanwhile. Steps and commands: [rag/MODULE.md](rag/MODULE.md), section *Embedding model and model switch*.
 
 `max_length: 512` in the API request is the **token truncation limit** for model input, not the embedding vector size.
 
@@ -186,33 +197,43 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-In short: the service serves any model on demand, keeps the `EMBEDDING_MODEL`
-default warm, lazy-loads any other model named in a request, and keeps up to
-`EMBEDDING_MODEL_CACHE` models resident (LRU). See the
-[HTTP contract](#http-contract-required) below for the request/response shape
-Laraplate relies on.
+In short: the service keeps the `EMBEDDING_MODEL` default warm, lazy-loads any
+other allowed model named in a request, and keeps up to `EMBEDDING_MODEL_CACHE`
+models resident (LRU). See the [HTTP contract](#http-contract-required) above for
+the request/response shape Laraplate relies on.
 
-Model weights download from Hugging Face on first use (~hundreds of MB per model). The service downloads each requested model the first time it is asked for and caches it.
+Model weights download from Hugging Face on first use (~hundreds of MB per model). The service downloads each allowed model the first time it is asked for and caches it.
 
-### Run manually
+### Run manually (development)
 
 ```bash
 source .venv/bin/activate
 export EMBEDDING_MODEL=intfloat/multilingual-e5-small
 export EMBEDDING_MODEL_CACHE=2
-python sentence-api.py
+python sentence-api.py                             # Flask development server
+gunicorn -c gunicorn.conf.py sentence-api:app      # the production server, same settings
 ```
 
 ### systemd unit (production)
 
 The `sentence-transformers.service` unit ships with the
 [service repository](https://github.com/getlaraplate/sentence-transformers-api);
-install it from there rather than copying it here.
+install it from there rather than copying it here. It runs gunicorn (one
+process, four threads) as the dedicated unprivileged user `sentence-api`, caches
+models in `/var/cache/sentence-api` and reads the key and local settings from
+`/opt/sentence-api/.env`. Create the user and the `.env` once, as the service
+README describes in
+[Deploy (systemd)](https://github.com/getlaraplate/sentence-transformers-api#deploy-systemd),
+then:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart sentence-transformers
 ```
+
+A host upgraded from the old unit, which ran as `root`, downloads its models
+again into `/var/cache/sentence-api` unless they are copied there first (same
+README section).
 
 Keep `EMBEDDING_MODEL` equal to the active Laraplate profile's `service_model`. On a first request for a new model the service downloads and loads it (a few seconds to a minute); subsequent requests are fast while it stays in the LRU cache.
 
@@ -221,21 +242,30 @@ Keep `EMBEDDING_MODEL` equal to the active Laraplate profile's `service_model`. 
 ## Verify the embedding host
 
 ```bash
-curl -s "http://127.0.0.1:8000/health"
+KEY=<the SENTENCE_TRANSFORMERS_API_KEY of the service>
+
+curl -s "http://127.0.0.1:8000/health"   # open, no key
 # {"status":"healthy","model":"intfloat/multilingual-e5-small",
 #  "default_model":"intfloat/multilingual-e5-small",
-#  "loaded_models":["intfloat/multilingual-e5-small"],"model_cache":2}
+#  "loaded_models":["intfloat/multilingual-e5-small"],"model_cache":2,"reranker":{...}}
+
+# Without the key: expect 401 when the service has one.
+curl -s -o /dev/null -w "%{http_code}\n" -X POST "http://127.0.0.1:8000/embed" \
+  -H "Content-Type: application/json" -d '{"text":"hello"}'
 
 # Default model (dimension check — expect 384):
 curl -s -X POST "http://127.0.0.1:8000/embed" \
+  -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
   -d '{"text":"hello","normalize_embeddings":true}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['model'], len(d['embeddings'][0]))"
 
-# Explicit model (lazy-loads it, then reports it in the response and /health):
+# Explicit model: it must be in EMBEDDING_ALLOWED_MODELS, otherwise 400.
+# It lazy-loads, then shows in the response and /health:
 curl -s -X POST "http://127.0.0.1:8000/embed" \
+  -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"text":"hello","model":"sentence-transformers/all-MiniLM-L6-v2"}' \
+  -d '{"text":"hello","model":"all-MiniLM-L6-v2"}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['model'], len(d['embeddings'][0]))"
 ```
 
@@ -249,7 +279,7 @@ Switch embeddings on with the setting `features.embeddings.enabled` in Filament 
 
 ```env
 SENTENCE_TRANSFORMERS_URL=http://EMBEDDING_HOST:8000
-SENTENCE_TRANSFORMERS_API_KEY=
+SENTENCE_TRANSFORMERS_API_KEY=<the key in /opt/sentence-api/.env on the embedding host>
 ```
 
 The embedding model is chosen in the setting `features.embeddings.model`; the one that serves search is Core's managed setting `search.vector.model` (seeded with `sentence_transformers:intfloat/multilingual-e5-small`), which only a model switch changes. Neither is an env var. Laraplate sends the profile's service model (the part of the key after the provider) to the service per request. Keep the service's `EMBEDDING_MODEL` default equal to the active one.
@@ -257,6 +287,7 @@ The embedding model is chosen in the setting `features.embeddings.model`; the on
 Notes:
 
 - The `sentence_transformers` profiles are offered only when `SENTENCE_TRANSFORMERS_URL` is set.
+- A profile whose service model is not the host's `EMBEDDING_MODEL` also needs an entry in the host's `EMBEDDING_ALLOWED_MODELS` (see *Model selection*).
 - Chat, translation and every other AI feature choose their model in Filament > Settings (`features.*.model`), not in env; see `rag/AI_MODEL_SELECTION_USER.md`.
 
 Core's vector settings follow the active profile and need no edit. Enable Scout/vector search as in [SEARCH_AND_TRANSLATION.md](SEARCH_AND_TRANSLATION.md).
@@ -283,7 +314,7 @@ A model switch rebuilds the Elasticsearch documentation indexes itself. With a `
 
 ## Optional: cross-encoder reranker
 
-Hybrid search can rerank its top results with a cross-encoder through `POST {url}/score`. `CROSS_ENCODER_URL` is the base URL of that service (the client adds `/score`) and, when it is not set, `SENTENCE_TRANSFORMERS_URL` is used: the `sentence-api` service (repository `laraplate-sentencetransformer`) serves `/score` next to `/embed` with its default model (`CROSS_ENCODER_MODEL` on its host changes it, and an empty value turns it off). The key is `CROSS_ENCODER_API_KEY`, falling back to `SENTENCE_TRANSFORMERS_API_KEY`. There is no built-in address: with no URL, or a service whose model is turned off (it answers 503), nothing is reranked. Not required for embeddings; if the service is down, or answers with anything but one numeric score per pair, search returns unreranked results (`meta.reranked = false`, a warning in the log). The evaluation commands (`ai:evaluate-retrieval-strategies`, `ai:tune-retrieval`) warn when it did not run, because their `reranked` figures are then the fused order. While no service answers `/score`, `search.reranker.enabled` can be turned off so that each search does not spend a failed call and a warning on it.
+Hybrid search can rerank its top results with a cross-encoder through `POST {url}/score`. `CROSS_ENCODER_URL` is the base URL of that service (the client adds `/score`) and, when it is not set, `SENTENCE_TRANSFORMERS_URL` is used: the `sentence-api` service (repository `laraplate-sentencetransformer`) serves `/score` next to `/embed` with its default model (`CROSS_ENCODER_MODEL` on its host changes it, and an empty value turns it off). The key is `CROSS_ENCODER_API_KEY`, falling back to `SENTENCE_TRANSFORMERS_API_KEY`; when the reranker runs on the embedding service and the two Laraplate keys differ, list both on the host, comma-separated, in its `SENTENCE_TRANSFORMERS_API_KEY`. Laraplate never names a rerank model, so the host's default is used; another one in a request needs `CROSS_ENCODER_ALLOWED_MODELS` on the host. There is no built-in address: with no URL, or a service whose model is turned off (it answers 503), nothing is reranked. Not required for embeddings; if the service is down, or answers with anything but one numeric score per pair, search returns unreranked results (`meta.reranked = false`, a warning in the log). The evaluation commands (`ai:evaluate-retrieval-strategies`, `ai:tune-retrieval`) warn when it did not run, because their `reranked` figures are then the fused order. While no service answers `/score`, `search.reranker.enabled` can be turned off so that each search does not spend a failed call and a warning on it.
 
 ---
 
@@ -292,7 +323,9 @@ Hybrid search can rerank its top results with a cross-encoder through `POST {url
 | Symptom | Likely cause |
 |---------|----------------|
 | Connection refused from Laravel | Wrong URL/port, firewall, or service not listening on `0.0.0.0` |
-| HTTP 401 | `SENTENCE_TRANSFORMERS_API_KEY` mismatch with Python `API_KEY` |
+| HTTP 401 | `SENTENCE_TRANSFORMERS_API_KEY` in Laraplate differs from `SENTENCE_TRANSFORMERS_API_KEY` on the embedding host (or `CROSS_ENCODER_API_KEY` for `/score`) |
+| HTTP 400 `model "…" is not allowed on this host` | The active or probed profile's service model is neither the host's `EMBEDDING_MODEL` nor in its `EMBEDDING_ALLOWED_MODELS` |
+| HTTP 400 `too many texts` / HTTP 413 | `SENTENCE_TRANSFORMERS_BATCH_SIZE` above the host's `EMBEDDING_MAX_TEXTS`, or a batch over `EMBEDDING_MAX_REQUEST_MB` |
 | Vector search off, `meta.vector_disabled` = `dimension_mismatch` | The index `dense_vector` dims differ from `search.vector.dimensions`; finish or resume the switch (`ai:embeddings:status`) |
 | Keyword-only search documents | Embeddings job failed; check Horizon; run `ai:embeddings:repair` |
 | `Embeddings count mismatch` | API returned fewer vectors than texts |

@@ -6,9 +6,11 @@ exactly like the embedding service. This guide covers the Laraplate side and
 points at the canonical service repo. Mirrors
 [`SENTENCE_TRANSFORMERS_INSTALLATION.md`](SENTENCE_TRANSFORMERS_INSTALLATION.md).
 
-**Canonical service:** <https://github.com/getlaraplate/whisper-api> (Flask +
+**Canonical service:** <https://github.com/getlaraplate/whisper-api> (Flask
+served by gunicorn +
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper)/CTranslate2). Its
-README has the full install steps; this file is the integration + sizing note.
+README has the full install steps, every service variable and the concurrency
+model; this file is the integration + sizing note.
 
 ---
 
@@ -24,7 +26,7 @@ choice is `whisper`. The Whisper model itself is chosen on the Whisper host with
 |---------------------|---------|---------|
 | `features.media_analysis.transcription.model` (setting) | Which transcription provider runs | `whisper` |
 | `providers.whisper.url` | Base URL of the Whisper service | *(unset = transcription off)* |
-| `providers.whisper.api_key` | Optional Bearer token | *(unset = no auth)* |
+| `providers.whisper.api_key` | Bearer token, the same value as the service's `WHISPER_API_KEY` | *(unset = no auth)* |
 | `providers.whisper.timeout` | Per-request timeout (seconds) | `120` |
 
 With `WHISPER_URL` unset the `WhisperTranscriber` is a no-op: audio/video media
@@ -35,7 +37,7 @@ still index (deterministic layer + any other analysis), just without a transcrip
 ## Architecture
 
 ```text
-[Laravel + Horizon]  --POST /transcribe (multipart file)-->  [Whisper host: Flask + faster-whisper]
+[Laravel + Horizon]  --POST /transcribe (multipart file, Bearer key)-->  [Whisper host: gunicorn + Flask + faster-whisper]
      .env: WHISPER_URL=http://HOST:8001
 ```
 
@@ -59,16 +61,28 @@ file=<the media bytes>        # form field name MUST be "file"
 
 Response: `{ "text": "...", "language": "en", "duration": 12.3 }`. Only `text` is
 used; any non-2xx response makes the transcriber return `null` (media still indexes).
+The non-2xx answers of the service itself: `400` without a `file`, `401` without
+a valid key, `413` for a file over its `WHISPER_MAX_UPLOAD_MB` (default 512 MB).
+
+The service transcribes **one file at a time** by default (`WHISPER_NUM_WORKERS=1`)
+and has no job queue: a second upload waits until the first is done, and the
+wait counts against `WHISPER_TIMEOUT` (default 120 s). Raise the timeout for long
+media, or for several media analysed at once, rather than the service's
+parallelism on a CPU host. Details in the service README, section
+[Concurrency](https://github.com/getlaraplate/whisper-api#concurrency).
 
 ---
 
 ## Install (Debian LXC on Proxmox, no Docker — how the `ai` host is set up)
 
 The `ai` host already runs the embedding service on `:8000` from a shared
-`/opt/ai-env`; Whisper reuses that venv and takes `:8001`.
+`/opt/ai-env`; Whisper reuses that venv and takes `:8001`. The unit runs gunicorn
+as the dedicated unprivileged user `whisper-api` and caches the model in
+`/var/cache/whisper-api`; create the user once:
 
 ```bash
 apt install -y ffmpeg                                  # decodes audio/video
+useradd --system --user-group --no-create-home --shell /usr/sbin/nologin whisper-api
 git clone https://github.com/getlaraplate/whisper-api.git /opt/whisper-api
 /opt/ai-env/bin/pip install -r /opt/whisper-api/requirements.txt
 printf 'WHISPER_API_KEY=%s\n' "$(openssl rand -hex 24)" > /opt/whisper-api/.env
@@ -78,8 +92,13 @@ systemctl daemon-reload && systemctl enable --now whisper
 curl -s http://127.0.0.1:8001/health          # {"status":"healthy","model":"base",...}
 ```
 
-The secret lives only in `/opt/whisper-api/.env` (git-ignored), never in the repo.
+The secret lives only in `/opt/whisper-api/.env` (git-ignored, root-only: systemd
+reads it before dropping privileges), never in the repo.
 GPU: run with `WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=float16`.
+
+A host upgraded from the old unit, which ran as `root`, downloads the model again
+into `/var/cache/whisper-api` unless it is copied there first; the service README
+has the commands.
 
 ---
 
