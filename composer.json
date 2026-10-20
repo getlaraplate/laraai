@@ -1,5 +1,5 @@
 {
-  "name": "getlaraplate/laraplate-ai",
+  "name": "getlaraplate/laraai",
   "vendor": "getlaraplate",
   "description": "Laraplate AI module: embeddings, vector search, automatic translation, moderation and an in-app assistant.",
   "version": "v3.1.0",
