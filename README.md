@@ -1,6 +1,6 @@
 <p>&nbsp;</p>
 <p align="center">
-	<a href="https://github.com/swolley" target="_blank">
+	<a href="https://github.com/getlaraplate" target="_blank">
 		<img src="https://raw.githubusercontent.com/swolley/images/refs/heads/master/logo_laraplate.png?raw=true" width="300" alt="Laraplate Logo" />
     </a>
 </p>

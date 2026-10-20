@@ -276,7 +276,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 - Point Whisper docs at the canonical repo and port 8001
 
 The service is deployed on the ai host on :8001 (kept in the 800x range next to
-embeddings on :8000) from github.com/swolley/whisper-api (Flask + faster-whisper,
+embeddings on :8000) from github.com/getlaraplate/whisper-api (Flask + faster-whisper,
 systemd, shared /opt/ai-env). Doc now references that repo and the integration +
 sizing note rather than a divergent inline implementation.
 
