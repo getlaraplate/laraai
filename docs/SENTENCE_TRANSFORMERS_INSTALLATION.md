@@ -1,5 +1,7 @@
 # Self-hosted Sentence Transformers for embeddings
 
+> **Status: experimental.** The `sentence-transformers-api` service is fit for development, tests and evaluation on a trusted network, not yet for production. Its README lists the open gaps and the licences of the default models: [Production readiness](https://github.com/getlaraplate/sentence-transformers-api#production-readiness). Its `/health` reports the same status in `readiness`.
+
 Laraplate does not run Sentence Transformers inside PHP. The AI module calls a **self-hosted HTTP API** on a separate host (VM, bare metal, or container). This guide covers that sidecar service and the Laraplate configuration that points to it.
 
 ---
@@ -245,7 +247,7 @@ Keep `EMBEDDING_MODEL` equal to the active Laraplate profile's `service_model`. 
 KEY=<the SENTENCE_TRANSFORMERS_API_KEY of the service>
 
 curl -s "http://127.0.0.1:8000/health"   # open, no key
-# {"status":"healthy","model":"intfloat/multilingual-e5-small",
+# {"status":"healthy","readiness":"experimental","model":"intfloat/multilingual-e5-small",
 #  "default_model":"intfloat/multilingual-e5-small",
 #  "loaded_models":["intfloat/multilingual-e5-small"],"model_cache":2,"reranker":{...}}
 

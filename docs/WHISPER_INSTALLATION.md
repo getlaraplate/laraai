@@ -1,5 +1,7 @@
 # Self-hosted Whisper for media transcription
 
+> **Status: experimental.** The `whisper-api` service is fit for development, tests and evaluation on a trusted network, not yet for production. Its README lists the open gaps and the licence of the default model: [Production readiness](https://github.com/getlaraplate/whisper-api#production-readiness). Its `/health` reports the same status in `readiness`.
+
 Laraplate does not transcribe audio/video inside PHP. The AI module calls a
 **self-hosted HTTP API** on a separate host (VM/LXC — e.g. a Proxmox guest),
 exactly like the embedding service. This guide covers the Laraplate side and
@@ -89,7 +91,7 @@ printf 'WHISPER_API_KEY=%s\n' "$(openssl rand -hex 24)" > /opt/whisper-api/.env
 chmod 600 /opt/whisper-api/.env
 cp /opt/whisper-api/whisper.service /etc/systemd/system/whisper.service
 systemctl daemon-reload && systemctl enable --now whisper
-curl -s http://127.0.0.1:8001/health          # {"status":"healthy","model":"base",...}
+curl -s http://127.0.0.1:8001/health          # {"status":"healthy","readiness":"experimental","model":"base",...}
 ```
 
 The secret lives only in `/opt/whisper-api/.env` (git-ignored, root-only: systemd
