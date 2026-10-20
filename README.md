@@ -1,7 +1,7 @@
 <p>&nbsp;</p>
 <p align="center">
 	<a href="https://github.com/getlaraplate" target="_blank">
-		<img src="https://raw.githubusercontent.com/swolley/images/refs/heads/master/logo_laraplate.png?raw=true" width="300" alt="Laraplate Logo" />
+		<img src="https://raw.githubusercontent.com/getlaraplate/brand/main/logos/blueprint/ai.svg" width="160" alt="LaraAI" />
     </a>
 </p>
 <p>&nbsp;</p>
