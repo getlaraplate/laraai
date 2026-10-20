@@ -1,7 +1,7 @@
 {
   "name": "getlaraplate/laraplate-ai",
   "vendor": "getlaraplate",
-  "description": "AI Module contains all the necessary functionalities for build up a new AI integrated application",
+  "description": "Laraplate AI module: embeddings, vector search, automatic translation, moderation and an in-app assistant.",
   "version": "v3.1.0",
   "keywords": [
     "laravel",
