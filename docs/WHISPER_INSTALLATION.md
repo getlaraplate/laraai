@@ -6,7 +6,7 @@ exactly like the embedding service. This guide covers the Laraplate side and
 points at the canonical service repo. Mirrors
 [`SENTENCE_TRANSFORMERS_INSTALLATION.md`](SENTENCE_TRANSFORMERS_INSTALLATION.md).
 
-**Canonical service:** <https://github.com/swolley/whisper-api> (Flask +
+**Canonical service:** <https://github.com/getlaraplate/whisper-api> (Flask +
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper)/CTranslate2). Its
 README has the full install steps; this file is the integration + sizing note.
 
@@ -69,7 +69,7 @@ The `ai` host already runs the embedding service on `:8000` from a shared
 
 ```bash
 apt install -y ffmpeg                                  # decodes audio/video
-git clone https://github.com/swolley/whisper-api.git /opt/whisper-api
+git clone https://github.com/getlaraplate/whisper-api.git /opt/whisper-api
 /opt/ai-env/bin/pip install -r /opt/whisper-api/requirements.txt
 printf 'WHISPER_API_KEY=%s\n' "$(openssl rand -hex 24)" > /opt/whisper-api/.env
 chmod 600 /opt/whisper-api/.env

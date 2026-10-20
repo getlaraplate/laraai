@@ -173,12 +173,12 @@ The service code is **not duplicated here** — it lives in its own repository,
 which is the single source of truth (code, pinned `requirements.txt`, systemd
 unit, README):
 
-**https://github.com/swolley/sentence-transformers-api**
+**https://github.com/getlaraplate/sentence-transformers-api**
 
 Clone it on the embedding host and install from its pinned requirements:
 
 ```bash
-git clone https://github.com/swolley/sentence-transformers-api.git
+git clone https://github.com/getlaraplate/sentence-transformers-api.git
 cd sentence-transformers-api
 python3 -m venv .venv
 source .venv/bin/activate
@@ -206,7 +206,7 @@ python sentence-api.py
 ### systemd unit (production)
 
 The `sentence-transformers.service` unit ships with the
-[service repository](https://github.com/swolley/sentence-transformers-api);
+[service repository](https://github.com/getlaraplate/sentence-transformers-api);
 install it from there rather than copying it here.
 
 ```bash
@@ -303,7 +303,7 @@ Hybrid search can rerank its top results with a cross-encoder through `POST {url
 
 | Document | Topic |
 |----------|--------|
-| [sentence-transformers-api](https://github.com/swolley/sentence-transformers-api) | The self-hosted embedding service (code, systemd unit, README) |
+| [sentence-transformers-api](https://github.com/getlaraplate/sentence-transformers-api) | The self-hosted embedding service (code, systemd unit, README) |
 | [README.md](../README.md) | AI module env reference |
 | [SEARCH_AND_TRANSLATION.md](SEARCH_AND_TRANSLATION.md) | Indexing flow and repair |
 | [rag/DEPLOYMENT.md](rag/DEPLOYMENT.md) | RAG vector store |
