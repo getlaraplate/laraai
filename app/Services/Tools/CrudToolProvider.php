@@ -7,6 +7,7 @@ namespace Modules\AI\Services\Tools;
 use function class_uses_trait;
 use function user_class;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -619,8 +620,9 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
      * (by count when it asked for none), and the figures of the others come back under `other`; a group by a
      * time bucket shows every bucket. The engine groups by one dimension, so a second `group_by` column is
      * refused. A refusal of the engine or of the call comes back in the error shape with its code and the
-     * place it is about, in the vocabulary of the tool; anything else unexpected is reported and answered with
-     * a fixed text, since the message of such an exception can hold SQL, bindings and the row-level ACL.
+     * place it is about, in the vocabulary of the tool, and a refused permission with its own message (it is
+     * written for the reader and is not reported); anything else unexpected is reported and answered with a
+     * fixed text, since the message of such an exception can hold SQL, bindings and the row-level ACL.
      *
      * @return array<string, mixed>
      */
@@ -667,6 +669,8 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             }
 
             return ['request' => $request, ...$this->aggregateRefusal($exception, $plan['sources'], $limits)];
+        } catch (AuthorizationException $exception) {
+            return $this->fail($request, $exception);
         } catch (Throwable $exception) {
             report($exception);
 

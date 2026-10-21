@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -722,6 +723,30 @@ it('answers a fixed error and reports the exception when the summary fails unexp
         ->and(json_encode($result))->not->toContain('core_settings');
 
     Exceptions::assertReported(QueryException::class);
+});
+
+it('answers a refused permission with its own message and does not report it', function (): void {
+    $handler = Mockery::spy(ExceptionHandler::class);
+    app()->instance(ExceptionHandler::class, $handler);
+
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    $user->revokePermissionTo(PermissionName::forModel(DynamicEntity::resolve('setting', module: 'core'), 'select'));
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['group_name']);
+
+    expect($result)->toHaveKeys(['request', 'error'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['error'])->toBe('User not allowed to access this resource')
+        ->and($result['error'])->not->toBe('The summary could not be computed.');
+
+    $handler->shouldNotHaveReceived('report');
 });
 
 it('reports a refusal that is a fault of the deployment while it still answers the model', function (): void {
