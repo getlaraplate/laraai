@@ -201,6 +201,31 @@ php artisan ai:embeddings:repair --all [--if-idle]
 
 ---
 
+## 6. Query embedding cache and the documentation search route
+
+### Query embedding cache
+
+`EmbeddingService::embedText()` (the query side: Core search through `SearchEmbedder`, documentation retrieval) goes through `QueryEmbeddingCache`, so the parallel requests of the command palette embed the same text once. Document embeddings (`embedDocument`, `embedDocumentsBatch`) are never cached, and neither is a service built with an injected provider factory.
+
+- Key: `ai:query-embedding:` plus the sha256 of the active profile (key, provider, service model, dimensions, query prefix) and the text with whitespace collapsed to single spaces. Spacing shares a key, case does not. A model switch changes the key, so no stale vector is read.
+- Stored: the vector only, for 300 seconds. The text is never stored. An empty or non-numeric vector is not stored.
+- Lock: the first caller takes `Cache::lock(key:lock, 30)`; the others wait up to 5 seconds (`Lock::block()`), then read the stored vector. A caller re-reads the cache after taking the lock.
+- Failure: a cache or lock error, or a wait that times out, computes the vector uncached. The cache is an optimization and never fails a search.
+
+### Documentation search route
+
+`GET /app/crud/search/{module}/documentation?q=` returns passages of the end-user documentation for the command palette. Retrieval only: no language model is called. It is a `/app` route (session), not exposed under `/api/v1`.
+
+- Gate, in this order: signed-in user (401), not a guest (403), `AssistantCapabilities::help()` i.e. `features.faq.enabled` (403 `{"code":"FEATURE_DISABLED"}`), then the module. The chat switch `features.chat.enabled` and the chat provider do not gate it.
+- Module scope: `{module}` is the documentation scope, resolved through `AssistantScopeResolver` as the assistant does. A module that is unknown, disabled or not shaped `[a-z][a-z0-9_]{0,63}` answers 404 (the route takes any segment and the controller decides, so a malformed one never reaches Core as an entity).
+- `q`: trimmed, 3 to 200 characters, else 422. Validation runs after the gate and the module check, so a refused caller computes no embedding.
+- Access: each user gets only the passages their own tenant, locale and permissions allow (`AssistantAccessContextFactory::forDocumentationSearch`, no conversation). Two users share a cached vector, not results.
+- Response: the standard envelope, `data` a list of `{label, reference, excerpt, heading_breadcrumb?, module?}`; `excerpt` is cut at 300 characters, `reference` equals `label`. A retrieval failure (embedding provider or index down) answers 503.
+- Rate limit: 60 requests per minute per signed-in user, limiter `documentation-search`, key `ai.features.faq.search.rate_per_minute`; 429 beyond. The limiter runs before validation, so invalid calls count.
+- Reserved name: `documentation` is a reserved entity name for GET. The route is registered ahead of Core's `search/{module}/{entity?}`, so an entity called `documentation` is unreachable through GET search; a POST to the same path still reaches Core.
+
+---
+
 ## Class reference
 
 | Component | Path |
@@ -212,3 +237,6 @@ php artisan ai:embeddings:repair --all [--if-idle]
 | Repair command | `app/Console/RepairMissingEmbeddingsCommand.php` |
 | Finalize listener (Core) | `Modules/Core/app/Listeners/FinalizeModelIndexingListener.php` |
 | Event registration | `app/Providers/EventServiceProvider.php` |
+| Query embedding cache | `app/Ai/Embeddings/QueryEmbeddingCache.php` |
+| Documentation search route | `app/Http/Controllers/DocumentationSearchController.php`, `app/Http/Requests/DocumentationSearchRequest.php` |
+| Documentation search service | `app/Services/Documentation/Search/DocumentationSearch.php`, `DocumentationPassage.php` |
