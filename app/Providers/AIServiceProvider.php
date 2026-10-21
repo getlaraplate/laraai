@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Modules\AI\Providers;
 
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingModelSettingConfirmation;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
@@ -147,6 +150,7 @@ class AIServiceProvider extends ModuleServiceProvider
         parent::boot();
 
         $this->registerSearchBindings();
+        $this->registerRateLimiters();
 
         // Contribute AI media analysis to the media search document/vector through
         // Core's contributor seam (M4a). No-op until analysis rows exist, so Core
@@ -206,6 +210,21 @@ class AIServiceProvider extends ModuleServiceProvider
                 ->command(PruneRagQueryAnalyticsCommand::class)
                 ->daily()
                 ->onOneServer();
+        });
+    }
+
+    /**
+     * The documentation search route, per signed-in user: every call costs an embedding. The route
+     * requires a session, so a call without a user is counted per client address. The ceiling is
+     * read when a request arrives.
+     */
+    private function registerRateLimiters(): void
+    {
+        RateLimiter::for('documentation-search', static function (Request $request): Limit {
+            $user = $request->user();
+            $limit = Limit::perMinute((int) config('ai.features.faq.search.rate_per_minute', 60));
+
+            return $user === null ? $limit->by($request->ip()) : $limit->by($user->getAuthIdentifier());
         });
     }
 
