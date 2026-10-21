@@ -51,6 +51,46 @@ it('refuses an anonymous call and the guest', function (): void {
     $search->shouldNotHaveReceived('search');
 });
 
+it('refuses an anonymous POST and the guest', function (): void {
+    $search = fakeDocumentationSearch();
+
+    $this->postJson(documentationSearchUrl(query: null), ['q' => 'approve'])->assertUnauthorized();
+
+    $guest = User::factory()->create(['name' => config('permission.users.guest'), 'username' => config('permission.users.guest')]);
+    $this->actingAs($guest)->postJson(documentationSearchUrl(query: null), ['q' => 'approve'])->assertForbidden();
+
+    $search->shouldNotHaveReceived('search');
+});
+
+it('answers a POST with the same passages as the GET', function (): void {
+    $passages = [new DocumentationPassage('Approve a modification', 'Approve a modification', 'How to approve.', 'Approvals > Approve', 'cms')];
+    $search = fakeDocumentationSearch($passages);
+
+    $get = $this->actingAs($this->user)->getJson(documentationSearchUrl())->assertOk()->json('data');
+    $post = $this->actingAs($this->user)->postJson(documentationSearchUrl(query: null), ['q' => '  approve  '])->assertOk()->json('data');
+
+    expect($post)->toBe($get)
+        ->and($post)->toBe(array_map(static fn (DocumentationPassage $passage): array => $passage->toArray(), $passages));
+
+    $search->shouldHaveReceived('search')->twice()->with(Mockery::type(User::class), 'cms', 'approve');
+});
+
+it('answers 422 for a blank or overlong POST q and computes no embedding', function (?string $query): void {
+    $embeddings = Mockery::spy(IEmbeddingService::class);
+    app()->instance(IEmbeddingService::class, $embeddings);
+
+    $this->actingAs($this->user)
+        ->postJson(documentationSearchUrl(query: null), $query === null ? [] : ['q' => $query])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('q');
+
+    $embeddings->shouldNotHaveReceived('embedText');
+})->with([
+    'missing' => [null],
+    'blank' => ['     '],
+    'overlong' => [str_repeat('a', 201)],
+]);
+
 it('answers as a disabled feature when help is off', function (): void {
     config(['ai.features.faq.enabled' => false]);
     $search = fakeDocumentationSearch();
@@ -154,6 +194,10 @@ it('resolves search/{module}/documentation to the AI controller and leaves the o
     expect($routes->match(Request::create('/app/crud/search/cms/documentation'))->getActionName())
         ->toBe(DocumentationSearchController::class . '@search')
         ->and($routes->match(Request::create('/app/crud/search/cms/contents'))->getActionName())
+        ->toBe(CrudController::class . '@search')
+        ->and($routes->match(Request::create('/app/crud/search/cms/documentation', 'POST'))->getActionName())
+        ->toBe(DocumentationSearchController::class . '@search')
+        ->and($routes->match(Request::create('/app/crud/search/cms/contents', 'POST'))->getActionName())
         ->toBe(CrudController::class . '@search');
 });
 

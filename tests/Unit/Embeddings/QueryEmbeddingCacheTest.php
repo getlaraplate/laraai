@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Auth\GenericUser;
 use Illuminate\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Sleep;
@@ -49,7 +50,58 @@ it('shares the key across spacing and not across case', function (): void {
     expect($calls)->toBe(2);
 });
 
+it('hits for the same signed-in user', function (): void {
+    $this->actingAs(new GenericUser(['id' => 1]));
+    $cache = new QueryEmbeddingCache;
+    $calls = 0;
+    $compute = function () use (&$calls): array {
+        $calls++;
+
+        return [0.1];
+    };
+
+    $cache->remember('ordini', $compute);
+    $cache->remember('ordini', $compute);
+
+    expect($calls)->toBe(1);
+});
+
+it('computes for each user separately on the same text', function (): void {
+    $cache = new QueryEmbeddingCache;
+    $calls = 0;
+    $compute = function () use (&$calls): array {
+        $calls++;
+
+        return [0.1];
+    };
+
+    $this->actingAs(new GenericUser(['id' => 2]));
+    $cache->remember('ordini', $compute);
+    $this->actingAs(new GenericUser(['id' => 3]));
+    $cache->remember('ordini', $compute);
+
+    expect($calls)->toBe(2);
+});
+
+it('does not let an unauthenticated caller read a signed-in user entry', function (): void {
+    $cache = new QueryEmbeddingCache;
+    $calls = 0;
+    $compute = function () use (&$calls): array {
+        $calls++;
+
+        return [0.1];
+    };
+
+    $this->actingAs(new GenericUser(['id' => 4]));
+    $cache->remember('ordini', $compute);
+    auth()->forgetUser();
+    $cache->remember('ordini', $compute);
+
+    expect($calls)->toBe(2);
+});
+
 it('computes once for a caller that waits on the lock', function (): void {
+    $this->actingAs(new GenericUser(['id' => 5]));
     $cache = new QueryEmbeddingCache;
     $key = $cache->keyFor('attesa');
     $lock = Cache::lock($key . ':lock', 30);

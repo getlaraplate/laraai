@@ -34,7 +34,7 @@ final class DocumentationSearchRequest extends FormRequest
     #[Override]
     protected function prepareForValidation(): void
     {
-        $query = $this->query('q');
+        $query = $this->input('q');
 
         if (is_string($query)) {
             $this->merge(['q' => mb_trim($query)]);

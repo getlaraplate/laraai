@@ -17,10 +17,11 @@ Route::get('ai/capabilities', [CapabilitiesController::class, 'show'])->middlewa
 Route::post('ai/agent', [AgentController::class, 'run'])->middleware([EnsureAssistantEnabled::class, ResolveAssistantApplicationContext::class])->name('agent');
 
 Route::prefix('crud')->name('crud.')->group(function (): void {
-    // Documentation passages for the command palette. `documentation` is a reserved entity name: this route is
-    // registered before Core's generic `search/{module}/{entity?}`, whose web routes Core defers until boot ends.
+    // Documentation passages for the command palette, GET or POST like Core's search route. `documentation` is a
+    // reserved entity name: this route is registered before Core's generic `search/{module}/{entity?}`, whose web
+    // routes Core defers until boot ends.
     // It takes every module segment, so a malformed one answers 404 here instead of reaching Core as an entity.
-    Route::get('search/{module}/documentation', [DocumentationSearchController::class, 'search'])
+    Route::match(['get', 'post'], 'search/{module}/documentation', [DocumentationSearchController::class, 'search'])
         ->middleware(['auth', 'throttle:documentation-search'])
         ->name('documentation.search');
 

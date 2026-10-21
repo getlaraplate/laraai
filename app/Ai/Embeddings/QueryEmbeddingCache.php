@@ -13,7 +13,8 @@ use Throwable;
  * Shares the embedding of a query text between concurrent and repeated requests: the first caller
  * computes it under an atomic lock, the others wait for the lock and read the stored vector.
  *
- * The key holds the identity of the active embedding profile and a hash of the normalized text, so a
+ * The key is partitioned by the signed-in user (a shared partition when there is none), so one user cannot tell
+ * by timing what another searched. It also holds the identity of the active embedding profile and a hash of the normalized text, so a
  * model switch never reads a stale vector and the text itself is never stored. The cache and the lock
  * are an optimization: when the store fails or the wait times out, the vector is computed uncached.
  */
@@ -24,6 +25,8 @@ final readonly class QueryEmbeddingCache
     public const int LOCK_SECONDS = 30;
 
     public const int WAIT_SECONDS = 5;
+
+    public const string SHARED_PARTITION = 'shared';
 
     public function __construct(
         private ?EmbeddingModelRegistry $registry = null,
@@ -94,7 +97,10 @@ final readonly class QueryEmbeddingCache
         $profile = ($this->registry ?? resolve(EmbeddingModelRegistry::class))->active();
         $normalized = self::normalize($text) ?? '';
 
+        $partition = auth()->id();
+
         return 'ai:query-embedding:' . hash('sha256', json_encode([
+            $partition === null ? self::SHARED_PARTITION : 'user:' . $partition,
             $profile->key,
             $profile->provider,
             $profile->serviceModel,
