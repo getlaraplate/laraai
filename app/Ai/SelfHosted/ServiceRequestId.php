@@ -40,7 +40,7 @@ final readonly class ServiceRequestId
         string $url,
     ) {
         $this->value = bin2hex(random_bytes(16));
-        $this->endpoint = self::withoutSecrets($url);
+        $this->endpoint = self::endpointOf($url);
     }
 
     /**
@@ -57,6 +57,23 @@ final readonly class ServiceRequestId
         }
 
         return null;
+    }
+
+    /**
+     * `$url` without credentials, query or fragment: what a log line may say of a call.
+     */
+    public static function endpointOf(string $url): string
+    {
+        $parts = parse_url($url);
+
+        if ($parts === false || ! isset($parts['host'])) {
+            return strtok($url, '?#') ?: $url;
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        return $scheme . $parts['host'] . $port . ($parts['path'] ?? '');
     }
 
     /**
@@ -99,19 +116,5 @@ final readonly class ServiceRequestId
             $this->context($status),
             $previous,
         );
-    }
-
-    private static function withoutSecrets(string $url): string
-    {
-        $parts = parse_url($url);
-
-        if ($parts === false || ! isset($parts['host'])) {
-            return strtok($url, '?#') ?: $url;
-        }
-
-        $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-
-        return $scheme . $parts['host'] . $port . ($parts['path'] ?? '');
     }
 }

@@ -13,6 +13,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 
@@ -25,6 +26,11 @@ use Modules\AI\Ai\SelfHosted\ServiceRequestId;
  */
 final readonly class EmbeddingServiceIdentity
 {
+    /**
+     * The version of the service API this client speaks: the `api_version` of `/health`.
+     */
+    public const int API_VERSION = 1;
+
     /**
      * The model to check and where it comes from: the probe's answer first, `/health` as fallback;
      * null when neither names one.
@@ -50,13 +56,18 @@ final readonly class EmbeddingServiceIdentity
     }
 
     /**
-     * The model `/health` reports, or null when it names none.
+     * The model `/health` reports, or null when it names none. A service that reports an `api_version`
+     * other than {@see self::API_VERSION} gets a warning, once per process: it may still answer, but not
+     * as this client expects. A service that reports none predates the field and is not warned about.
      *
      * @throws SelfHostedServiceException when the service cannot be reached or answers an error
      */
     public function healthModel(): ?string
     {
-        $response = $this->send($this->url() . '/health', static fn (PendingRequest $request, string $url): Response => $request->timeout(5)->get($url));
+        $url = $this->url() . '/health';
+        $response = $this->send($url, static fn (PendingRequest $request, string $url): Response => $request->timeout(5)->get($url));
+
+        self::checkApiVersion($url, $response->json('api_version'));
 
         return self::modelName($response->json('model'));
     }
@@ -95,6 +106,23 @@ final readonly class EmbeddingServiceIdentity
         EmbeddingDimensionProbe::assertDimensions($profile, $response->json('embeddings.0'));
 
         return self::modelName($response->json('model'));
+    }
+
+    private static function checkApiVersion(string $url, mixed $received): void
+    {
+        if ($received === null || $received === self::API_VERSION) {
+            return;
+        }
+
+        $endpoint = ServiceRequestId::endpointOf($url);
+
+        // `once()` keys on this call site and the closure's variables: one warning per process and per answer.
+        once(static fn () => Log::warning('The embedding service speaks an API version this client does not know', [
+            'service' => 'sentence_transformers',
+            'endpoint' => $endpoint,
+            'expected_api_version' => self::API_VERSION,
+            'received_api_version' => $received,
+        ]));
     }
 
     private static function modelName(mixed $model): ?string

@@ -70,3 +70,36 @@ it('fails with the request id and the original reason when the probe cannot reac
         fn (string $message, array $context): bool => $context['endpoint'] === 'http://st.test:8000/embed' && $context['status'] === null,
     );
 });
+
+/**
+ * The client speaks version 1 of the service API. A service that speaks another one may still answer, so the
+ * check only warns, once per process, and an older service that does not report a version is not a mismatch.
+ */
+it('does not warn when /health reports api version 1 or no api version', function (array $health): void {
+    Log::spy();
+    Http::fake(['*/health' => Http::response($health)]);
+
+    (new EmbeddingServiceIdentity())->healthModel();
+
+    Log::shouldNotHaveReceived('warning');
+})->with([
+    'api version 1' => [['model' => 'm', 'api_version' => 1]],
+    'no api version' => [['model' => 'm']],
+]);
+
+it('warns once per process, naming the expected and the received version, when /health reports another api version', function (): void {
+    Log::spy();
+    Http::fake(['*/health' => Http::response(['model' => 'intfloat/multilingual-e5-small', 'api_version' => 2])]);
+
+    $identity = new EmbeddingServiceIdentity();
+
+    expect($identity->healthModel())->toBe('intfloat/multilingual-e5-small');
+    (new EmbeddingServiceIdentity())->healthModel();
+
+    Log::shouldHaveReceived('warning')->once()->withArgs(
+        fn (string $message, array $context): bool => $context['service'] === 'sentence_transformers'
+            && $context['endpoint'] === 'http://st.test:8000/health'
+            && $context['expected_api_version'] === 1
+            && $context['received_api_version'] === 2,
+    );
+});
