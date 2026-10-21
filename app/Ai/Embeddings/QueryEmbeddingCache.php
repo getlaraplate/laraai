@@ -36,6 +36,10 @@ final readonly class QueryEmbeddingCache
      */
     public function remember(string $text, Closure $compute): array
     {
+        if (self::normalize($text) === null) {
+            return $compute();
+        }
+
         $key = $this->keyFor($text);
 
         try {
@@ -88,7 +92,7 @@ final readonly class QueryEmbeddingCache
     public function keyFor(string $text): string
     {
         $profile = ($this->registry ?? resolve(EmbeddingModelRegistry::class))->active();
-        $normalized = mb_trim((string) preg_replace('/\s+/u', ' ', $text));
+        $normalized = self::normalize($text) ?? '';
 
         return 'ai:query-embedding:' . hash('sha256', json_encode([
             $profile->key,
@@ -98,6 +102,17 @@ final readonly class QueryEmbeddingCache
             $profile->queryPrefix,
             $normalized,
         ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * The text with its whitespace collapsed, or null when it is not valid UTF-8 and so has no
+     * identity worth a cache entry.
+     */
+    private static function normalize(string $text): ?string
+    {
+        $collapsed = preg_replace('/\s+/u', ' ', $text);
+
+        return $collapsed === null ? null : mb_trim($collapsed);
     }
 
     /**

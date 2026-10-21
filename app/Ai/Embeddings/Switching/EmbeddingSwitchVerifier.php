@@ -7,6 +7,7 @@ namespace Modules\AI\Ai\Embeddings\Switching;
 use Illuminate\Database\Eloquent\Model;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
+use Modules\AI\Contracts\IEmbeddingService;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 use Modules\Core\Search\Support\VectorModelContext;
@@ -94,8 +95,9 @@ final readonly class EmbeddingSwitchVerifier
     }
 
     /**
-     * The embedding of {@see self::SMOKE_TEXT} with the target, as a search query embeds it; null
-     * when no query embedder is bound.
+     * The embedding of {@see self::SMOKE_TEXT} with the target, as a search query embeds it but
+     * straight from the provider, never from the query cache, so each run proves the target answers
+     * now; null when no query embedder is bound.
      *
      * @return list<float>|null
      */
@@ -106,7 +108,7 @@ final readonly class EmbeddingSwitchVerifier
         }
 
         try {
-            $vector = $this->registry->withActive($target->key, static fn (): array => app(ITextEmbedder::class)->embed(self::SMOKE_TEXT));
+            $vector = $this->registry->withActive($target->key, static fn (): array => array_values(app(IEmbeddingService::class)->getEmbeddingsProvider()->embedText(self::SMOKE_TEXT)));
         } catch (Throwable $exception) {
             throw new EmbeddingSwitchPhaseFailed("the smoke query text could not be embedded with \"{$target->key}\": {$exception->getMessage()}", previous: $exception);
         }

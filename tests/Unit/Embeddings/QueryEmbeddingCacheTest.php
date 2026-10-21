@@ -167,3 +167,35 @@ it('treats a malformed stored value as a miss', function (): void {
 
     expect($cache->remember('x', static fn (): array => [0.4]))->toBe([0.4]);
 });
+
+it('computes uncached for text that is not valid UTF-8', function (): void {
+    $cache = new QueryEmbeddingCache;
+    $calls = 0;
+    $compute = function () use (&$calls): array {
+        $calls++;
+
+        return [0.6];
+    };
+
+    $cache->remember("\xB1\x31 uno", $compute);
+    $cache->remember("\xC3\x28 due", $compute);
+
+    $store = Cache::getStore();
+    $storage = new ReflectionProperty($store, 'storage')->getValue($store);
+
+    expect($calls)->toBe(2)
+        ->and($storage)->toBeEmpty();
+});
+
+it('lets a compute failure through and frees the lock', function (): void {
+    $cache = new QueryEmbeddingCache;
+    $failure = new RuntimeException('provider down');
+
+    expect(fn () => $cache->remember('guasto', static fn (): array => throw $failure))->toThrow($failure);
+
+    $lock = Cache::lock($cache->keyFor('guasto') . ':lock');
+
+    expect($lock->get())->toBeTrue();
+
+    $lock->release();
+});

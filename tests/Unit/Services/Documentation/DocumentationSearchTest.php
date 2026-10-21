@@ -162,3 +162,23 @@ it('lets a retrieval failure through as RuntimeException', function (): void {
     expect(fn (): array => $search->search(doc_search_user(1, []), 'cms', 'q'))
         ->toThrow(RuntimeException::class);
 });
+
+it('turns a Markdown chunk into plain text before cutting the excerpt', function (): void {
+    $markdown = "# Approvals\n\n| Step | Who |\n|------|-----|\n| One | **Editor** |\n\n```php\n\$x = 1;\n```\n\nSee the [guide](https://example.test/guide) for _details_.\n\n<script>alert('x')</script>";
+    $document = (new Document($markdown))->setSourceName('Approvals');
+
+    $excerpt = DocumentationPassage::fromDocument($document)?->excerpt;
+
+    expect($excerpt)->toBeString()
+        ->not->toContain('#')
+        ->not->toContain('|')
+        ->not->toContain('```')
+        ->not->toContain('](')
+        ->not->toContain('**')
+        ->not->toContain('_details_')
+        ->not->toContain('<')
+        ->not->toContain('>')
+        ->toContain('Approvals')
+        ->toContain('Editor')
+        ->toContain('See the guide for details.');
+});

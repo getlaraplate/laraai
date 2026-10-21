@@ -158,6 +158,8 @@ it('resolves search/{module}/documentation to the AI controller and leaves the o
 });
 
 it('reserves the name documentation', function (): void {
+    expect(Module::allEnabled())->not->toBeEmpty();
+
     foreach (array_keys(Module::allEnabled()) as $module) {
         expect(DynamicEntity::tryResolveModel('documentation', null, $module))->toBeNull();
     }

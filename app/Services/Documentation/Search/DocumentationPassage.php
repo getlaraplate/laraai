@@ -37,7 +37,7 @@ final readonly class DocumentationPassage
         return new self(
             label: $label,
             reference: $label,
-            excerpt: Str::limit($document->getContent(), self::EXCERPT_LENGTH),
+            excerpt: Str::limit(self::plainText($document->getContent()), self::EXCERPT_LENGTH),
             headingBreadcrumb: self::breadcrumb($document),
             module: self::metadataString($document, 'module'),
         );
@@ -55,6 +55,18 @@ final readonly class DocumentationPassage
             'heading_breadcrumb' => $this->headingBreadcrumb,
             'module' => $this->module,
         ], static fn (?string $value): bool => $value !== null && $value !== '');
+    }
+
+    /**
+     * The chunk keeps the Markdown of its source: rendered with raw HTML stripped, then reduced to
+     * its text, so the excerpt carries no syntax and no tag.
+     */
+    private static function plainText(string $markdown): string
+    {
+        $html = Str::markdown($markdown, ['html_input' => 'strip']);
+        $text = html_entity_decode(strip_tags(str_replace(['</p>', '</li>', '</tr>', '</h1>', '</h2>', '</h3>', '</h4>', '</h5>', '</h6>', '</pre>'], ' ', $html)), ENT_QUOTES | ENT_HTML5);
+
+        return mb_trim((string) preg_replace('/\s+/u', ' ', $text));
     }
 
     /**
