@@ -53,7 +53,8 @@ empty analysis as completed. Only an unreadable file yields an empty vision resu
 `AnalyzeMediaJob::failed()` marks the analysis row `failed` (a completed row is left as it is), so it is never
 reused as a result and the next upload of the same file analyses it again, and signals completion anyway, so
 the media is still indexed on its deterministic layer. A Whisper service that is unset or down yields no
-transcript; the rest of the analysis runs.
+transcript; the rest of the analysis runs. A failed Whisper call logs one warning with its request id (see
+*Self-hosted AI services* in `MODULE.md`).
 
 ## Filament surface (M22)
 

@@ -62,9 +62,18 @@ file=<the media bytes>        # form field name MUST be "file"
 ```
 
 Response: `{ "text": "...", "language": "en", "duration": 12.3 }`. Only `text` is
-used; any non-2xx response makes the transcriber return `null` (media still indexes).
+used; any non-2xx response, or a service that cannot be reached, makes the
+transcriber return `null` (media still indexes) and log one warning (see
+*Tracing a failed call*).
 The non-2xx answers of the service itself: `400` without a `file`, `401` without
-a valid key, `413` for a file over its `WHISPER_MAX_UPLOAD_MB` (default 512 MB).
+a valid key, `413` for a file over its `WHISPER_MAX_UPLOAD_MB` (default 512 MB),
+`503` with `Retry-After` while the model loads or when `WHISPER_MAX_IN_FLIGHT`
+uploads are already running, `500` `{"error":"internal error","request_id":"…"}`
+for an unexpected error.
+
+Every call sends an `X-Request-Id` header (32 hex characters, new for each call);
+the service echoes it and prints it in its log. The full contract is the
+service's [`openapi.json`](https://github.com/getlaraplate/whisper-api/blob/master/openapi.json).
 
 The service transcribes **one file at a time** by default (`WHISPER_NUM_WORKERS=1`)
 and has no job queue: a second upload waits until the first is done, and the
@@ -91,8 +100,12 @@ printf 'WHISPER_API_KEY=%s\n' "$(openssl rand -hex 24)" > /opt/whisper-api/.env
 chmod 600 /opt/whisper-api/.env
 cp /opt/whisper-api/whisper.service /etc/systemd/system/whisper.service
 systemctl daemon-reload && systemctl enable --now whisper
-curl -s http://127.0.0.1:8001/health          # {"status":"healthy","readiness":"experimental","model":"base",...}
+curl -s http://127.0.0.1:8001/health          # {"status":"healthy","readiness":"experimental","version":"0.1.0","api_version":1,"model":"base",...}
+curl -s http://127.0.0.1:8001/ready           # {"status":"ready"} once the model is loaded, 503 {"status":"loading"} before
 ```
+
+`/health` says the process runs; `/ready` says it can transcribe. Point a load
+balancer, a container healthcheck or a monitoring probe at `/ready`.
 
 The secret lives only in `/opt/whisper-api/.env` (git-ignored, root-only: systemd
 reads it before dropping privileges), never in the repo.
@@ -130,4 +143,24 @@ Then turn on `features.media_analysis.enabled` in Filament > Settings.
 
 Verify: analyze an audio/video media and confirm its `ai_media_analyses` row (by
 `content_hash`) has a non-empty `transcript`. If the service is down or misconfigured,
-transcription silently degrades to `null` and the rest of the analysis still runs.
+transcription degrades to `null`, the rest of the analysis still runs, and the
+Laraplate log has a warning for the failed call.
+
+---
+
+## Tracing a failed call
+
+A failed transcription logs one warning, `Self-hosted AI service call failed`, with
+`service` (`whisper`), `endpoint`, `status` (empty when the service was not reached)
+and `request_id`. It holds nothing of the media: no file name, path or text. Take the
+id to the Whisper host:
+
+```bash
+journalctl -u whisper | grep <request_id>
+```
+
+A `503` means the model is still loading, or `WHISPER_MAX_IN_FLIGHT` uploads were
+already running: analyse fewer media at once, or raise that limit on the host after
+reading the service README, section
+[Concurrency](https://github.com/getlaraplate/whisper-api#concurrency). A `500` carries the same
+`request_id` in its body, and the exception is in the service log under that id.

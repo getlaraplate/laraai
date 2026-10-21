@@ -247,9 +247,11 @@ Keep `EMBEDDING_MODEL` equal to the active Laraplate profile's `service_model`. 
 KEY=<the SENTENCE_TRANSFORMERS_API_KEY of the service>
 
 curl -s "http://127.0.0.1:8000/health"   # open, no key
-# {"status":"healthy","readiness":"experimental","model":"intfloat/multilingual-e5-small",
-#  "default_model":"intfloat/multilingual-e5-small",
+# {"status":"healthy","readiness":"experimental","version":"0.1.0","api_version":1,
+#  "model":"intfloat/multilingual-e5-small","default_model":"intfloat/multilingual-e5-small",
 #  "loaded_models":["intfloat/multilingual-e5-small"],"model_cache":2,"reranker":{...}}
+
+curl -s "http://127.0.0.1:8000/ready"    # open, no key: 200 {"status":"ready"} once the default models are loaded
 
 # Without the key: expect 401 when the service has one.
 curl -s -o /dev/null -w "%{http_code}\n" -X POST "http://127.0.0.1:8000/embed" \
@@ -272,6 +274,10 @@ curl -s -X POST "http://127.0.0.1:8000/embed" \
 ```
 
 From the Laraplate application server, repeat the same checks against the remote IP/hostname and port.
+
+`/health` says the process runs; `/ready` says it can embed. Point a load balancer, a container
+healthcheck or a monitoring probe at `/ready`: until the default models are loaded it answers `503`
+`{"status":"loading"}`, and so do `/embed` and `/score`.
 
 ---
 
@@ -320,6 +326,39 @@ Hybrid search can rerank its top results with a cross-encoder through `POST {url
 
 ---
 
+## Tracing a failed call
+
+Every call Laraplate makes to the service (`/embed` from the embedding jobs and the probes, `/health`,
+`/score` from the reranker) sends an `X-Request-Id` header: 32 hex characters, new for each call and kept
+across the reranker's retry. The service echoes it and prints it in its access log.
+
+A failed call (service unreachable, or an error status) leaves the id on the Laraplate side:
+
+- each failed call of the embedding jobs and of `ai:embeddings:repair` / `ai:embeddings:switch` logs one
+  warning, `Self-hosted AI service call failed`, with `service`, `endpoint`, `status` (empty when the
+  service was not reached) and `request_id`, and fails with a message that starts with `[request_id …]`:
+  the commands print it, and the job's error lines (`Embedding generation failed for model: …`,
+  `GenerateEmbeddingsJob failed`) carry it in their `error`;
+- a failed rerank is logged once by the search, as `Reranker failed; returning fused results without
+  reranking`, with an `error` that starts with `[request_id …]`.
+
+The log line holds no text, query or key. Take the id to the service host:
+
+```bash
+journalctl -u sentence-transformers | grep <request_id>
+```
+
+An unexpected error on the service answers `500` with the same `request_id` in its body, and the
+exception is in the service log under that id.
+
+`ai:embeddings:repair` and `ai:embeddings:switch` read `/health`. When it reports an `api_version` other
+than the one this Laraplate speaks (`1`), a warning `The embedding service speaks an API version this
+client does not know` is logged, once per process, with the expected and the received version: update
+Laraplate or the service so that the two agree. A service that reports no `api_version` predates the field
+and is not warned about.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -331,6 +370,8 @@ Hybrid search can rerank its top results with a cross-encoder through `POST {url
 | Vector search off, `meta.vector_disabled` = `dimension_mismatch` | The index `dense_vector` dims differ from `search.vector.dimensions`; finish or resume the switch (`ai:embeddings:status`) |
 | Keyword-only search documents | Embeddings job failed; check Horizon; run `ai:embeddings:repair` |
 | `Embeddings count mismatch` | API returned fewer vectors than texts |
+| HTTP 503 from `/embed` or `/score` | The service is still loading its default models (`/ready` answers `503` too) or is busy (`EMBEDDING_MAX_IN_FLIGHT` reached); it sends `Retry-After` |
+| Any failed call | Find the `request_id` in the Laraplate log and grep the service log for it (see *Tracing a failed call*) |
 
 ---
 
