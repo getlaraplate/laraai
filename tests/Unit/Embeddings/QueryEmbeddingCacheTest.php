@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Sleep;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
@@ -130,4 +131,39 @@ it('computes when the cache store throws', function (): void {
     $result = (new QueryEmbeddingCache)->remember('x', static fn (): array => [0.7]);
 
     expect($result)->toBe([0.7]);
+});
+
+it('computes when the store fails after the lock is taken', function (): void {
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->once()->andReturn(true);
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    Cache::shouldReceive('get')->twice()->andReturnUsing(static fn (): null => null, static fn () => throw new RuntimeException('down'));
+    Cache::shouldReceive('lock')->once()->andReturn($lock);
+    Cache::shouldReceive('put')->andReturn(true);
+
+    expect((new QueryEmbeddingCache)->remember('x', static fn (): array => [0.2]))->toBe([0.2]);
+});
+
+it('does not cache an empty or malformed vector', function (array $bad): void {
+    $cache = new QueryEmbeddingCache;
+    $calls = 0;
+
+    foreach ([1, 2] as $_) {
+        $cache->remember('x', function () use (&$calls, $bad): array {
+            $calls++;
+
+            return $bad;
+        });
+    }
+
+    expect($calls)->toBe(2)
+        ->and(Cache::get($cache->keyFor('x')))->toBeNull();
+})->with([[[]], [['a']]]);
+
+it('treats a malformed stored value as a miss', function (): void {
+    $cache = new QueryEmbeddingCache;
+    Cache::put($cache->keyFor('x'), ['a'], 300);
+
+    expect($cache->remember('x', static fn (): array => [0.4]))->toBe([0.4]);
 });

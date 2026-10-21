@@ -36,8 +36,9 @@ final readonly class QueryEmbeddingCache
      */
     public function remember(string $text, Closure $compute): array
     {
+        $key = $this->keyFor($text);
+
         try {
-            $key = $this->keyFor($text);
             $cached = $this->read($key);
 
             if ($cached !== null) {
@@ -46,7 +47,11 @@ final readonly class QueryEmbeddingCache
 
             $lock = Cache::lock($key . ':lock', self::LOCK_SECONDS);
             $lock->block($this->waitSeconds);
-        } catch (LockTimeoutException|Throwable) {
+        } catch (Throwable $exception) {
+            if (! $exception instanceof LockTimeoutException) {
+                report($exception);
+            }
+
             return $compute();
         }
 
@@ -59,17 +64,20 @@ final readonly class QueryEmbeddingCache
 
             $vector = $compute();
 
-            try {
-                Cache::put($key, $vector, self::TTL_SECONDS);
-            } catch (Throwable) {
-                return $vector;
+            if (self::isStorable($vector)) {
+                try {
+                    Cache::put($key, $vector, self::TTL_SECONDS);
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
             }
 
             return $vector;
         } finally {
             try {
                 $lock->release();
-            } catch (Throwable) {
+            } catch (Throwable $exception) {
+                report($exception);
             }
         }
     }
@@ -93,12 +101,31 @@ final readonly class QueryEmbeddingCache
     }
 
     /**
+     * @phpstan-assert-if-true list<float> $value
+     */
+    private static function isStorable(mixed $value): bool
+    {
+        return is_array($value)
+            && $value !== []
+            && array_is_list($value)
+            && array_all($value, static fn (mixed $item): bool => is_int($item) || is_float($item));
+    }
+
+    /**
+     * A store failure counts as a miss.
+     *
      * @return list<float>|null
      */
     private function read(string $key): ?array
     {
-        $value = Cache::get($key);
+        try {
+            $value = Cache::get($key);
+        } catch (Throwable $exception) {
+            report($exception);
 
-        return is_array($value) ? array_values($value) : null;
+            return null;
+        }
+
+        return self::isStorable($value) ? $value : null;
     }
 }
