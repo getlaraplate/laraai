@@ -59,7 +59,8 @@ If AI does not handle indexing, Core `IndexModelFallbackListener` still runs `In
 | `ai.features.moderation.threshold.{approve,reject}` | settings `features.moderation.threshold.*` | Confidence thresholds |
 | `ai.features.moderation.queue` | setting `features.moderation.queue` | Queue of the moderation job, read at dispatch |
 | `ai.features.embeddings.enabled` | setting `features.embeddings.enabled` | Embedding pipeline |
-| `ai.features.faq.enabled` | setting `features.faq.enabled` | Documentation RAG assistant |
+| `ai.features.chat.enabled` | setting `features.chat.enabled` | The in-app assistant (conversations, messages, agent, proposed writes); seeded off |
+| `ai.features.faq.enabled` | setting `features.faq.enabled` | Documentation RAG: the assistant reads the user documentation to answer how the application works |
 
 The settings are in Filament > Settings, group `ai`. No `AI_MODERATION_*` or `AI_COMMENT_*` env variable is read.
 

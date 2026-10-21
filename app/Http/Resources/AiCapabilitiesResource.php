@@ -29,7 +29,7 @@ final class AiCapabilitiesResource extends JsonResource
      * operator opted in and the person is permitted to perform, `kind` being `read` or `write`, and
      * `requires_approval` saying that a write the person confirms is then sent for a vote.
      *
-     * @return array{enabled: bool, configured: bool, features: array{proposals: bool, writes: bool, streaming: bool}, actions: list<array{entity: string, operation: string, kind: string, requires_approval: bool}>}
+     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool}, actions: list<array{entity: string, operation: string, kind: string, requires_approval: bool}>}
      */
     #[Override]
     public function toArray(Request $request): array

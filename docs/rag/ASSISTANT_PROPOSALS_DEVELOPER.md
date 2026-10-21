@@ -53,13 +53,14 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
 `GET /app/ai/capabilities`, for a signed-in user (401 when not signed in, 403 for the guest account):
 
 ```json
-{ "data": { "enabled": true, "configured": true, "features": { "proposals": true, "streaming": true } } }
+{ "data": { "enabled": true, "configured": true, "features": { "help": true, "proposals": true, "streaming": true } } }
 ```
 
 | Field | Meaning |
 |---|---|
-| `enabled` | The FAQ/RAG switch `features.faq.enabled`, the assistant's one global switch. |
+| `enabled` | The setting `features.chat.enabled`, the assistant's one global switch. Seeded off: an instance has no assistant until an operator turns it on. |
 | `configured` | The chat provider chosen in Settings has what it needs (a key or a URL). |
+| `features.help` | The setting `features.faq.enabled`: the assistant answers from the user documentation. With it off the assistant still serves what its tools reach, reads no documentation and is not told to cite it. A client hides the help sources and the "help" group of its search. |
 | `features.proposals` | The policy compiled for the in-app profile with `ui_proposals` still allows a tool. |
 | `features.streaming` | `POST /app/ai/agent` exists. |
 
@@ -133,7 +134,7 @@ the complete output, then delivers it. Proposals and citations come in `message.
 same, and it cannot select or imitate another profile. The body is `{ "threadId": <conversation id>,
 "message": "...", "context": {...} }`. The conversation must be the user's own (403 otherwise), must exist
 (404), and the input is validated as for the base transport (422 as JSON, whatever `Accept` the client sent).
-With the assistant off the answer is a 403 `{"code": "FEATURE_DISABLED"}` before anything streams. A client
+With the assistant off the answer is a 403 `{"code": "FEATURE_DISABLED"}` before anything streams. The middleware `EnsureAssistantEnabled` gives the same answer on every assistant route: the conversations (list, create, detail, delete), their messages (list, send, stream), the agent, and the confirmation or rejection of a proposed write. A request that is not signed in passes the gate and is answered 401 by the controller, so the gate tells a stranger nothing. `GET /app/ai/capabilities` is not behind it: a client reads it to learn that the assistant is off. A client
 that is not signed in gets 401.
 
 The response is `text/event-stream` (Laravel's `response()->eventStream()`), one event per line pair, named by
@@ -216,6 +217,6 @@ not that a real model proposes when it should.
 | The assistant never proposes | The page sent no `proposable` list, an entry broke its bounds (it is dropped), or its schema uses a keyword outside the subset. |
 | A proposal is refused | The target is not declared, the value breaks the declared schema, or the reason is not plain text of 240 characters at most. |
 | A message says "suggestion" instead of what the model wrote | It claimed a pending proposal was applied and was replaced. |
-| `POST /app/ai/agent` answers 401, 403 or 422 as JSON | 401: not signed in. 403 with `FEATURE_DISABLED`: the assistant is off. 403 without a code: the conversation is not the user's own. 422: the input broke the message request, for example a control field in `context`. |
+| `POST /app/ai/agent` answers 401, 403 or 422 as JSON | 401: not signed in. 403 with `FEATURE_DISABLED`: the assistant is off (`features.chat.enabled`). 403 without a code: the conversation is not the user's own. 422: the input broke the message request, for example a control field in `context`. |
 | A conversation has no title | No non-refused answer yet, or the queue is not running. |
 | `model:prune` leaves old suggestions | The scheduler is not running (`model:prune` for `ContextualSuggestion` is scheduled daily). |

@@ -86,6 +86,7 @@ No HTTP endpoint needed - use services directly.
 | Governed writes | Active | Writes are proposals the person confirms |
 | Embedding system | Active | Powers vector search; setting `features.embeddings.enabled` |
 | Translation system | Active | Automatic translations; setting `features.translation.enabled` |
+| In-app assistant | Active | One switch, setting `features.chat.enabled` (seeded off), enforced by `EnsureAssistantEnabled` on every assistant route; apart from the documentation, so an assistant may serve its tools only |
 | RAG/FAQ | Active | Documentation answers; setting `features.faq.enabled` |
 | Contextual suggestions | Active | Proactive AI suggestions with rate limiting; setting `features.contextual_suggestions.enabled` |
 | Memory/Summary | Kept, not called | Setting `features.chat.summary.enabled`; for the persistent user memory plan |

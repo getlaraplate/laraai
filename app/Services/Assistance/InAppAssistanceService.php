@@ -86,11 +86,14 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         $write_proposals->startTurn();
 
         try {
+            // With the documentation setting off the assistant still serves what its tools reach: it
+            // neither reads the documentation nor is told to answer from it.
+            $reads_documentation = app(AssistantCapabilities::class)->help();
             $policy = $this->policy_compiler->compile(
                 AssistantProfile::InAppAssistance,
                 [
                     'application_content',
-                    'in_app_rag',
+                    ...($reads_documentation ? ['in_app_rag'] : []),
                     'read_only_graph',
                     AssistantCapabilities::PROPOSALS_CAPABILITY,
                     AssistantCapabilities::READS_CAPABILITY,
@@ -102,9 +105,11 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $module_context = $this->serverApplicationContext();
             $scope = $this->scope_resolver->resolve($access->profile, $module_context?->module);
             $retrieval_started_at = hrtime(true);
-            $documents = $this->documentation_retrieval instanceof Closure
-                ? ($this->documentation_retrieval)($input, $access, $scope)
-                : $this->documentation->retrieveForInApp($input, $access, $scope);
+            $documents = match (true) {
+                ! $reads_documentation => [],
+                $this->documentation_retrieval instanceof Closure => ($this->documentation_retrieval)($input, $access, $scope),
+                default => $this->documentation->retrieveForInApp($input, $access, $scope),
+            };
             $retrieval_latency_ms = (hrtime(true) - $retrieval_started_at) / 1_000_000;
             $prompt_context = $this->guardrails->validateContext(
                 $this->promptContext($policy, $documents, $request_context),

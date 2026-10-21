@@ -61,11 +61,11 @@ it('tells a signed-in user what the assistant offers', function (): void {
     $this->actingAs($this->user)
         ->getJson(route('ai.capabilities'))
         ->assertOk()
-        ->assertJsonPath('data', ['enabled' => true, 'configured' => true, 'features' => ['proposals' => true, 'writes' => false, 'streaming' => true], 'actions' => []]);
+        ->assertJsonPath('data', ['enabled' => true, 'configured' => true, 'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true], 'actions' => []]);
 });
 
 it('is not enabled while the assistant feature is off', function (): void {
-    config(['ai.features.faq.enabled' => false]);
+    config(['ai.features.chat.enabled' => false]);
 
     $this->actingAs($this->user)
         ->getJson(route('ai.capabilities'))

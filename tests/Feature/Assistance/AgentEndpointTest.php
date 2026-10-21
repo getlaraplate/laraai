@@ -260,7 +260,7 @@ it('refuses a request that is not signed in, a conversation that is not the user
 });
 
 it('says FEATURE_DISABLED before it streams anything when the assistant is off', function (): void {
-    config(['ai.features.faq.enabled' => false]);
+    config(['ai.features.chat.enabled' => false]);
     agentFakeModel($provider = new FakeAIProvider(new AssistantMessage('Open Settings.')));
 
     ($this->run)()->assertForbidden()->assertJsonPath('code', 'FEATURE_DISABLED');

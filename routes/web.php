@@ -8,15 +8,16 @@ use Modules\AI\Http\Controllers\AssistantWriteController;
 use Modules\AI\Http\Controllers\CapabilitiesController;
 use Modules\AI\Http\Controllers\ChatController;
 use Modules\AI\Http\Controllers\SuggestionController;
+use Modules\AI\Http\Middleware\EnsureAssistantEnabled;
 use Modules\AI\Http\Middleware\ResolveAssistantApplicationContext;
 
 Route::get('ai/capabilities', [CapabilitiesController::class, 'show'])->middleware('auth')->name('capabilities');
 // Authenticated by the controller, like the message routes: an `auth` redirect to a login page cannot serve a stream client.
-Route::post('ai/agent', [AgentController::class, 'run'])->middleware(ResolveAssistantApplicationContext::class)->name('agent');
+Route::post('ai/agent', [AgentController::class, 'run'])->middleware([EnsureAssistantEnabled::class, ResolveAssistantApplicationContext::class])->name('agent');
 
 Route::prefix('crud')->name('crud.')->group(function (): void {
-    // Chat routes
-    Route::controller(ChatController::class)->group(function (): void {
+    // Chat routes: every one answers 403 FEATURE_DISABLED while the assistant is off
+    Route::controller(ChatController::class)->middleware(EnsureAssistantEnabled::class)->group(function (): void {
         Route::get('select/ai/conversations', 'listConversations')->name('conversations.list');
         Route::post('insert/ai/conversations', 'insertConversation')->name('conversations.insert');
         Route::get('detail/ai/conversations/{conversation}', 'detailConversation')->name('conversations.detail');
@@ -27,7 +28,7 @@ Route::prefix('crud')->name('crud.')->group(function (): void {
     });
 
     // The person decides on what the assistant proposed: outside the model, as the authenticated user
-    Route::controller(AssistantWriteController::class)->group(function (): void {
+    Route::controller(AssistantWriteController::class)->middleware(EnsureAssistantEnabled::class)->group(function (): void {
         Route::get('detail/ai/assistant-writes/{proposal}', 'show')->name('assistant-writes.show');
         Route::post('update/ai/assistant-writes/{proposal}/confirm', 'confirm')->name('assistant-writes.confirm');
         Route::post('update/ai/assistant-writes/{proposal}/reject', 'reject')->name('assistant-writes.reject');

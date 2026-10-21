@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Modules\AI\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Http\StreamedEvent;
 use Illuminate\Support\Facades\Auth;
@@ -13,7 +12,6 @@ use Modules\AI\Http\Requests\AgentRunRequest;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Services\AssistAgentService;
 use Modules\AI\Services\Assistance\AssistantAccessContextFactory;
-use Modules\AI\Services\Assistance\AssistantCapabilities;
 use Modules\Core\Models\User;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -32,8 +30,7 @@ final class AgentController extends Controller
         AgentRunRequest $request,
         AssistAgentService $agent,
         AssistantAccessContextFactory $access,
-        AssistantCapabilities $capabilities,
-    ): StreamedResponse|JsonResponse {
+    ): StreamedResponse {
         $user = Auth::user();
 
         if (! $user instanceof User) {
@@ -44,10 +41,6 @@ final class AgentController extends Controller
 
         // The conversation must be the user's own and the user must be one the assistant serves, as for the base transport.
         $access->forInApp($conversation, $user);
-
-        if (! $capabilities->enabled()) {
-            return response()->json(['code' => 'FEATURE_DISABLED', 'message' => 'The assistant is not available.'], Response::HTTP_FORBIDDEN);
-        }
 
         $validated = $request->validated();
         $context = is_array($validated['context'] ?? null) ? $validated['context'] : null;

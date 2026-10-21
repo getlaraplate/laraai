@@ -26,10 +26,19 @@ final readonly class AssistantCapabilities
     public function __construct(private AssistantPolicyCompiler $policy_compiler) {}
 
     /**
-     * The assistant's reason to exist is to answer from the user documentation, so its one global
-     * switch is the one of the FAQ/RAG answers (`features.faq.enabled`).
+     * The assistant's one switch is `features.chat.enabled`, off until an operator turns it on. It is
+     * apart from the documentation: an assistant may serve information through its tools only.
      */
     public function enabled(): bool
+    {
+        return ai_config_bool('ai.features.chat.enabled', false);
+    }
+
+    /**
+     * The assistant answers from the user documentation (`features.faq.enabled`). With it off the
+     * assistant still serves what its tools reach, and reads no documentation.
+     */
+    public function help(): bool
     {
         return ai_config_bool('ai.features.faq.enabled', true);
     }
@@ -98,7 +107,7 @@ final readonly class AssistantCapabilities
     }
 
     /**
-     * @return array{enabled: bool, configured: bool, features: array{proposals: bool, writes: bool, streaming: bool}}
+     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool}}
      */
     public function toArray(): array
     {
@@ -106,6 +115,7 @@ final readonly class AssistantCapabilities
             'enabled' => $this->enabled(),
             'configured' => $this->configured(),
             'features' => [
+                'help' => $this->help(),
                 'proposals' => $this->proposals(),
                 'writes' => $this->writes(),
                 'streaming' => $this->streaming(),
