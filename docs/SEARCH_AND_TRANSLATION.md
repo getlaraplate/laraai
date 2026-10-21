@@ -216,12 +216,12 @@ php artisan ai:embeddings:repair --all [--if-idle]
 
 `GET /app/crud/search/{module}/documentation?q=` returns passages of the end-user documentation for the command palette. Retrieval only: no language model is called. It is a `/app` route (session), not exposed under `/api/v1`.
 
-- Gate, in this order: signed-in user (401), not a guest (403), `AssistantCapabilities::help()` i.e. `features.faq.enabled` (403 `{"code":"FEATURE_DISABLED"}`), then the module. The chat switch `features.chat.enabled` and the chat provider do not gate it.
+- Gate, in this order: the `auth` middleware (an unauthenticated call is refused there, before the limiter and the controller; the controller's own 401 is a backstop), not a guest (403), `AssistantCapabilities::help()` i.e. `features.faq.enabled` (403 `{"code":"FEATURE_DISABLED"}`), then the module. The chat switch `features.chat.enabled` and the chat provider do not gate it.
 - Module scope: `{module}` is the documentation scope, resolved through `AssistantScopeResolver` as the assistant does. A module that is unknown, disabled or not shaped `[a-z][a-z0-9_]{0,63}` answers 404 (the route takes any segment and the controller decides, so a malformed one never reaches Core as an entity).
 - `q`: trimmed, 3 to 200 characters, else 422. Validation runs after the gate and the module check, so a refused caller computes no embedding.
 - Access: each user gets only the passages their own tenant, locale and permissions allow (`AssistantAccessContextFactory::forDocumentationSearch`, no conversation). Two users share a cached vector, not results.
 - Response: the standard envelope, `data` a list of `{label, reference, excerpt, heading_breadcrumb?, module?}`; `excerpt` is cut at 300 characters, `reference` equals `label`. A retrieval failure (embedding provider or index down) answers 503.
-- Rate limit: 60 requests per minute per signed-in user, limiter `documentation-search`, key `ai.features.faq.search.rate_per_minute`; 429 beyond. The limiter runs before validation, so invalid calls count.
+- Rate limit: 60 requests per minute per signed-in user, limiter `documentation-search`, key `ai.features.faq.search.rate_per_minute`; 429 beyond. The limiter is route middleware that runs after `auth` and before the controller, so every authenticated call counts whatever its outcome (403, `FEATURE_DISABLED`, 404, 422, 503 or 200).
 - Reserved name: `documentation` is a reserved entity name for GET. The route is registered ahead of Core's `search/{module}/{entity?}`, so an entity called `documentation` is unreachable through GET search; a POST to the same path still reaches Core.
 
 ---
