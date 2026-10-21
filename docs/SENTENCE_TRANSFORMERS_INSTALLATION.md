@@ -340,7 +340,11 @@ A failed call (service unreachable, or an error status) leaves the id on the Lar
   the commands print it, and the job's error lines (`Embedding generation failed for model: …`,
   `GenerateEmbeddingsJob failed`) carry it in their `error`;
 - a failed rerank is logged once by the search, as `Reranker failed; returning fused results without
-  reranking`, with an `error` that starts with `[request_id …]`.
+  reranking`, with `request_id`, `service`, `endpoint` and `status` and an `error` that starts with
+  `[request_id …]`.
+
+A batch that fails is retried with fewer texts, so a service that is down leaves a burst of warnings, one
+per attempt and each with its own id: the first one is enough to start from.
 
 The log line holds no text, query or key. Take the id to the service host:
 
@@ -372,6 +376,7 @@ and is not warned about.
 | `Embeddings count mismatch` | API returned fewer vectors than texts |
 | HTTP 503 from `/embed` or `/score` | The service is still loading its default models (`/ready` answers `503` too) or is busy (`EMBEDDING_MAX_IN_FLIGHT` reached); it sends `Retry-After` |
 | Any failed call | Find the `request_id` in the Laraplate log and grep the service log for it (see *Tracing a failed call*) |
+| Many `Self-hosted AI service call failed` warnings at once | The service is down or saturated: the embedding batcher retries with smaller batches and each attempt logs its own warning |
 
 ---
 

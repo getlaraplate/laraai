@@ -128,3 +128,23 @@ it('still returns null without throwing when the log itself fails', function ():
 
     @unlink($path);
 });
+
+/**
+ * A failure of the client itself is not a service that could not be reached: it is logged apart, by class,
+ * so it is not taken for an outage.
+ */
+it('returns null and logs a client error apart when the call fails for another reason than the service', function (): void {
+    Log::spy();
+    config()->set('ai.providers.whisper.url', 'http://whisper.test');
+    Http::fake(['whisper.test/*' => static fn () => throw new LogicException('a bug')]);
+
+    $path = audioFixture();
+
+    expect((new WhisperTranscriber())->transcribe($path, 'audio/mpeg', transcriptionProfile()))->toBeNull();
+    Log::shouldHaveReceived('warning')->once()->withArgs(
+        fn (string $message, array $context): bool => $message === 'Self-hosted AI service call could not be handled'
+            && $context['exception'] === LogicException::class,
+    );
+
+    @unlink($path);
+});

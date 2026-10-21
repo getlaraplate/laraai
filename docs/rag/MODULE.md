@@ -648,10 +648,19 @@ request, so its retry sends the same id. A call that cannot reach the service, o
   unreachable) and `request_id`; never a text, a query, a file name or a key;
 - throws `Ai/SelfHosted/SelfHostedServiceException` (a `RuntimeException`; the HTTP exception is its
   previous), whose message starts with `[request_id …]` and whose `context()` gives the exception handler
-  the same four fields. `WhisperTranscriber` throws nothing (its contract is `null`).
+  the same four fields. The message repeats the reason of the HTTP exception with every URL in it reduced
+  to scheme, host, port and path. `WhisperTranscriber` throws nothing (its contract is `null`), even when
+  the log cannot be written.
 
-`CrossEncoderService` does not log: `EnsembleSearchService` catches the failure and logs its message,
-which already carries the id. An answer with a `2xx` status that the client cannot use (no vector, the
+`WhisperTranscriber` logs any other exception of the call (a bug, an answer it cannot handle) apart, as
+`Self-hosted AI service call could not be handled`, with `service`, `endpoint`, `request_id` and the
+exception class only, so it is not taken for an outage.
+
+`CrossEncoderService` does not log: `EnsembleSearchService` catches the failure and logs it as `Reranker
+failed; returning fused results without reranking`, with the message in `error` and the exception's
+`context()` merged in, so `request_id` and `status` are keys of that line too. The adaptive batcher of
+`SentenceTransformersEmbeddingsProvider` retries a failed batch with fewer texts, so a service that is down
+logs one warning per attempt, each with its own id. An answer with a `2xx` status that the client cannot use (no vector, the
 wrong model, one score short) keeps its own exception (`EmbeddingsException`, `RuntimeException`,
 `EmbeddingDimensionMismatch`) without a request id: the service log shows that call as a success.
 
@@ -659,8 +668,8 @@ wrong model, one score short) keeps its own exception (`EmbeddingsException`, `R
 
 `EmbeddingServiceIdentity::API_VERSION` is the version of the service contract this client speaks.
 `healthModel()` reads `api_version` from `/health` and logs a warning, once per process (Laravel `once()`),
-when it is another one; a service that does not report the field predates it and is not warned about. The
-cross-encoder and Whisper clients do not read `/health`.
+when it is another one (`"1"` and `1.0` count as `1`); a service that does not report the field predates it
+and is not warned about. The cross-encoder and Whisper clients do not read `/health`.
 
 ### Contract test
 
@@ -668,7 +677,9 @@ cross-encoder and Whisper clients do not read `/health`.
 `openapi.json`, copied in `tests/Fixtures/SelfHostedServices/` (`sentence-transformers-api.openapi.json`,
 `whisper-api.openapi.json`) next to the service `VERSION` each comes from (`*.version`). The helper
 `tests/Stubs/SelfHostedServiceContract` validates a body against a schema and treats an object schema without
-`additionalProperties` as closed. The test fails when a client sends a field the schema does not declare
+`additionalProperties` as closed. It checks `type`, `required`, `properties`, `additionalProperties`,
+`items`, `enum`, `const`, `pattern` and local `$ref`s, and refuses any other keyword (`anyOf`,
+`minItems`…): a fixture that starts using one fails until the helper learns it. The test fails when a client sends a field the schema does not declare
 or omits a required one; when a client stops parsing the example answers, or an answer reduced to its
 schema's required fields (so a client that needs a field the service does not promise fails); and when an
 example no longer matches its own schema. A field a client reads only when present is not caught this way:
@@ -686,8 +697,9 @@ php artisan test --compact Modules/AI/tests/Integration/SelfHostedServicesContra
 ```
 
 The paths are those of the stack checkout; elsewhere, take the files from the service repositories at the
-commit that sets the new `VERSION`. A failing test is a contract change to settle in the client, or to raise with the service;
-a new `api_version` also means raising `EmbeddingServiceIdentity::API_VERSION` once the client speaks it.
+commit that sets the new `VERSION`. A failing test is a contract change to settle in the client, or to
+raise with the service; a new `api_version` also means raising `EmbeddingServiceIdentity::API_VERSION` once
+the client speaks it (the test compares the fixtures with it).
 
 ## Operational guidance
 

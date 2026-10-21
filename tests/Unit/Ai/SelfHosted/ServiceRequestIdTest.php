@@ -72,3 +72,37 @@ it('carries the request id in the message and the report context of the exceptio
             'request_id' => $request_id->value,
         ]);
 });
+
+/**
+ * The message of the HTTP exception names the URL it called, credentials and query included: the message
+ * built from it keeps the reason and drops those.
+ */
+it('keeps credentials and the query out of the message of the exception it builds', function (): void {
+    $request_id = new ServiceRequestId('sentence_transformers', 'https://TOKEN@gw.test/embed?key=abc');
+    $previous = new ConnectException(
+        'cURL error 7: Failed to connect: Connection refused (see https://curl.haxx.se/libcurl/c/libcurl-errors.html) for https://TOKEN@gw.test/embed?key=abc',
+        new GuzzleRequest('POST', 'https://TOKEN@gw.test/embed?key=abc'),
+    );
+
+    $message = $request_id->exception($previous)->getMessage();
+
+    expect($message)->toContain('Connection refused')
+        ->and($message)->toContain('for https://gw.test/embed')
+        ->and($message)->toContain('(see https://curl.haxx.se/libcurl/c/libcurl-errors.html)')
+        ->and($message)->not->toContain('TOKEN')
+        ->and($message)->not->toContain('key=abc');
+});
+
+it('logs an error of the client apart from a failed call, naming its class only', function (): void {
+    Log::spy();
+    $request_id = new ServiceRequestId('whisper', 'http://whisper.test/transcribe');
+
+    $request_id->logClientError(new LogicException('/tmp/secret-file.mp3 broke'));
+
+    Log::shouldHaveReceived('warning')->once()->with('Self-hosted AI service call could not be handled', [
+        'service' => 'whisper',
+        'endpoint' => 'http://whisper.test/transcribe',
+        'request_id' => $request_id->value,
+        'exception' => LogicException::class,
+    ]);
+});

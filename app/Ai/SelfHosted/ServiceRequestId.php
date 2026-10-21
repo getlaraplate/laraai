@@ -103,6 +103,21 @@ final readonly class ServiceRequestId
     }
 
     /**
+     * Logs a call that failed on the client side (a bug, an answer it could not handle), apart from a call
+     * the service failed, so it is not taken for an outage. Only the class of the exception: its message may
+     * name what the call carried.
+     */
+    public function logClientError(Throwable $exception): void
+    {
+        Log::warning('Self-hosted AI service call could not be handled', [
+            'service' => $this->service,
+            'endpoint' => $this->endpoint,
+            'request_id' => $this->value,
+            'exception' => $exception::class,
+        ]);
+    }
+
+    /**
      * The failure to throw for a call that failed with `$previous`: its message starts with the request id,
      * so a command that prints a shortened message still shows it.
      */
@@ -112,9 +127,22 @@ final readonly class ServiceRequestId
         $outcome = $status === null ? 'failed' : "failed with status {$status}";
 
         return new SelfHostedServiceException(
-            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}: {$previous->getMessage()}",
+            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}: " . self::withoutUrlSecrets($previous->getMessage()),
             $this->context($status),
             $previous,
         );
+    }
+
+    /**
+     * `$text` with every URL in it reduced to {@see self::endpointOf()}: the HTTP exceptions name the URL
+     * they called, credentials and query included.
+     */
+    private static function withoutUrlSecrets(string $text): string
+    {
+        return preg_replace_callback(
+            '~\b[a-z][a-z0-9+.-]*://[^\s"\'<>()]+~i',
+            static fn (array $match): string => self::endpointOf($match[0]),
+            $text,
+        ) ?? $text;
     }
 }

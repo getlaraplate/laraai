@@ -80,7 +80,7 @@ it('copies each service document with the version it comes from', function (stri
     $contract = SelfHostedServiceContract::load($service);
 
     expect($contract->version())->toBe($contract->documentVersion())
-        ->and($contract->apiVersion())->toBe(1);
+        ->and($contract->apiVersion())->toBe(EmbeddingServiceIdentity::API_VERSION);
 })->with(['sentence-transformers-api', 'whisper-api']);
 
 it('validates a body against a schema: an undeclared field, a missing required one, a wrong type', function (array $body, string $error): void {
@@ -89,6 +89,25 @@ it('validates a body against a schema: an undeclared field, a missing required o
     'an undeclared field' => [['pairs' => [], 'top_k' => 3], '$.top_k is not declared'],
     'a missing required field' => [['model' => 'm'], '$.pairs is required'],
     'a wrong type' => [['pairs' => [['query' => 'q', 'text' => 5]]], '$.pairs[0].text must be string'],
+]);
+
+it('checks a pattern and a null const', function (): void {
+    $schema = $this->whisper->requestSchema('/transcribe', 'post', 'multipart/form-data');
+
+    expect($this->whisper->violations($schema, ['file' => 'binary', 'language' => 'it']))->toBe([])
+        ->and($this->whisper->violations($schema, ['file' => 'binary', 'language' => 'Italian']))->toContain('$.language must match ^[a-z]{2,3}$')
+        ->and($this->whisper->violations(['const' => null], 'x'))->toBe(['$ must be null']);
+});
+
+/**
+ * A keyword the helper does not check would leave its subtree unchecked without a word: a regenerated
+ * fixture that starts using one has to fail until the helper learns it.
+ */
+it('refuses a schema keyword it does not check', function (array $schema): void {
+    expect(fn () => $this->embeddings->violations($schema, ['a']))->toThrow(RuntimeException::class, 'not supported');
+})->with([
+    'minItems' => [['type' => 'array', 'minItems' => 1]],
+    'anyOf' => [['anyOf' => [['type' => 'string'], ['type' => 'null']]]],
 ]);
 
 it('sends /embed bodies the service declares, for one text and for a batch', function (): void {
@@ -132,9 +151,13 @@ it('sends the media in the multipart field the service declares', function (): v
 
     $schema = $this->whisper->requestSchema('/transcribe', 'post', 'multipart/form-data');
     Http::assertSent(function ($request) use ($schema): bool {
-        $fields = array_column($request->data(), 'name');
+        $body = [];
 
-        return $fields === ['file'] && $this->whisper->violations($schema, array_fill_keys($fields, 'binary')) === [];
+        foreach ($request->data() as $part) {
+            $body[$part['name']] = $part['name'] === 'file' ? 'binary' : $part['contents'];
+        }
+
+        return $this->whisper->violations($schema, $body) === [];
     });
 
     @unlink($path);

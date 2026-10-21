@@ -14,6 +14,7 @@ use Modules\Core\Search\AdaptiveBatchController;
 use Modules\Core\Search\Exceptions\EmbeddingsException;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Embeddings\AbstractEmbeddingsProvider;
+use Override;
 
 /**
  * Custom NeuronAI embeddings provider for SentenceTransformers API.
@@ -86,14 +87,17 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
     }
 
     /**
-     * @param  list<Document>  $documents
+     * Neuron's contract allows any keys (`Document[]`); the batches are numbered from zero.
+     *
+     * @param  array<array-key, Document>  $documents
      * @return list<Document>
      */
+    #[Override]
     public function embedDocuments(array $documents): array
     {
         return $this->batchController()->run(
             array_values($documents),
-            fn (array $batch): array => $this->embedBatch(array_values($batch)),
+            $this->embedBatch(...),
         );
     }
 

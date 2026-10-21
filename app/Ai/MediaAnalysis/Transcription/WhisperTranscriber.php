@@ -6,6 +6,8 @@ namespace Modules\AI\Ai\MediaAnalysis\Transcription;
 
 use function ai_config_string;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelProfile;
@@ -56,14 +58,18 @@ final class WhisperTranscriber implements MediaTranscriber
             $response = $request->post($endpoint);
 
             if (! $response->successful()) {
-                self::logFailure($request_id, $response->status());
+                self::quietly(static fn () => $request_id->logFailure($response->status()));
 
                 return null;
             }
 
             $text = $response->json('text');
+        } catch (ConnectionException|RequestException $exception) {
+            self::quietly(static fn () => $request_id->logFailure(ServiceRequestId::statusOf($exception)));
+
+            return null;
         } catch (Throwable $exception) {
-            self::logFailure($request_id, ServiceRequestId::statusOf($exception));
+            self::quietly(static fn () => $request_id->logClientError($exception));
 
             return null;
         }
@@ -72,11 +78,13 @@ final class WhisperTranscriber implements MediaTranscriber
     }
 
     /**
-     * Logs the failure without ever throwing: a log that cannot be written must not turn a missing transcript
-     * into a failed analysis.
+     * Logs without ever throwing: a log that cannot be written must not turn a missing transcript into a
+     * failed analysis.
+     *
+     * @param  callable(): void  $log
      */
-    private static function logFailure(ServiceRequestId $request_id, ?int $status): void
+    private static function quietly(callable $log): void
     {
-        rescue(static fn () => $request_id->logFailure($status), report: false);
+        rescue($log, report: false);
     }
 }

@@ -159,6 +159,10 @@ id to the Whisper host:
 journalctl -u whisper | grep <request_id>
 ```
 
+A warning `Self-hosted AI service call could not be handled` instead names an
+exception class: the call failed in Laraplate, not on the service. Only the class is
+logged, because the message of an exception may name the media.
+
 A `503` means the model is still loading, or `WHISPER_MAX_IN_FLIGHT` uploads were
 already running: analyse fewer media at once, or raise that limit on the host after
 reading the service README, section

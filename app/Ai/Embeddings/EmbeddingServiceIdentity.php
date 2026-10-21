@@ -110,7 +110,8 @@ final readonly class EmbeddingServiceIdentity
 
     private static function checkApiVersion(string $url, mixed $received): void
     {
-        if ($received === null || $received === self::API_VERSION) {
+        // `"1"` and `1.0` name the same version: the warning is about the version, not about its JSON type.
+        if ($received === null || (is_numeric($received) && (float) $received === (float) self::API_VERSION)) {
             return;
         }
 

@@ -372,3 +372,19 @@ it('logs the url the call really went to', function (string $base, string $calle
     'a base url with a trailing slash' => ['http://gw.test/st/', 'http://gw.test/st/embed'],
     'a base url without one' => ['http://gw.test/st', 'http://gw.test/embed'],
 ]);
+
+/**
+ * Neuron's contract is `Document[]`, keys included: the batches are numbered from zero all the same.
+ */
+it('embeds documents given with any keys', function (): void {
+    $history = [];
+    $provider = sentenceTransformersProviderRecording([
+        new Response(200, [], json_encode(['embeddings' => [[0.1], [0.2]]])),
+    ], $history);
+
+    $result = $provider->embedDocuments(['first' => new Document('First'), 7 => new Document('Second')]);
+
+    expect($result)->toHaveCount(2)
+        ->and($result[0]->getEmbedding())->toBe([0.1])
+        ->and($result[1]->getEmbedding())->toBe([0.2]);
+});

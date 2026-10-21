@@ -84,6 +84,8 @@ it('does not warn when /health reports api version 1 or no api version', functio
     Log::shouldNotHaveReceived('warning');
 })->with([
     'api version 1' => [['model' => 'm', 'api_version' => 1]],
+    'api version 1 as a string' => [['model' => 'm', 'api_version' => '1']],
+    'api version 1 as a float' => [['model' => 'm', 'api_version' => 1.0]],
     'no api version' => [['model' => 'm']],
 ]);
 

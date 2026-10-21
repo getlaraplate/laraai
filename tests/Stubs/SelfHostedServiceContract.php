@@ -9,12 +9,23 @@ use RuntimeException;
 /**
  * The OpenAPI document of a self-hosted AI service, as copied in `tests/Fixtures/SelfHostedServices`, with
  * the little JSON Schema the contract test needs: `type`, `required`, `properties`, `additionalProperties`,
- * `items`, `enum`, `const` and local `$ref`s. Strict on objects: a field the schema does not declare is a
- * violation unless the schema allows additional properties, because the services ignore unknown fields
- * silently and a typo would then never be noticed.
+ * `items`, `enum`, `const`, `pattern` and local `$ref`s; any other keyword is refused. Strict on objects: a
+ * field the schema does not declare is a violation unless the schema allows additional properties, because
+ * the services ignore unknown fields silently and a typo would then never be noticed.
  */
 final readonly class SelfHostedServiceContract
 {
+    /**
+     * The keywords {@see self::violations()} checks, and the annotations it may skip. Any other keyword fails,
+     * so a subtree is never left unchecked without a word.
+     *
+     * @var list<string>
+     */
+    private const array KEYWORDS = [
+        '$ref', 'type', 'required', 'properties', 'additionalProperties', 'items', 'enum', 'const', 'pattern',
+        'description', 'default', 'format', 'title', 'example', 'examples',
+    ];
+
     /**
      * @param  array<string, mixed>  $document
      */
@@ -133,8 +144,13 @@ final readonly class SelfHostedServiceContract
     public function violations(array $schema, mixed $value, string $at = '$'): array
     {
         $schema = $this->resolve($schema);
+        $unsupported = array_diff(array_keys($schema), self::KEYWORDS);
 
-        if (isset($schema['const']) && $value !== $schema['const']) {
+        if ($unsupported !== []) {
+            throw new RuntimeException('Schema keyword ' . implode(', ', $unsupported) . " at {$at} is not supported by this helper: teach it before relying on it.");
+        }
+
+        if (array_key_exists('const', $schema) && $value !== $schema['const']) {
             return ["{$at} must be " . json_encode($schema['const'])];
         }
 
@@ -148,6 +164,11 @@ final readonly class SelfHostedServiceContract
 
             if ($matched === null) {
                 return ["{$at} must be " . implode('|', $types)];
+            }
+
+            if ($matched === 'string' && isset($schema['pattern'])
+                && preg_match('/' . str_replace('/', '\/', $schema['pattern']) . '/u', $value) !== 1) {
+                return ["{$at} must match {$schema['pattern']}"];
             }
 
             if ($matched === 'object') {
