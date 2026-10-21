@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
+use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\AI\Services\CrossEncoderService;
 use Modules\Core\Search\Contracts\IReranker;
 
@@ -43,7 +45,55 @@ it('fails when the service answers with an error', function (): void {
     Http::fake(['*/score' => Http::response('boom', 500)]);
 
     expect(fn () => (new CrossEncoderService('http://test:8001'))->score(cross_encoder_pairs(2)))
-        ->toThrow(RequestException::class);
+        ->toThrow(SelfHostedServiceException::class);
+});
+
+it('sends a request id of 32 hex characters', function (): void {
+    Http::fake(['*/score' => Http::response(['scores' => [0.5]])]);
+
+    (new CrossEncoderService('http://test:8001'))->score(cross_encoder_pairs(1));
+
+    Http::assertSent(fn ($request): bool => preg_match('/^[0-9a-f]{32}$/', $request->header('X-Request-Id')[0] ?? '') === 1);
+});
+
+/**
+ * The service log shows the attempts of one rerank together only when they share the id.
+ */
+it('sends the same request id on the retry of a failed attempt', function (): void {
+    Http::fakeSequence('*/score')
+        ->push('busy', 503)
+        ->push(['scores' => [0.5]]);
+
+    (new CrossEncoderService('http://test:8001'))->score(cross_encoder_pairs(1));
+
+    $ids = Http::recorded()->map(fn (array $pair): string => $pair[0]->header('X-Request-Id')[0] ?? '')->all();
+
+    expect($ids)->toHaveCount(2)
+        ->and($ids[0])->toMatch('/^[0-9a-f]{32}$/')
+        ->and($ids[1])->toBe($ids[0]);
+});
+
+/**
+ * The search logs the rerank failure with the exception message ({@see EnsembleSearchService}), so the request
+ * id rides in that message instead of a second log line.
+ */
+it('names the request id, the endpoint and the status in the failure it throws, without logging it twice', function (): void {
+    Log::spy();
+    Http::fake(['*/score' => Http::response('boom', 500)]);
+
+    try {
+        (new CrossEncoderService('http://test:8001'))->score(cross_encoder_pairs(2));
+        $this->fail('The rerank should have failed.');
+    } catch (SelfHostedServiceException $exception) {
+        $id = Http::recorded()->first()[0]->header('X-Request-Id')[0];
+
+        expect($exception->getMessage())->toContain("request_id {$id}")
+            ->and($exception->getMessage())->toContain('http://test:8001/score')
+            ->and($exception->getMessage())->toContain('500')
+            ->and($exception->getPrevious())->toBeInstanceOf(RequestException::class);
+    }
+
+    Log::shouldNotHaveReceived('warning');
 });
 
 it('fails instead of inventing zero scores when the answer is not usable', function (mixed $answer, string $reason): void {

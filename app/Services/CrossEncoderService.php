@@ -7,8 +7,11 @@ namespace Modules\AI\Services;
 use function ai_config_nullable_string;
 use function ai_config_string;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
+use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\Core\Search\Contracts\IRerankerWithModel;
 use Modules\Core\Search\DTOs\RerankResult;
 use RuntimeException;
@@ -49,10 +52,12 @@ final readonly class CrossEncoderService implements IRerankerWithModel
      * throws: `EnsembleSearchService::rerankTopK()` catches the failure, logs it and keeps the fused order
      * with `meta['reranked'] = false`, which is how a caller (and the evaluation report) learns that no
      * reranking happened. Zeros made up for an unusable answer would pass for a real, unhelpful rerank.
+     * The search logs the failure with its message, which carries the request id: this client adds no
+     * log line of its own.
      *
      * @param  list<array{query: string, text: string}>  $pairs
      *
-     * @throws RequestException when the service is unreachable or keeps answering with an error status
+     * @throws SelfHostedServiceException when the service is unreachable or keeps answering with an error status
      * @throws RuntimeException when no service URL is configured, or the answer is not one numeric score per pair
      *
      * @return list<float>
@@ -68,7 +73,7 @@ final readonly class CrossEncoderService implements IRerankerWithModel
      *
      * @param  list<array{query: string, text: string}>  $pairs
      *
-     * @throws RequestException when the service is unreachable or keeps answering with an error status
+     * @throws SelfHostedServiceException when the service is unreachable or keeps answering with an error status
      * @throws RuntimeException when no service URL is configured, or the answer is not one numeric score per pair
      */
     public function scoreWithModel(array $pairs): RerankResult
@@ -80,14 +85,22 @@ final readonly class CrossEncoderService implements IRerankerWithModel
         [$url, $api_key] = $this->target();
         $pairs = array_slice($pairs, 0, 64);
 
-        $request = Http::connectTimeout(self::CONNECT_TIMEOUT)->timeout(self::TIMEOUT)->retry(2, 200);
+        $endpoint = mb_rtrim($url, '/') . '/score';
+        // Set once on the pending request, so every attempt of `retry()` sends the same id.
+        $request_id = new ServiceRequestId('cross_encoder', $endpoint);
+        $request = Http::connectTimeout(self::CONNECT_TIMEOUT)->timeout(self::TIMEOUT)->retry(2, 200)
+            ->withHeaders($request_id->header());
 
         if ($api_key !== null && $api_key !== '') {
             $request = $request->withToken($api_key);
         }
 
-        // `retry()` rethrows the last failure once its attempts are spent, so a response that gets here is a success.
-        $response = $request->post(mb_rtrim($url, '/') . '/score', ['pairs' => $pairs]);
+        try {
+            // `retry()` rethrows the last failure once its attempts are spent, so a response that gets here is a success.
+            $response = $request->post($endpoint, ['pairs' => $pairs]);
+        } catch (ConnectionException|RequestException $exception) {
+            throw $request_id->exception($exception);
+        }
 
         $payload = $response->json();
         $model = is_array($payload) && is_string($payload['model'] ?? null) && $payload['model'] !== '' ? $payload['model'] : null;

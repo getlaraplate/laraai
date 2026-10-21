@@ -3,7 +3,11 @@
 declare(strict_types=1);
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\Embeddings\SentenceTransformersEmbeddingsProvider;
 use Modules\Core\Search\Exceptions\EmbeddingsException;
 use NeuronAI\RAG\Document;
@@ -282,3 +286,68 @@ it('does not check the model when the service does not name it, or none was requ
     'an answer without a model' => ['intfloat/multilingual-e5-small', ['embeddings' => [array_fill(0, 384, 0.1)]]],
     'no model requested' => [null, ['model' => 'any-model', 'embeddings' => [array_fill(0, 384, 0.1)]]],
 ]);
+
+/**
+ * A provider whose client answers with $responses in order and records every request it sent in $history.
+ *
+ * @param  list<Response>  $responses
+ * @param  array<int, array<string, mixed>>  $history
+ */
+function sentenceTransformersProviderRecording(array $responses, array &$history): SentenceTransformersEmbeddingsProvider
+{
+    $stack = HandlerStack::create(new MockHandler($responses));
+    $stack->push(Middleware::history($history));
+
+    $provider = new SentenceTransformersEmbeddingsProvider('http://st.test:8000');
+    (new ReflectionClass($provider))->getProperty('client')->setValue($provider, new Client(['handler' => $stack, 'base_uri' => 'http://st.test:8000']));
+
+    return $provider;
+}
+
+it('sends a request id of 32 hex characters with every embed call', function (): void {
+    $history = [];
+    $provider = sentenceTransformersProviderRecording([
+        new Response(200, [], json_encode(['embeddings' => [[0.1, 0.2]]])),
+        new Response(200, [], json_encode(['embeddings' => [[0.1, 0.2]]])),
+    ], $history);
+
+    $provider->embedText('hello');
+    $provider->embedDocuments([new Document('First')]);
+
+    $ids = array_map(fn (array $entry): string => $entry['request']->getHeaderLine('X-Request-Id'), $history);
+
+    expect($ids)->toHaveCount(2)
+        ->and($ids[0])->toMatch('/^[0-9a-f]{32}$/')
+        ->and($ids[1])->toMatch('/^[0-9a-f]{32}$/')
+        ->and($ids[1])->not->toBe($ids[0]);
+});
+
+/**
+ * The job fails with the exception, so the request id in it is what leads from the job log to the service log.
+ * A single text goes through the same call as a batch without the adaptive batcher's retries (and their sleeps).
+ */
+it('throws a failure carrying the request id and logs it once when the service answers 500', function (): void {
+    Log::spy();
+    $history = [];
+    $provider = sentenceTransformersProviderRecording([
+        new Response(500, [], json_encode(['error' => 'internal error', 'request_id' => 'x'])),
+    ], $history);
+
+    try {
+        $provider->embedText('secret text');
+        $this->fail('The call should have failed.');
+    } catch (Throwable $exception) {
+        $id = $history[0]['request']->getHeaderLine('X-Request-Id');
+
+        expect($exception->getMessage())->toContain("request_id {$id}");
+    }
+
+    Log::shouldHaveReceived('warning')->once()->withArgs(
+        fn (string $message, array $context): bool => $context === [
+            'service' => 'sentence_transformers',
+            'endpoint' => 'http://st.test:8000/embed',
+            'status' => 500,
+            'request_id' => $id,
+        ] && ! str_contains($message, 'secret text'),
+    );
+});

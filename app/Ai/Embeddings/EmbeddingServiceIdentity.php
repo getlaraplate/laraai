@@ -8,14 +8,20 @@ use function ai_config_int;
 use function ai_config_nullable_string;
 use function ai_config_string;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Throwable;
+use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
+use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 
 /**
  * Which model the sentence-transformers service really runs. `/health` echoes the model the service
  * was started with; the answer to a probe on `/embed` names the model that embedded it, which is
  * authoritative because a multi-model service answers for the model the request asked for. Shared by
- * `ai:embeddings:repair` and `ai:embeddings:switch`, which word their own messages.
+ * `ai:embeddings:repair` and `ai:embeddings:switch`, which word their own messages. Every call sends a
+ * request id; a failed one logs it and throws it in the message the commands print.
  */
 final readonly class EmbeddingServiceIdentity
 {
@@ -46,12 +52,11 @@ final readonly class EmbeddingServiceIdentity
     /**
      * The model `/health` reports, or null when it names none.
      *
-     * @throws Throwable when the service cannot be reached or answers an error
+     * @throws SelfHostedServiceException when the service cannot be reached or answers an error
      */
     public function healthModel(): ?string
     {
-        $response = Http::timeout(5)->get($this->url() . '/health');
-        $response->throw();
+        $response = $this->send($this->url() . '/health', static fn (PendingRequest $request, string $url): Response => $request->timeout(5)->get($url));
 
         return self::modelName($response->json('model'));
     }
@@ -62,27 +67,30 @@ final readonly class EmbeddingServiceIdentity
      * (a quick latency measurement must not wait as long as a job would).
      *
      * @throws EmbeddingDimensionMismatch when the answer carries no vector or one of another length
-     * @throws Throwable when the service cannot be reached or answers an error
+     * @throws SelfHostedServiceException when the service cannot be reached or answers an error
      *
      * @return string|null the model the answer names, or null when it names none
      */
     public function probeModel(EmbeddingModelProfile $profile, ?int $timeout = null): ?string
     {
         $api_key = ai_config_nullable_string('ai.providers.sentence_transformers.api_key');
-        $request = Http::timeout($timeout ?? ai_config_int('ai.providers.sentence_transformers.timeout', 30))->acceptJson();
+        $timeout ??= ai_config_int('ai.providers.sentence_transformers.timeout', 30);
 
-        if ($api_key !== null && $api_key !== '') {
-            $request = $request->withToken($api_key);
-        }
+        $response = $this->send($this->url() . '/embed', static function (PendingRequest $request, string $url) use ($api_key, $timeout, $profile): Response {
+            $request = $request->timeout($timeout)->acceptJson();
 
-        $response = $request->post($this->url() . '/embed', [
-            'texts' => [EmbeddingDimensionProbe::TEXT],
-            'truncation' => true,
-            'normalize_embeddings' => true,
-            'max_length' => 512,
-            'model' => $profile->serviceModel,
-        ]);
-        $response->throw();
+            if ($api_key !== null && $api_key !== '') {
+                $request = $request->withToken($api_key);
+            }
+
+            return $request->post($url, [
+                'texts' => [EmbeddingDimensionProbe::TEXT],
+                'truncation' => true,
+                'normalize_embeddings' => true,
+                'max_length' => 512,
+                'model' => $profile->serviceModel,
+            ]);
+        });
 
         EmbeddingDimensionProbe::assertDimensions($profile, $response->json('embeddings.0'));
 
@@ -92,5 +100,26 @@ final readonly class EmbeddingServiceIdentity
     private static function modelName(mixed $model): ?string
     {
         return is_string($model) && $model !== '' ? $model : null;
+    }
+
+    /**
+     * Sends one call with a request id; a call that cannot reach the service or gets an error status logs
+     * the id and fails with it.
+     *
+     * @param  callable(PendingRequest, string): Response  $call
+     *
+     * @throws SelfHostedServiceException
+     */
+    private function send(string $url, callable $call): Response
+    {
+        $request_id = new ServiceRequestId('sentence_transformers', $url);
+
+        try {
+            return $call(Http::withHeaders($request_id->header()), $url)->throw();
+        } catch (ConnectionException|RequestException $exception) {
+            $request_id->logFailure(ServiceRequestId::statusOf($exception));
+
+            throw $request_id->exception($exception);
+        }
     }
 }

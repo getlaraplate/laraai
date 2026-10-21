@@ -9,6 +9,7 @@ use function ai_config_string;
 use Illuminate\Support\Facades\Http;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelProfile;
+use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Throwable;
 
 /**
@@ -16,7 +17,8 @@ use Throwable;
  * (Task 8), mirroring the self-hosted embedding service pattern: base URL +
  * optional Bearer key from config. When no URL is configured, or on any error, it
  * returns null so the media still indexes without a transcript (M12). Returns the
- * transcript in the spoken/source language (M17).
+ * transcript in the spoken/source language (M17). A failed call logs one warning with
+ * its request id (and nothing of the media), which the service log repeats.
  */
 final class WhisperTranscriber implements MediaTranscriber
 {
@@ -37,8 +39,12 @@ final class WhisperTranscriber implements MediaTranscriber
         $timeout = config('ai.providers.whisper.timeout', 120);
         $timeout = is_numeric($timeout) ? (int) $timeout : 120;
 
+        $endpoint = mb_rtrim($url, '/') . '/transcribe';
+        $request_id = new ServiceRequestId('whisper', $endpoint);
+
         try {
             $request = Http::timeout($timeout)
+                ->withHeaders($request_id->header())
                 ->attach('file', $contents, basename($path));
 
             $apiKey = ai_config_string('ai.providers.whisper.api_key', '');
@@ -47,14 +53,18 @@ final class WhisperTranscriber implements MediaTranscriber
                 $request = $request->withToken($apiKey);
             }
 
-            $response = $request->post(mb_rtrim($url, '/') . '/transcribe');
+            $response = $request->post($endpoint);
 
             if (! $response->successful()) {
+                $request_id->logFailure($response->status());
+
                 return null;
             }
 
             $text = $response->json('text');
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            $request_id->logFailure(ServiceRequestId::statusOf($exception));
+
             return null;
         }
 

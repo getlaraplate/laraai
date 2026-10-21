@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Modules\AI\Ai\Embeddings;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
+use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
+use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\Core\Search\AdaptiveBatchController;
 use Modules\Core\Search\Exceptions\EmbeddingsException;
 use NeuronAI\RAG\Document;
@@ -12,13 +15,16 @@ use NeuronAI\RAG\Embeddings\AbstractEmbeddingsProvider;
 
 /**
  * Custom NeuronAI embeddings provider for SentenceTransformers API.
- * Communicates with a self-hosted SentenceTransformers REST endpoint.
+ * Communicates with a self-hosted SentenceTransformers REST endpoint. Every call sends a
+ * request id; a call that fails logs it and throws it, so the job log carries it too.
  */
 final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsProvider
 {
     private readonly Client $client;
 
     private readonly int $batch_size_limit;
+
+    private readonly string $url;
 
     public function __construct(
         string $url = 'http://localhost:8000',
@@ -34,6 +40,8 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
         if (preg_match('/^https?:\/\//', $url) === 0) {
             $url = 'http://' . $url;
         }
+
+        $this->url = mb_rtrim($url, '/');
 
         $options = [
             'base_uri' => $url,
@@ -55,17 +63,13 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
     {
         $text = str_replace("\n", ' ', mb_convert_encoding($text, 'UTF-8', 'UTF-8'));
 
-        $response = $this->client->post('embed', [
-            'json' => [
-                'text' => $text,
-                'truncation' => $this->truncate,
-                'normalize_embeddings' => $this->normalize,
-                'max_length' => $this->getEmbeddingLength(),
-                ...$this->modelPayload(),
-            ],
+        $result = $this->postEmbed([
+            'text' => $text,
+            'truncation' => $this->truncate,
+            'normalize_embeddings' => $this->normalize,
+            'max_length' => $this->getEmbeddingLength(),
+            ...$this->modelPayload(),
         ]);
-
-        $result = json_decode($response->getBody()->getContents(), true, 512, JSON_THROW_ON_ERROR);
         $embeddings = $this->parseEmbeddingBatch($result);
 
         if ($embeddings === []) {
@@ -114,17 +118,13 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
             $batch,
         );
 
-        $response = $this->client->post('embed', [
-            'json' => [
-                'texts' => $texts,
-                'truncation' => $this->truncate,
-                'normalize_embeddings' => $this->normalize,
-                'max_length' => $this->getEmbeddingLength(),
-                ...$this->modelPayload(),
-            ],
+        $result = $this->postEmbed([
+            'texts' => $texts,
+            'truncation' => $this->truncate,
+            'normalize_embeddings' => $this->normalize,
+            'max_length' => $this->getEmbeddingLength(),
+            ...$this->modelPayload(),
         ]);
-
-        $result = json_decode($response->getBody()->getContents(), true, 512, JSON_THROW_ON_ERROR);
         $embeddings = $this->parseEmbeddingBatch($result);
         $batch_count = count($batch);
         $embedding_count = count($embeddings);
@@ -139,6 +139,31 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
         }
 
         return $processed;
+    }
+
+    /**
+     * Posts one `/embed` call with its request id and decodes the answer.
+     *
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws SelfHostedServiceException when the service cannot be reached or answers an error status
+     */
+    private function postEmbed(array $payload): mixed
+    {
+        $request_id = new ServiceRequestId('sentence_transformers', $this->url . '/embed');
+
+        try {
+            $response = $this->client->post('embed', [
+                'json' => $payload,
+                'headers' => $request_id->header(),
+            ]);
+        } catch (GuzzleException $exception) {
+            $request_id->logFailure(ServiceRequestId::statusOf($exception));
+
+            throw $request_id->exception($exception);
+        }
+
+        return json_decode($response->getBody()->getContents(), true, 512, JSON_THROW_ON_ERROR);
     }
 
     private function documentText(Document $document): string
