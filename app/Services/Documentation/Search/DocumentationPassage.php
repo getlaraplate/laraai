@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\AI\Services\Documentation\Search;
 
 use Illuminate\Support\Str;
+use Modules\AI\Services\Documentation\HeadingBreadcrumb;
 use NeuronAI\RAG\Document;
 
 /**
@@ -38,7 +39,7 @@ final readonly class DocumentationPassage
             label: $label,
             reference: $label,
             excerpt: Str::limit(self::plainText($document->getContent()), self::EXCERPT_LENGTH),
-            headingBreadcrumb: self::breadcrumb($document),
+            headingBreadcrumb: HeadingBreadcrumb::fromMetadata($document->getMetadata()['heading_breadcrumb'] ?? null),
             module: self::metadataString($document, 'module'),
         );
     }
@@ -67,21 +68,6 @@ final readonly class DocumentationPassage
         $text = html_entity_decode(strip_tags(str_replace(['</p>', '</li>', '</tr>', '</h1>', '</h2>', '</h3>', '</h4>', '</h5>', '</h6>', '</pre>'], ' ', $html)), ENT_QUOTES | ENT_HTML5);
 
         return mb_trim((string) preg_replace('/\s+/u', ' ', $text));
-    }
-
-    /**
-     * The index stores the breadcrumb as a list of headings; a plain string is taken as is.
-     */
-    private static function breadcrumb(Document $document): ?string
-    {
-        $value = $document->getMetadata()['heading_breadcrumb'] ?? null;
-
-        if (is_array($value) && array_is_list($value) && $value !== []
-            && array_all($value, static fn (mixed $item): bool => is_string($item) && mb_trim($item) !== '')) {
-            return implode(' > ', $value);
-        }
-
-        return is_string($value) ? $value : null;
     }
 
     private static function metadataString(Document $document, string $key): ?string

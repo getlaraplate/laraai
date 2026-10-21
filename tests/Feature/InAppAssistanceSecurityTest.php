@@ -21,12 +21,15 @@ function protectedAssistanceService(
     return ScriptedAssistantFixtures::inAppService($request, $complete, $retrieve);
 }
 
-function protectedAssistanceDocument(string $content = 'Use the visible settings screen.', ?float $score = 0.9): Document
-{
+function protectedAssistanceDocument(
+    string $content = 'Use the visible settings screen.',
+    ?float $score = 0.9,
+    mixed $breadcrumb = 'Settings > Profile',
+): Document {
     return (new Document($content))
         ->setSourceName('Application settings')
         ->setMetadata([
-            'heading_breadcrumb' => 'Settings > Profile',
+            'heading_breadcrumb' => $breadcrumb,
             'locale' => 'en',
             'module' => 'core',
             'safe_source_label' => 'Application settings',
@@ -83,6 +86,46 @@ it('cites a retrieved document that carries no score with a null score', functio
 
     expect($message->metadata['citations'][0]['label'])->toBe('Application settings')
         ->and($message->metadata['citations'][0]['score'])->toBeNull();
+});
+
+it('hands the assistant the heading breadcrumb of a passage as a list, a string or nothing', function (mixed $stored, ?string $expected): void {
+    $seen = null;
+    $service = protectedAssistanceService(
+        $this->request,
+        static fn (): array => [protectedAssistanceDocument(breadcrumb: $stored)],
+        function (string $input, string $systemPrompt, AssistantPromptContext $context, array $tools) use (&$seen): string {
+            $seen = $context->authorizedResults[0];
+
+            return 'Open Settings and select Profile.';
+        },
+    );
+
+    $service->respond($this->conversation, $this->user, 'How do I update my profile?', ['verbosity' => 'concise']);
+
+    expect($seen['heading_breadcrumb'] ?? null)->toBe($expected);
+})->with([
+    'list' => [['Approvals', 'Approve a modification'], 'Approvals > Approve a modification'],
+    'string' => ['Settings > Profile', 'Settings > Profile'],
+    'empty list' => [[], null],
+    'absent' => [null, null],
+]);
+
+it('checks a list breadcrumb like any other passage field', function (): void {
+    $completed = false;
+    $service = protectedAssistanceService(
+        $this->request,
+        static fn (): array => [protectedAssistanceDocument(breadcrumb: ['Settings', 'Open /srv/app/secrets.php'])],
+        function () use (&$completed): string {
+            $completed = true;
+
+            return 'Open Settings and select Profile.';
+        },
+    );
+
+    $message = $service->respond($this->conversation, $this->user, 'How do I update my profile?', ['verbosity' => 'concise']);
+
+    expect($message->metadata)->toBe(['refused' => true])
+        ->and($completed)->toBeFalse();
 });
 
 it('refuses restricted input before retrieval or model execution', function (): void {

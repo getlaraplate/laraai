@@ -32,6 +32,7 @@ use Modules\AI\Services\Assistance\Writes\ActingIdentityBlock;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\ChatService;
 use Modules\AI\Services\Documentation\Analytics\RagQueryRecorder;
+use Modules\AI\Services\Documentation\HeadingBreadcrumb;
 use Modules\AI\Services\DocumentationService;
 use Modules\AI\Services\Tools\CompositeContextualToolProvider;
 use Modules\AI\Services\Tools\ContextualToolProviderInterface;
@@ -393,7 +394,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             ];
             $authorized_results[] = array_filter([
                 'content' => $excerpt,
-                'heading_breadcrumb' => $this->metadataString($document, 'heading_breadcrumb'),
+                'heading_breadcrumb' => HeadingBreadcrumb::fromMetadata($document->getMetadata()['heading_breadcrumb'] ?? null),
                 'label' => $label,
                 'locale' => $this->metadataString($document, 'locale'),
                 'module' => $this->metadataString($document, 'module'),
