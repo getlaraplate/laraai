@@ -25,6 +25,8 @@ use Modules\Core\Casts\DetailRequestData;
 use Modules\Core\Casts\ListRequestData;
 use Modules\Core\Casts\ModifyRequestData;
 use Modules\Core\Casts\SearchRequestData;
+use Modules\Core\Enums\TimeBucket;
+use Modules\Core\Exceptions\AggregateException;
 use Modules\Core\Http\Requests\DetailRequest;
 use Modules\Core\Http\Requests\ListRequest;
 use Modules\Core\Http\Requests\ModifyRequest;
@@ -34,6 +36,11 @@ use Modules\Core\Models\Concerns\HasApprovals;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\User;
 use Modules\Core\Services\Authorization\AuthorizationService;
+use Modules\Core\Services\Crud\Aggregate\AggregateGroup;
+use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
+use Modules\Core\Services\Crud\Aggregate\AggregateMeasure;
+use Modules\Core\Services\Crud\Aggregate\AggregateQuery;
+use Modules\Core\Services\Crud\Aggregate\AggregateResult;
 use Modules\Core\Services\Crud\CrudService;
 use Modules\Core\Services\Crud\DTOs\CrudResult;
 use Modules\Core\Services\Export\TabularCsvExporter;
@@ -79,13 +86,6 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     private const array WRITE_OPERATIONS = ['create', 'update', 'delete', 'bulk_update', 'bulk_delete'];
 
     /**
-     * Upper bound on rows materialized for an in-memory aggregation, so a
-     * `summarize` call can never load an unbounded result set. When the true
-     * total exceeds this cap the response is flagged as truncated.
-     */
-    private const int SUMMARIZE_ROW_CAP = 5000;
-
-    /**
      * Upper bound on rows written to an export file.
      */
     private const int EXPORT_ROW_CAP = 5000;
@@ -98,7 +98,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     private const int BULK_CAP = 200;
 
     /**
-     * Aggregation functions supported by the `summarize` tool.
+     * Aggregation functions the `summarize` tool takes as metrics. The count of each group is implicit.
      */
     private const array SUMMARIZE_FUNCTIONS = ['sum', 'avg', 'min', 'max'];
 
@@ -218,6 +218,25 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'bulk_update', 'bulk_delete' => $this->applyBulk($proposal->operation, $proposal->module, $proposal->entity, is_array($payload['ids'] ?? null) ? $payload['ids'] : [], $attributes),
             default => new WriteApplyResult(WriteProposalStatus::Failed, ['error' => 'Unsupported operation.']),
         };
+    }
+
+    /**
+     * The figures of an aggregate request on an entity, as the acting person may read it: through
+     * {@see CrudService::aggregate()}, so the permission, the row-level ACL and the structured filters decide
+     * which rows every figure covers. The caller decides whether the entity is offered to the assistant.
+     *
+     * @param  mixed  $filters  Structured filters of the list vocabulary; what is not a filter node is ignored.
+     *
+     * @throws AggregateException when the engine refuses the request: the caller turns it into its own answer
+     */
+    public function aggregate(string $module, string $entity, mixed $filters, AggregateQuery $query): AggregateResult
+    {
+        $normalizedFilters = $this->normalizeFilters($filters);
+        $validated = $normalizedFilters === [] ? [] : ['filters' => $normalizedFilters];
+
+        $data = new ListRequestData($this->makeRequest(ListRequest::class), $entity, $validated, $this->primaryKey($module, $entity), $module);
+
+        return $this->crud->aggregate($data, $query);
     }
 
     /**
@@ -384,7 +403,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'list' => "List {$label} records the current user may read.",
             'detail' => "Fetch a single {$label} record by id.",
             'search' => "Full-text search {$label} records.",
-            'summarize' => "Aggregate {$label} records: group by one or more columns and compute a count plus optional sum/avg/min/max metrics. Honours the same structured filters as list.",
+            'summarize' => "Aggregate {$label} records: group by one column (optionally cut a date column into day, week, month, quarter or year buckets over a period) and compute a count plus optional sum/avg/min/max metrics. Honours the same structured filters as list.",
             'export' => "Export {$label} records the current user may read to a CSV or PDF file. Honours the same structured filters and sort as list; returns the file inline (base64).",
             'create' => "Propose creating a {$label} record. Nothing is created: the proposal waits for the signed-in person to confirm it in the interface. Tell them what you propose and that it needs their confirmation.",
             'update' => "Propose changing a {$label} record by id. Nothing is changed: the proposal waits for the signed-in person to confirm it in the interface. Tell them what you propose and that it needs their confirmation.",
@@ -422,8 +441,10 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             ],
             'summarize' => [
                 $filters,
-                ['name' => 'group_by', 'type' => 'array', 'required' => false, 'items' => ['type' => 'string'], 'description' => 'Column names to group by. Omit for a single overall bucket.'],
-                ['name' => 'metrics', 'type' => 'array', 'required' => false, 'items' => ['type' => 'object'], 'description' => 'Numeric metrics per group. Each item is {property, function} where function is one of sum, avg, min, max. A per-group count is always returned.'],
+                ['name' => 'group_by', 'type' => 'array', 'required' => false, 'maxItems' => 1, 'items' => ['type' => 'string'], 'description' => 'The one column to group by: at most one is allowed. Omit for a single overall bucket.'],
+                ['name' => 'metrics', 'type' => 'array', 'required' => false, 'items' => ['type' => 'object'], 'description' => 'Numeric metrics per group. Each item is {property, function} where function is one of sum, avg, min, max; sum and avg need a numeric column that is not a key. A per-group count is always returned.'],
+                ['name' => 'bucket', 'type' => 'string', 'required' => false, 'enum' => TimeBucket::names(), 'description' => 'Cuts the date column named in group_by into buckets (a week starts on Monday). Needs a period over the same column.'],
+                ['name' => 'period', 'type' => 'object', 'required' => false, 'description' => 'Restricts the rows to a date range of a date column: {field, and exactly one of last: {n, unit: day|week|month|quarter|year}, preset: today|yesterday|this_week|last_week|this_month|last_month|this_quarter|last_quarter|this_year|last_year, or from and to as YYYY-MM-DD}.'],
             ],
             'export' => [
                 ['name' => 'format', 'type' => 'string', 'required' => false, 'description' => 'Output format: csv (default) or pdf.'],
@@ -466,7 +487,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'view' => fn (mixed $filters = null, mixed $sort = null, mixed $limit = null, mixed $page = null): array => $this->runView($module, $entity, $filters, $sort, $limit, $page),
             'list' => fn (mixed $filters = null, mixed $sort = null, mixed $limit = null, mixed $page = null): array => $this->runList($module, $entity, $filters, $sort, $limit, $page),
             'search' => fn (mixed $query = null, mixed $filters = null, mixed $sort = null, mixed $limit = null): array => $this->runSearch($module, $entity, $query, $filters, $sort, $limit),
-            'summarize' => fn (mixed $filters = null, mixed $group_by = null, mixed $metrics = null): array => $this->runSummarize($module, $entity, $filters, $group_by, $metrics),
+            'summarize' => fn (mixed $filters = null, mixed $group_by = null, mixed $metrics = null, mixed $bucket = null, mixed $period = null): array => $this->runSummarize($module, $entity, $filters, $group_by, $metrics, $bucket, $period),
             'export' => fn (mixed $format = null, mixed $filters = null, mixed $sort = null, mixed $columns = null, mixed $limit = null): array => $this->runExport($module, $entity, $format, $filters, $sort, $columns, $limit),
             'detail' => fn (mixed $id = null): array => $this->runDetail($module, $entity, $id),
             'create' => fn (mixed $attributes = null): array => $this->proposeWrite($context, 'create', $module, $entity, ['attributes' => $this->toArray($attributes)]),
@@ -576,163 +597,149 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     }
 
     /**
-     * Group-by aggregation. Delegates to CrudService::list (which enforces the
-     * acting user's permission and ACL), materializes up to SUMMARIZE_ROW_CAP
-     * rows, then computes per-group count plus the requested numeric metrics in
-     * memory. The true total is reported and the result is flagged truncated
-     * when it exceeds the cap.
+     * Group-by aggregation on Core's aggregate engine: the figures are computed by the database under the
+     * acting user's permission and row-level ACL, and no row is read into PHP. The answer keeps the compact
+     * shape the model reads (a count and the requested metrics per group), with the same figures for every
+     * matching row under `total`.
+     *
+     * The engine groups by one dimension, so a second `group_by` column is refused, and a refusal of the
+     * engine or of its validator comes back in the error shape with its code.
      *
      * @return array<string, mixed>
      */
-    private function runSummarize(string $module, string $entity, mixed $filters, mixed $groupBy, mixed $metrics): array
+    private function runSummarize(string $module, string $entity, mixed $filters, mixed $groupBy, mixed $metrics, mixed $bucket, mixed $period): array
     {
         $normalizedFilters = $this->normalizeFilters($filters);
         $groups = $this->normalizeStringList($groupBy);
         $metricSpecs = $this->normalizeMetrics($metrics);
+        $bucketName = $this->toString($bucket);
+        $periodSpec = $period === '' || $period === [] ? null : $period;
 
-        $request = ['verb' => 'summarize', 'module' => $module, 'entity' => $entity, 'filters' => $normalizedFilters, 'group_by' => $groups, 'metrics' => $metricSpecs];
+        $request = [
+            'verb' => 'summarize',
+            'module' => $module,
+            'entity' => $entity,
+            'filters' => $normalizedFilters,
+            'group_by' => $groups,
+            'metrics' => $metricSpecs,
+            'bucket' => $bucketName === '' ? null : $bucketName,
+            'period' => is_array($periodSpec) ? $periodSpec : null,
+        ];
+
+        if (count($groups) > 1) {
+            return ['request' => $request, 'error' => 'Only one group_by column is allowed: name one column, or summarize once per column.'];
+        }
+
+        if ($bucketName !== '' && $groups === []) {
+            return ['request' => $request, 'error' => 'A bucket cuts the date column named in group_by: name that column, or leave the bucket out.'];
+        }
 
         try {
-            $validated = ['pagination' => self::SUMMARIZE_ROW_CAP, 'page' => 1];
+            $query = AggregateQuery::fromArray([
+                'measures' => $this->summarizeMeasures($metricSpecs),
+                'group_by' => $groups === [] ? null : ['field' => $groups[0], 'bucket' => $bucketName === '' ? null : $bucketName],
+                'period' => $periodSpec,
+            ], AggregateLimits::fromConfig());
 
-            if ($normalizedFilters !== []) {
-                $validated['filters'] = $normalizedFilters;
-            }
-
-            $data = new ListRequestData($this->makeRequest(ListRequest::class), $entity, $validated, $this->primaryKey($module, $entity), $module);
-            $result = $this->crud->list($data);
-
-            $rows = $result->data;
-            $rowList = $rows instanceof Collection || $rows instanceof EloquentCollection ? $rows->all() : [];
-            $buckets = $this->aggregateRows($rowList, $groups, $metricSpecs);
-
-            $aggregatedRows = count($rowList);
-            $totalRecords = $result->meta?->totalRecords ?? $aggregatedRows;
-
-            return [
-                'request' => $request,
-                'data' => $buckets,
-                'meta' => [
-                    'total_records' => $totalRecords,
-                    'aggregated_rows' => $aggregatedRows,
-                    'truncated' => $totalRecords > $aggregatedRows,
-                ],
-            ];
+            return $this->presentSummary($this->aggregate($module, $entity, $normalizedFilters, $query), $query, $request);
+        } catch (AggregateException $exception) {
+            return ['request' => $request, ...$this->aggregateRefusal($exception)];
         } catch (Throwable $exception) {
             return $this->fail($request, $exception);
         }
     }
 
     /**
-     * @param  list<mixed>  $rows
-     * @param  list<string>  $groups
+     * The aggregate engine's measures for the metrics of a summarize call: the count of the rows first, then each
+     * metric once, so that repeating one is not a refusal.
+     *
      * @param  list<array{property: string, function: string}>  $metrics
-     * @return list<array<string, mixed>>
+     * @return list<array{fn: string, field?: string}>
      */
-    private function aggregateRows(array $rows, array $groups, array $metrics): array
+    private function summarizeMeasures(array $metrics): array
     {
-        $buckets = [];
+        $measures = ['count' => ['fn' => 'count']];
 
-        foreach ($rows as $row) {
-            $key = $this->bucketKey($row, $groups);
-
-            if (! isset($buckets[$key])) {
-                $buckets[$key] = ['group' => $this->bucketGroup($row, $groups), 'count' => 0, '_metrics' => []];
-            }
-
-            $buckets[$key]['count']++;
-
-            foreach ($metrics as $metric) {
-                $value = $this->numericValue($this->rowValue($row, $metric['property']));
-
-                if ($value === null) {
-                    continue;
-                }
-
-                $label = sprintf('%s(%s)', $metric['function'], $metric['property']);
-                $buckets[$key]['_metrics'][$label] = $this->foldMetric(
-                    $buckets[$key]['_metrics'][$label] ?? null,
-                    $metric['function'],
-                    $value,
-                );
-            }
+        foreach ($metrics as $metric) {
+            $measures[$metric['function'] . '(' . $metric['property'] . ')'] = ['fn' => $metric['function'], 'field' => $metric['property']];
         }
 
-        return array_values(array_map(fn (array $bucket): array => [
-            'group' => $bucket['group'],
-            'count' => $bucket['count'],
-            'metrics' => $this->finalizeMetrics($bucket['_metrics']),
-        ], $buckets));
+        return array_values($measures);
     }
 
     /**
-     * @param  array{sum: float, n: int, min: float, max: float}|null  $acc
-     * @return array{sum: float, n: int, min: float, max: float}
-     */
-    private function foldMetric(?array $acc, string $function, float $value): array
-    {
-        if ($acc === null) {
-            return ['sum' => $value, 'n' => 1, 'min' => $value, 'max' => $value];
-        }
-
-        return [
-            'sum' => $acc['sum'] + $value,
-            'n' => $acc['n'] + 1,
-            'min' => min($acc['min'], $value),
-            'max' => max($acc['max'], $value),
-        ];
-    }
-
-    /**
-     * @param  array<string, array{sum: float, n: int, min: float, max: float}>  $metrics
-     * @return array<string, float|int>
-     */
-    private function finalizeMetrics(array $metrics): array
-    {
-        $out = [];
-
-        foreach ($metrics as $label => $acc) {
-            $function = (string) mb_strstr($label, '(', true);
-            $out[$label] = match ($function) {
-                'sum' => $acc['sum'],
-                'avg' => $acc['n'] > 0 ? $acc['sum'] / $acc['n'] : 0,
-                'min' => $acc['min'],
-                'max' => $acc['max'],
-                default => $acc['sum'],
-            };
-        }
-
-        return $out;
-    }
-
-    /**
-     * @param  list<string>  $groups
-     */
-    private function bucketKey(mixed $row, array $groups): string
-    {
-        if ($groups === []) {
-            return '*';
-        }
-
-        return implode('||', array_map(
-            fn (string $group): string => (string) json_encode($this->rowValue($row, $group)),
-            $groups,
-        ));
-    }
-
-    /**
-     * @param  list<string>  $groups
+     * The result of the engine in the compact shape of the tool: a list of `{group, count, metrics}` (one entry
+     * with an empty group when the call has no group), the figures of every matching row, the rest of the groups
+     * when the engine left some out, and the facts the model should state (the currency and its warnings).
+     *
+     * @param  array<string, mixed>  $request
      * @return array<string, mixed>
      */
-    private function bucketGroup(mixed $row, array $groups): array
+    private function presentSummary(AggregateResult $result, AggregateQuery $query, array $request): array
     {
-        $group = [];
+        $group = $query->group;
+        $data = $group instanceof AggregateGroup
+            ? array_map(fn (array $entry): array => ['group' => [$group->field => $entry['key']], ...$this->summaryFigures($entry['values'], $query->measures)], $result->series)
+            : [['group' => [], ...$this->summaryFigures($result->total, $query->measures)]];
 
-        foreach ($groups as $property) {
-            $group[$property] = $this->rowValue($row, $property);
+        $rowCount = is_int($result->meta['row_count'] ?? null) ? $result->meta['row_count'] : 0;
+        $meta = ['total_records' => $rowCount, 'aggregated_rows' => $rowCount, 'truncated' => ($result->meta['truncated'] ?? false) === true];
+
+        if (is_string($result->meta['currency'] ?? null)) {
+            $meta['currency'] = $result->meta['currency'];
         }
 
-        return $group;
+        if (is_array($result->meta['warnings'] ?? null) && $result->meta['warnings'] !== []) {
+            $meta['warnings'] = $result->meta['warnings'];
+        }
+
+        $summary = ['request' => $request, 'data' => $data, 'total' => $this->summaryFigures($result->total, $query->measures)];
+
+        if ($result->other !== null) {
+            $summary['other'] = [...$this->summaryFigures($result->other, $query->measures), 'groups' => $result->other['groups'] ?? 0];
+        }
+
+        $summary['meta'] = $meta;
+
+        return $summary;
+    }
+
+    /**
+     * The count and the metrics of one cell of the engine's result, the metrics named the way the model asked
+     * for them: `sum(total)`, not the engine's `sum_total`. A figure no row gave stays `null`.
+     *
+     * @param  array<string, mixed>  $values  The figures of the cell by measure name.
+     * @param  list<AggregateMeasure>  $measures
+     * @return array{count: mixed, metrics: array<string, mixed>}
+     */
+    private function summaryFigures(array $values, array $measures): array
+    {
+        $metrics = [];
+
+        foreach ($measures as $measure) {
+            if ($measure->field !== null) {
+                $metrics[sprintf('%s(%s)', $measure->fn, $measure->field)] = $values[$measure->name()] ?? null;
+            }
+        }
+
+        return ['count' => $values['count'] ?? 0, 'metrics' => $metrics];
+    }
+
+    /**
+     * A refusal of the aggregate engine for the model to read: the message, with the code and the part of the
+     * request that it is about.
+     *
+     * @return array<string, string>
+     */
+    private function aggregateRefusal(AggregateException $exception): array
+    {
+        $refusal = $exception->toArray();
+
+        return [
+            'error' => $refusal['message'],
+            'code' => $refusal['code'],
+            ...isset($refusal['field']) ? ['field' => $refusal['field']] : [],
+        ];
     }
 
     private function rowValue(mixed $row, string $property): mixed
@@ -746,11 +753,6 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         }
 
         return null;
-    }
-
-    private function numericValue(mixed $value): ?float
-    {
-        return is_numeric($value) ? (float) $value : null;
     }
 
     /**

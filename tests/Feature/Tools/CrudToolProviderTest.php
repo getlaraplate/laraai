@@ -11,21 +11,27 @@ use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
 use Modules\AI\Services\Tools\CrudToolProvider;
 use Modules\AI\Services\Tools\ToolDefinition;
+use Modules\Core\Enums\AggregateErrorCode;
+use Modules\Core\Exceptions\AggregateException;
 use Modules\Core\Models\DynamicEntity;
+use Modules\Core\Models\ImportSession;
 use Modules\Core\Models\Permission;
 use Modules\Core\Services\Authorization\AuthorizationService;
+use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
+use Modules\Core\Services\Crud\Aggregate\AggregateQuery;
+use Modules\Core\Services\Crud\Aggregate\AggregateResult;
 use Modules\Core\Services\Crud\CrudService;
 use Modules\Core\Support\PermissionName;
 
 uses(RefreshDatabase::class);
 
-function makeCrudToolProvider(object $user): CrudToolProvider
+function makeCrudToolProvider(object $user, ?CrudService $crud = null): CrudToolProvider
 {
     $request = Request::create('/app/ai/assist', 'POST');
     $request->setUserResolver(fn (): object => $user);
 
     return new CrudToolProvider(
-        resolve(CrudService::class),
+        $crud ?? resolve(CrudService::class),
         resolve(AuthorizationService::class),
         $request,
         resolve(Modules\Core\Services\Export\TabularCsvExporter::class),
@@ -239,7 +245,7 @@ it('offers writes on an entity with approvals without a second opt-in', function
     expect(toolNames(makeCrudToolProvider($user)->tools(inAppContext($user))))->toBe(['crud_update_core_setting']);
 });
 
-it('summarizes records with group-by count and sum metrics', function (): void {
+it('summarizes records with a group-by and a per-group count', function (): void {
     $user = user_class()::factory()->create();
     Auth::login($user);
     grantSettingAbility($user, 'select');
@@ -252,23 +258,315 @@ it('summarizes records with group-by count and sum metrics', function (): void {
     $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
 
     /** @var array<string, mixed> $result */
-    $result = ($tool->handler)(
-        group_by: ['group_name'],
-        metrics: [['property' => 'id', 'function' => 'sum']],
-    );
+    $result = ($tool->handler)(group_by: ['group_name']);
 
     expect($result)->not->toHaveKey('error')
         ->and($result['request']['verb'])->toBe('summarize')
         ->and($result['request']['group_by'])->toBe(['group_name'])
         ->and($result['meta']['total_records'])->toBe(3)
-        ->and($result['meta']['truncated'])->toBeFalse();
+        ->and($result['meta']['aggregated_rows'])->toBe(3)
+        ->and($result['meta']['truncated'])->toBeFalse()
+        ->and($result['total'])->toBe(['count' => 3, 'metrics' => []]);
 
     $byGroup = collect($result['data'])->keyBy(fn (array $b): string => $b['group']['group_name']);
 
-    expect($byGroup['alpha']['count'])->toBe(2)
-        ->and($byGroup['alpha']['metrics']['sum(id)'])->toBe(30.0)
-        ->and($byGroup['beta']['count'])->toBe(1)
-        ->and($byGroup['beta']['metrics']['sum(id)'])->toBe(30.0);
+    expect($byGroup['alpha'])->toBe(['group' => ['group_name' => 'alpha'], 'count' => 2, 'metrics' => []])
+        ->and($byGroup['beta'])->toBe(['group' => ['group_name' => 'beta'], 'count' => 1, 'metrics' => []]);
+});
+
+it('summarizes numeric metrics over a column that is not a key', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantEntityAbility($user, 'import_session', 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.import_session' => ['summarize']]);
+
+    ImportSession::factory()->create(['entity_key' => 'core.user', 'created_rows' => 10]);
+    ImportSession::factory()->create(['entity_key' => 'core.user', 'created_rows' => 30]);
+    ImportSession::factory()->create(['entity_key' => 'core.role', 'created_rows' => 5]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_import_session');
+
+    /** @var array<string, mixed> $sums */
+    $sums = ($tool->handler)(group_by: ['entity_key'], metrics: [
+        ['property' => 'created_rows', 'function' => 'sum'],
+        ['property' => 'created_rows', 'function' => 'max'],
+    ]);
+
+    expect($sums)->not->toHaveKey('error')
+        ->and($sums['request']['metrics'])->toBe([
+            ['property' => 'created_rows', 'function' => 'sum'],
+            ['property' => 'created_rows', 'function' => 'max'],
+        ])
+        ->and($sums['total']['count'])->toBe(3)
+        ->and($sums['total']['metrics'])->toEqual(['sum(created_rows)' => 45, 'max(created_rows)' => 30]);
+
+    $byGroup = collect($sums['data'])->keyBy(fn (array $b): string => $b['group']['entity_key']);
+
+    expect($byGroup['core.user']['count'])->toBe(2)
+        ->and($byGroup['core.user']['metrics'])->toEqual(['sum(created_rows)' => 40, 'max(created_rows)' => 30])
+        ->and($byGroup['core.role']['count'])->toBe(1)
+        ->and($byGroup['core.role']['metrics'])->toEqual(['sum(created_rows)' => 5, 'max(created_rows)' => 5]);
+
+    /** @var array<string, mixed> $others */
+    $others = ($tool->handler)(group_by: ['entity_key'], metrics: [
+        ['property' => 'created_rows', 'function' => 'avg'],
+        ['property' => 'created_rows', 'function' => 'min'],
+    ]);
+
+    $byGroup = collect($others['data'])->keyBy(fn (array $b): string => $b['group']['entity_key']);
+
+    expect($others)->not->toHaveKey('error')
+        ->and($byGroup['core.user']['metrics'])->toEqual(['avg(created_rows)' => 20, 'min(created_rows)' => 10]);
+});
+
+it('summarizes into one overall entry when no column is given, under the structured filters', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's1', 'group_name' => 'alpha']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's2', 'group_name' => 'alpha']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's3', 'group_name' => 'beta']);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(filters: [['property' => 'group_name', 'operator' => '=', 'value' => 'alpha']]);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['data'])->toBe([['group' => [], 'count' => 2, 'metrics' => []]])
+        ->and($result['total'])->toBe(['count' => 2, 'metrics' => []])
+        ->and($result['meta']['total_records'])->toBe(2);
+});
+
+it('summarizes without reading rows through the list', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's1', 'group_name' => 'alpha']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's2', 'group_name' => 'beta']);
+
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('list')->never();
+
+    $tool = findTool(makeCrudToolProvider($user, $crud)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['group_name']);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['meta']['total_records'])->toBe(2);
+});
+
+it('summarizes by time bucket over a period', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    foreach (['2026-01-05 09:00:00', '2026-01-20 18:30:00', '2026-03-02 11:00:00'] as $index => $createdAt) {
+        Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'bucket-' . $index, 'group_name' => 'alpha', 'created_at' => $createdAt]);
+    }
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    $period = ['field' => 'created_at', 'from' => '2026-01-01', 'to' => '2026-03-31'];
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['created_at'], bucket: 'month', period: $period);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['request']['bucket'])->toBe('month')
+        ->and($result['request']['period'])->toBe($period)
+        ->and($result['data'])->toBe([
+            ['group' => ['created_at' => '2026-01-01'], 'count' => 2, 'metrics' => []],
+            ['group' => ['created_at' => '2026-02-01'], 'count' => 0, 'metrics' => []],
+            ['group' => ['created_at' => '2026-03-01'], 'count' => 1, 'metrics' => []],
+        ])
+        ->and($result['total']['count'])->toBe(3)
+        ->and($result['meta']['total_records'])->toBe(3)
+        ->and($result['meta']['truncated'])->toBeFalse();
+});
+
+it('summarizes a period without a group as one entry over the days it covers', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'in', 'created_at' => '2026-01-05 09:00:00']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'out', 'created_at' => '2026-02-05 09:00:00']);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(period: ['field' => 'created_at', 'from' => '2026-01-01', 'to' => '2026-01-31']);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['data'])->toBe([['group' => [], 'count' => 1, 'metrics' => []]]);
+});
+
+it('rejects more than one group_by column with the tool error shape', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['group_name', 'module']);
+
+    expect($result)->toHaveKeys(['request', 'error'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['request']['group_by'])->toBe(['group_name', 'module'])
+        ->and($result['error'])->toContain('one');
+});
+
+it('refuses a bucket that has no column to apply to', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(bucket: 'month');
+
+    expect($result)->toHaveKeys(['request', 'error'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['error'])->toContain('group_by');
+});
+
+it('reports NOT_MEASURABLE for a sum over a key in the error shape', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's1']);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['group_name'], metrics: [['property' => 'id', 'function' => 'sum']]);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['code'])->toBe('NOT_MEASURABLE')
+        ->and($result['field'])->toBe('measures.1.field')
+        ->and($result['error'])->toContain('"id"')
+        ->and($result['request']['metrics'])->toBe([['property' => 'id', 'function' => 'sum']]);
+});
+
+it('reports a request the validator refuses with its code and field', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['created_at'], bucket: 'fortnight', period: ['field' => 'created_at', 'last' => ['n' => 3, 'unit' => 'month']]);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('group_by.bucket');
+});
+
+it('hands the model the total, the rest of the groups, the currency and the warnings of the engine', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $warning = ['code' => 'MIXED_CURRENCY', 'field' => 'sum_value', 'message' => '"sum_value" adds amounts in more than one currency, so it has no value.'];
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->once()->andReturn(new AggregateResult(
+        series: [
+            ['key' => 'alpha', 'label' => null, 'values' => ['count' => 2, 'sum_value' => 30.5]],
+            ['key' => null, 'label' => null, 'values' => ['count' => 1, 'sum_value' => null]],
+        ],
+        total: ['count' => 5, 'sum_value' => 30.5],
+        other: ['count' => 2, 'sum_value' => null, 'groups' => 1],
+        compare: null,
+        meta: ['row_count' => 5, 'group_count' => 3, 'truncated' => true, 'currency' => 'EUR', 'warnings' => [$warning], 'generated_at' => '2026-10-21T08:30:00Z'],
+    ));
+
+    $tool = findTool(makeCrudToolProvider($user, $crud)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['group_name'], metrics: [['property' => 'value', 'function' => 'sum']]);
+
+    expect($result['data'])->toBe([
+        ['group' => ['group_name' => 'alpha'], 'count' => 2, 'metrics' => ['sum(value)' => 30.5]],
+        ['group' => ['group_name' => null], 'count' => 1, 'metrics' => ['sum(value)' => null]],
+    ])
+        ->and($result['total'])->toBe(['count' => 5, 'metrics' => ['sum(value)' => 30.5]])
+        ->and($result['other'])->toBe(['count' => 2, 'metrics' => ['sum(value)' => null], 'groups' => 1])
+        ->and($result['meta'])->toBe([
+            'total_records' => 5,
+            'aggregated_rows' => 5,
+            'truncated' => true,
+            'currency' => 'EUR',
+            'warnings' => [$warning],
+        ]);
+});
+
+it('runs an aggregate query for the acting user under the structured filters', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's1', 'group_name' => 'alpha']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's2', 'group_name' => 'alpha']);
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's3', 'group_name' => 'beta']);
+
+    $query = AggregateQuery::fromArray(['measures' => [['fn' => 'count']], 'group_by' => ['field' => 'group_name']], AggregateLimits::fromConfig());
+
+    $result = makeCrudToolProvider($user)->aggregate('core', 'setting', [['property' => 'group_name', 'operator' => '=', 'value' => 'alpha']], $query);
+
+    expect($result)->toBeInstanceOf(AggregateResult::class)
+        ->and($result->total)->toBe(['count' => 2])
+        ->and($result->series)->toBe([['key' => 'alpha', 'label' => null, 'values' => ['count' => 2]]]);
+});
+
+it('lets the refusal of the engine through when it is asked for an aggregate directly', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+
+    $query = AggregateQuery::fromArray(['measures' => [['fn' => 'sum', 'field' => 'id']]], AggregateLimits::fromConfig());
+    $provider = makeCrudToolProvider($user);
+
+    expect(fn (): AggregateResult => $provider->aggregate('core', 'setting', [], $query))
+        ->toThrow(fn (AggregateException $exception): bool => $exception->errorCode === AggregateErrorCode::NotMeasurable);
+});
+
+it('describes summarize with one group_by column, an optional bucket and an optional period', function (): void {
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantSettingAbility($user, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
+
+    $tool = findTool(makeCrudToolProvider($user)->tools(inAppContext($user)), 'crud_summarize_core_setting');
+    $parameters = collect($tool->parameters)->keyBy('name');
+
+    expect($parameters->keys()->all())->toBe(['filters', 'group_by', 'metrics', 'bucket', 'period'])
+        ->and($parameters['group_by']['maxItems'])->toBe(1)
+        ->and($parameters['group_by']['description'])->toContain('one')
+        ->and($parameters['bucket']['type'])->toBe('string')
+        ->and($parameters['bucket']['enum'])->toBe(['day', 'week', 'month', 'quarter', 'year'])
+        ->and($parameters['bucket']['required'])->toBeFalse()
+        ->and($parameters['period']['type'])->toBe('object')
+        ->and($parameters['period']['required'])->toBeFalse()
+        ->and($tool->description)->toContain('one column')
+        ->and($tool->description)->toContain('period');
 });
 
 it('exports records to a csv file with the selected columns', function (): void {
