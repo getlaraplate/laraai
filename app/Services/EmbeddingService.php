@@ -7,6 +7,7 @@ namespace Modules\AI\Services;
 use Closure;
 use Modules\AI\Ai\Embeddings\EmbeddingsProviderFactory;
 use Modules\AI\Ai\Embeddings\PrefixingEmbeddingsProvider;
+use Modules\AI\Ai\Embeddings\QueryEmbeddingCache;
 use Modules\AI\Contracts\IEmbeddingService;
 use Modules\AI\Services\Documentation\Chunking\SplitterFactory;
 use NeuronAI\RAG\Document;
@@ -22,6 +23,7 @@ final readonly class EmbeddingService implements IEmbeddingService
     public function __construct(
         private ?Closure $providerFactory = null,
         private ?SplitterInterface $splitter = null,
+        private ?QueryEmbeddingCache $queryCache = null,
     ) {}
 
     /**
@@ -69,14 +71,23 @@ final readonly class EmbeddingService implements IEmbeddingService
     }
 
     /**
-     * Generate embedding for a simple text string.
+     * Generate embedding for a simple text string. With the configured provider the vector is shared
+     * through {@see QueryEmbeddingCache}; an injected provider factory is not identified by the active
+     * profile, so it is never cached.
      *
      * @return list<float>
      */
     #[Override]
     public function embedText(string $text): array
     {
-        return array_values($this->getProvider()->embedText($text));
+        if ($this->providerFactory !== null) {
+            return array_values($this->getProvider()->embedText($text));
+        }
+
+        return ($this->queryCache ?? resolve(QueryEmbeddingCache::class))->remember(
+            $text,
+            fn (): array => array_values($this->getProvider()->embedText($text)),
+        );
     }
 
     /**
