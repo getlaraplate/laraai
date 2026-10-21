@@ -53,11 +53,13 @@ final readonly class AssistantAccessContext
         if (
             $this->userId === null
             || mb_trim($this->userId) === ''
-            || $this->conversationId === null
-            || mb_trim($this->conversationId) === ''
             || $this->tenantScope === null
         ) {
             throw new InvalidArgumentException('In-app assistance requires resolved server context.');
+        }
+
+        if ($this->conversationId !== null && mb_trim($this->conversationId) === '') {
+            throw new InvalidArgumentException('In-app assistance conversation ID cannot be blank.');
         }
 
         if ($this->tenantScope === AssistantTenantScope::Global && $this->tenantId !== null) {

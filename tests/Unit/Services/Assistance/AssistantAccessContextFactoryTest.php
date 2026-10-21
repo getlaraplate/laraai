@@ -7,6 +7,7 @@ use Illuminate\Support\Collection;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Models\Conversation;
+use Modules\AI\Services\Assistance\AssistantAccessContext;
 use Modules\AI\Services\Assistance\AssistantAccessContextFactory;
 use Modules\AI\Services\Assistance\AssistantPromptContext;
 use Modules\AI\Services\Assistance\Contracts\AssistantTenantResolverInterface;
@@ -138,6 +139,72 @@ it('fails closed when effective permissions cannot be resolved', function (): vo
         assistanceConversation(),
         $user,
     ))->toThrow(AuthorizationException::class);
+});
+
+it('builds a search context with no conversation', function (): void {
+    config()->set('app.available_locales', ['en', 'it']);
+
+    $user = assistanceUserMock(permissions: collect([
+        (object) ['name' => 'default.dashboard.select'],
+        (object) ['name' => 'default.contents.select'],
+    ]));
+    $resolver = Mockery::mock(AssistantTenantResolverInterface::class);
+    $resolver->shouldReceive('resolveFor')->once()->with($user)
+        ->andReturn(ResolvedAssistantTenant::global());
+
+    $context = (new AssistantAccessContextFactory($resolver))->forDocumentationSearch($user);
+
+    expect($context->profile)->toBe(AssistantProfile::InAppAssistance)
+        ->and($context->userId)->toBe('7')
+        ->and($context->conversationId)->toBeNull()
+        ->and($context->tenantScope)->toBe(AssistantTenantScope::Global)
+        ->and($context->tenantId)->toBeNull()
+        ->and($context->locale)->toBe('it')
+        ->and($context->effectivePermissions)->toBe([
+            'default.contents.select',
+            'default.dashboard.select',
+        ]);
+});
+
+it('refuses the guest for a search context', function (): void {
+    $resolver = Mockery::mock(AssistantTenantResolverInterface::class);
+    $resolver->shouldNotReceive('resolveFor');
+
+    expect(fn () => (new AssistantAccessContextFactory($resolver))->forDocumentationSearch(
+        assistanceUserMock(guest: true),
+    ))->toThrow(AuthorizationException::class);
+});
+
+it('still requires an owned conversation for the assistant', function (): void {
+    $resolver = Mockery::mock(AssistantTenantResolverInterface::class);
+    $resolver->shouldNotReceive('resolveFor');
+
+    expect(fn () => (new AssistantAccessContextFactory($resolver))->forInApp(
+        assistanceConversation(user_id: 9),
+        assistanceUserMock(id: 7),
+    ))->toThrow(AuthorizationException::class);
+});
+
+it('rejects a blank conversation id', function (): void {
+    expect(fn () => new AssistantAccessContext(
+        profile: AssistantProfile::InAppAssistance,
+        userId: '7',
+        tenantScope: AssistantTenantScope::Global,
+        tenantId: null,
+        locale: 'it',
+        effectivePermissions: [],
+        conversationId: '',
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect(fn () => new AssistantAccessContext(
+        profile: AssistantProfile::DeveloperHelp,
+        userId: null,
+        tenantScope: null,
+        tenantId: null,
+        locale: 'it',
+        effectivePermissions: [],
+        conversationId: '11',
+    ))->toThrow(InvalidArgumentException::class);
 });
 
 it('keeps prompt context free from control-plane data recursively', function (): void {

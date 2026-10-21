@@ -32,6 +32,30 @@ final readonly class AssistantAccessContextFactory
             throw new AuthorizationException('Assistant access context is unavailable.');
         }
 
+        return $this->resolveContext($authenticated_user, $user_id, $conversation_id);
+    }
+
+    /**
+     * Builds the in-app context for a documentation search, which has no conversation.
+     *
+     * @throws AuthorizationException
+     */
+    public function forDocumentationSearch(User $authenticated_user): AssistantAccessContext
+    {
+        $user_id = $this->normalizedKey($authenticated_user->getKey());
+
+        if ($user_id === null) {
+            throw new AuthorizationException('Assistant access context is unavailable.');
+        }
+
+        return $this->resolveContext($authenticated_user, $user_id, null);
+    }
+
+    /**
+     * @throws AuthorizationException
+     */
+    private function resolveContext(User $authenticated_user, string $user_id, ?string $conversation_id): AssistantAccessContext
+    {
         try {
             if ($authenticated_user->isGuest()) {
                 throw new AuthorizationException('Assistant access context is unavailable.');
