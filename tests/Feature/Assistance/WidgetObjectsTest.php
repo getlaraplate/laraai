@@ -5,10 +5,13 @@ declare(strict_types=1);
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Services\Assistance\AssistanceGuardrailPipeline;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCatalog;
@@ -23,8 +26,11 @@ use Modules\Core\Exceptions\AggregateException;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\Permission;
 use Modules\Core\Models\Setting;
+use Modules\Core\Rules\ClientScopeFilters;
+use Modules\Core\Rules\QueryBuilder;
 use Modules\Core\Services\Authorization\AuthorizationService;
 use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
+use Modules\Core\Services\Crud\Aggregate\AggregateQuery;
 use Modules\Core\Services\Crud\Aggregate\AggregateResult;
 use Modules\Core\Services\Crud\CrudService;
 use Modules\Core\Services\Export\TabularCsvExporter;
@@ -95,6 +101,16 @@ function widgetRequest(array $overrides = []): string
 function widgetChartRequest(array $overrides = []): string
 {
     return widgetRequest(['group_by' => ['field' => 'group_name'], 'limit' => 5, 'other' => true, ...$overrides]);
+}
+
+/**
+ * A filter node on the group name of the settings.
+ *
+ * @return array{property: string, operator: string, value: string}
+ */
+function widgetFilter(string $value, string $operator = '='): array
+{
+    return ['property' => 'group_name', 'operator' => $operator, 'value' => $value];
 }
 
 /**
@@ -171,6 +187,7 @@ it('refuses a title that is not plain text of 1 to 80 characters', function (mix
     'empty' => ['  '],
     'not a text' => [42],
     'a text the output guardrails refuse' => ['Key sk-abcdefghijklmnop1234567890'],
+    'a text that is not UTF-8' => ["Settings \xC3\x28"],
 ]);
 
 it('refuses a request that is not JSON text of an object with a resource', function (mixed $request): void {
@@ -186,6 +203,7 @@ it('refuses a request that is not JSON text of an object with a resource', funct
     'no resource' => ['{"measures":[{"fn":"count"}]}'],
     'a resource with a dot' => [fn (): string => widgetRequest(['resource' => 'core.setting'])],
     'a resource in capitals' => [fn (): string => widgetRequest(['resource' => 'Core/Setting'])],
+    'a resource with a trailing newline' => [fn (): string => widgetRequest(['resource' => "core/setting\n"])],
     'JSON over 2000 characters' => [fn (): string => widgetRequest(['note' => str_repeat('a', 2000)])],
     'JSON nested deeper than 8 levels' => [fn (): string => widgetRequest(['filters' => [[[[[[[['x']]]]]]]]])],
     'a number too large to encode again' => ['{"resource":"core/setting","measures":[{"fn":"count"}],"filters":[{"property":"value","operator":"=","value":1e400}]}'],
@@ -217,6 +235,84 @@ it('returns the code and field of a request the validator refuses, without repor
         ->and($collector->hasObjects())->toBeFalse();
 
     Exceptions::assertNotReported(AggregateException::class);
+});
+
+it('refuses filters that are not a list of filter objects', function (mixed $filters): void {
+    $collector = widgetCollector(widgetUser());
+
+    $answer = $collector->show('kpi', 'Alpha settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($answer)->toBe('Not shown: the filters must be a list of filter objects. Nothing was recorded.')
+        ->and($collector->hasObjects())->toBeFalse();
+})->with([
+    'a JSON text' => [fn (): string => json_encode([widgetFilter('alpha')])],
+    'a single node' => [fn (): array => widgetFilter('alpha')],
+    'a group that is not in a list' => [fn (): array => ['operator' => 'or', 'filters' => [widgetFilter('alpha'), widgetFilter('beta')]]],
+    'a list holding a text' => [['group_name = alpha']],
+]);
+
+it('refuses filters the route would refuse, with the first message of its validator', function (array $filters, string $expected): void {
+    $collector = widgetCollector(widgetUser());
+
+    $answer = $collector->show('kpi', 'Alpha settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($answer)->toStartWith($expected)
+        ->and($collector->hasObjects())->toBeFalse();
+})->with([
+    'a node without an operator' => [[['property' => 'group_name', 'value' => 'alpha']], 'Not shown: the filters were refused: filters.0 "operator" is required. Nothing was recorded.'],
+    'a node without a value' => [[['property' => 'group_name', 'operator' => '=']], 'Not shown: the filters were refused: filters.0 "value" is required. Nothing was recorded.'],
+    'a nested node without an operator' => [[['operator' => 'or', 'filters' => [['property' => 'group_name', 'value' => 'alpha']]]], 'Not shown: the filters were refused: filters.0.filters.0 "operator" is required. Nothing was recorded.'],
+    'a scope the entity does not expose' => [[['scope' => 'noSuchScope']], 'Not shown: the filters were refused: filters.0 '],
+]);
+
+it('records an OR group as an OR group and runs it as one', function (): void {
+    foreach (['alpha', 'beta', 'gamma'] as $group) {
+        Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'or-' . $group, 'group_name' => $group]);
+    }
+
+    $collector = widgetCollector(widgetUser());
+    $filters = [['operator' => 'or', 'filters' => [widgetFilter('alpha'), widgetFilter('beta')]]];
+
+    $answer = $collector->show('kpi', 'Alpha or beta settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->toContain('"total":{"count":2}')
+        ->and($collector->objects()[0]->ref['request']['filters'])->toBe($filters);
+});
+
+it('stores only the words of the filter vocabulary, at every depth', function (): void {
+    $collector = widgetCollector(widgetUser());
+    $filters = [['operator' => 'or', 'total' => 999, 'filters' => [[...widgetFilter('alpha'), 'total' => 999], widgetFilter('beta')]]];
+
+    $collector->show('kpi', 'Alpha or beta settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($collector->objects()[0]->ref['request']['filters'])->toBe([['operator' => 'or', 'filters' => [widgetFilter('alpha'), widgetFilter('beta')]]]);
+});
+
+it('records a request that the route reads back unchanged', function (): void {
+    $collector = widgetCollector(widgetUser());
+    $filters = [widgetFilter('hidden', '!='), ['operator' => 'or', 'filters' => [widgetFilter('alpha'), widgetFilter('beta')]]];
+
+    $collector->show('chart', 'Settings by group', widgetChartRequest(['filters' => $filters]), 'bar', null);
+
+    $request = $collector->objects()[0]->ref['request'];
+    $routeRules = ['filters' => [new QueryBuilder(), new ClientScopeFilters(DynamicEntity::resolve('setting', module: 'core'))]];
+
+    expect(Validator::make(['filters' => $request['filters']], $routeRules)->passes())->toBeTrue()
+        ->and(AggregateQuery::fromArray($request, AggregateLimits::fromConfig())->toArray())->toBe(Arr::except($request, ['kind', 'resource', 'filters']));
+});
+
+it('answers a malformed scope node that the engine refuses with the message of its refusal', function (): void {
+    Exceptions::fake();
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->once()->andThrow(ValidationException::withMessages(['filters' => 'Scope "archived" fails with these parameters.']));
+    $collector = widgetCollector(widgetUser(), crud: $crud);
+
+    $answer = $collector->show('kpi', 'Settings', widgetRequest(), null, null);
+
+    expect($answer)->toBe('Not shown: the filters were refused: Scope "archived" fails with these parameters. Nothing was recorded.');
+
+    Exceptions::assertNothingReported();
 });
 
 it('refuses an object whose shape does not fit its type', function (string $type, string $request, mixed $variant, string $why): void {
@@ -414,6 +510,56 @@ it('records a chart with its variant, its format and its filters', function (): 
         ]);
 });
 
+it('records a line chart over time buckets', function (): void {
+    $collector = widgetCollector(widgetUser());
+    $request = widgetRequest([
+        'group_by' => ['field' => 'created_at', 'bucket' => 'month'],
+        'period' => ['field' => 'created_at', 'from' => '2026-01-01', 'to' => '2026-03-31'],
+    ]);
+
+    $answer = $collector->show('chart', 'Settings by month', $request, 'line', null);
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->and($collector->objects()[0]->toArray())->toMatchArray([
+            'type' => 'chart',
+            'title' => 'Settings by month',
+            'ref' => [
+                'request' => [
+                    'kind' => 'aggregate',
+                    'resource' => 'core/setting',
+                    'measures' => [['fn' => 'count']],
+                    'group_by' => ['field' => 'created_at', 'bucket' => 'month'],
+                    'period' => ['field' => 'created_at', 'from' => '2026-01-01', 'to' => '2026-03-31'],
+                    'sort' => ['by' => 'key', 'dir' => 'asc'],
+                ],
+                'variant' => 'line',
+            ],
+        ]);
+});
+
+it('records a ranking chart', function (): void {
+    $collector = widgetCollector(widgetUser());
+
+    $answer = $collector->show('chart', 'Largest groups', widgetChartRequest(['other' => false]), 'ranking', null);
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->and($collector->objects()[0]->toArray())->toMatchArray([
+            'type' => 'chart',
+            'title' => 'Largest groups',
+            'ref' => [
+                'request' => [
+                    'kind' => 'aggregate',
+                    'resource' => 'core/setting',
+                    'measures' => [['fn' => 'count']],
+                    'group_by' => ['field' => 'group_name'],
+                    'sort' => ['by' => 'measure', 'dir' => 'desc'],
+                    'limit' => 5,
+                ],
+                'variant' => 'ranking',
+            ],
+        ]);
+});
+
 it('keeps no figure in the object, even one the model wrote into the request', function (): void {
     Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 's1', 'group_name' => 'alpha']);
     $collector = widgetCollector(widgetUser());
@@ -510,6 +656,7 @@ it('allows show_widget to the in-app profile only with the widget_objects capabi
     expect(WidgetObjectCollector::CAPABILITY)->toBe('widget_objects')
         ->and($with->allowsTool(ShowWidgetTool::NAME))->toBeTrue()
         ->and($with->allowedTools)->toBe([ShowWidgetTool::NAME])
+        ->and($with->systemPrompt)->toContain('put a figure or chart object in your answer only through the widget tool')
         ->and($with->systemPrompt)->toContain('never invent')
         ->and($without->allowsTool(ShowWidgetTool::NAME))->toBeFalse();
 });
@@ -523,6 +670,7 @@ it('describes show_widget with a kpi or chart type, a JSON request and an option
 
     expect($tool->name)->toBe('show_widget')
         ->and($tool->riskLevel)->toBe('low')
+        ->and($tool->maxRuns)->toBe(8)
         ->and($parameters->keys()->all())->toBe(['type', 'title', 'request', 'variant', 'format'])
         ->and($parameters['type']['enum'])->toBe(['kpi', 'chart'])
         ->and($parameters['title']['maxLength'])->toBe(80)

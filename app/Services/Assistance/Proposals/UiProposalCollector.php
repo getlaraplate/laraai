@@ -7,8 +7,8 @@ namespace Modules\AI\Services\Assistance\Proposals;
 use Illuminate\Support\Str;
 use JsonException;
 use Modules\AI\Data\UiProposal;
-use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use Modules\AI\Services\Assistance\AssistanceGuardrailPipeline;
+use Modules\AI\Services\Assistance\PlainText;
 
 /**
  * Validates what a proposal tool receives from the model and keeps the proposals of one message.
@@ -100,7 +100,7 @@ final class UiProposalCollector
             return $this->refusal('the proposed value is not allowed for that target');
         }
 
-        $text = $this->plainReason($reason);
+        $text = PlainText::validated($reason, self::MAX_REASON_LENGTH, $this->guardrails);
 
         if ($text === null) {
             return $this->refusal('the reason must be plain text of at most ' . self::MAX_REASON_LENGTH . ' characters');
@@ -137,25 +137,6 @@ final class UiProposalCollector
         try {
             return ['value' => json_decode($proposed, true, 8, JSON_THROW_ON_ERROR)];
         } catch (JsonException) {
-            return null;
-        }
-    }
-
-    private function plainReason(mixed $reason): ?string
-    {
-        if (! is_string($reason)) {
-            return null;
-        }
-
-        $reason = mb_trim($reason);
-
-        if ($reason === '' || mb_strlen($reason) > self::MAX_REASON_LENGTH || preg_match('/[\p{C}]|[<>`]|https?:\/\//u', $reason) === 1) {
-            return null;
-        }
-
-        try {
-            return $this->guardrails->validateOutput($reason);
-        } catch (AssistancePolicyViolationException) {
             return null;
         }
     }

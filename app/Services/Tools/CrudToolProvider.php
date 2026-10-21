@@ -234,12 +234,14 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
      * which rows every figure covers. The caller decides whether the entity is offered to the assistant.
      *
      * @param  mixed  $filters  Structured filters of the list vocabulary; what is not a filter node is ignored.
+     * @param  bool  $filtersAreValidated  The caller checked the filters with the rules of the route: the tree is
+     *                                     passed on as it is, so that what runs is what the caller validated.
      *
      * @throws AggregateException when the engine refuses the request: the caller turns it into its own answer
      */
-    public function aggregate(string $module, string $entity, mixed $filters, AggregateQuery $query): AggregateResult
+    public function aggregate(string $module, string $entity, mixed $filters, AggregateQuery $query, bool $filtersAreValidated = false): AggregateResult
     {
-        $normalizedFilters = $this->normalizeFilters($filters);
+        $normalizedFilters = $filtersAreValidated ? (is_array($filters) ? $filters : []) : $this->normalizeFilters($filters);
         $validated = $normalizedFilters === [] ? [] : ['filters' => $normalizedFilters];
 
         $data = new ListRequestData($this->makeRequest(ListRequest::class), $entity, $validated, $this->primaryKey($module, $entity), $module);
