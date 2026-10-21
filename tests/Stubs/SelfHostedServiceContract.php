@@ -91,6 +91,40 @@ final readonly class SelfHostedServiceContract
     }
 
     /**
+     * `$value` reduced to what `$schema` requires, at every depth: the least a service may answer.
+     *
+     * @param  array<string, mixed>  $schema
+     */
+    public function requiredOnly(array $schema, mixed $value): mixed
+    {
+        $schema = $this->resolve($schema);
+
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        if (array_is_list($value) && $value !== []) {
+            return isset($schema['items'])
+                ? array_map(fn (mixed $item): mixed => $this->requiredOnly($schema['items'], $item), $value)
+                : $value;
+        }
+
+        if (! isset($schema['properties'])) {
+            return $value;
+        }
+
+        $reduced = [];
+
+        foreach ($schema['required'] ?? [] as $required) {
+            if (array_key_exists($required, $value)) {
+                $reduced[$required] = $this->requiredOnly($schema['properties'][$required] ?? [], $value[$required]);
+            }
+        }
+
+        return $reduced;
+    }
+
+    /**
      * What in `$value` the schema does not allow, one message per problem; empty when it conforms.
      *
      * @param  array<string, mixed>  $schema

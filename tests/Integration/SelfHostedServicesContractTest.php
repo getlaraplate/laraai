@@ -165,6 +165,60 @@ it('parses the example answers of the services', function (): void {
 });
 
 /**
+ * The examples are what the clients are fed above, so they must be answers the services may really give.
+ */
+it('has example answers that match their own schemas', function (string $service, string $path, string $method): void {
+    $contract = SelfHostedServiceContract::load($service);
+
+    expect($contract->violations($contract->responseSchema($path, $method, 200), $contract->responseExample($path, $method, 200)))->toBe([]);
+})->with([
+    '/embed' => ['sentence-transformers-api', '/embed', 'post'],
+    '/score' => ['sentence-transformers-api', '/score', 'post'],
+    '/health of the embeddings' => ['sentence-transformers-api', '/health', 'get'],
+    '/transcribe' => ['whisper-api', '/transcribe', 'post'],
+]);
+
+/**
+ * An answer holding only what its schema requires: a client that needs anything else depends on a field
+ * the service never promised, and fails here.
+ */
+it('parses answers that carry only the required fields', function (): void {
+    $history = [];
+    config(['ai.providers.sentence_transformers.url' => 'http://st.test:8000', 'ai.providers.whisper.url' => 'http://whisper.test']);
+    $embed = $this->embeddings->requiredOnly($this->embeddings->responseSchema('/embed', 'post', 200), $this->embeddings->responseExample('/embed', 'post', 200));
+    Http::fake([
+        'st.test:8000/health' => Http::response($this->embeddings->requiredOnly($this->embeddings->responseSchema('/health', 'get', 200), $this->embeddings->responseExample('/health', 'get', 200))),
+        'st.test:8000/embed' => Http::response($embed),
+        'st.test:8000/score' => Http::response($this->embeddings->requiredOnly($this->embeddings->responseSchema('/score', 'post', 200), $this->embeddings->responseExample('/score', 'post', 200))),
+        'whisper.test/*' => Http::response($this->whisper->requiredOnly($this->whisper->responseSchema('/transcribe', 'post', 200), $this->whisper->responseExample('/transcribe', 'post', 200))),
+    ]);
+    $path = contract_audio_file();
+
+    $identity = new EmbeddingServiceIdentity();
+
+    expect(contract_embeddings_provider($embed, $history)->embedText('ciao'))->toHaveCount(3)
+        ->and($identity->probeModel(contract_profile(3)))->toBe('intfloat/multilingual-e5-small')
+        ->and($identity->healthModel())->toBe('intfloat/multilingual-e5-small')
+        ->and((new CrossEncoderService('http://st.test:8000'))->score([['query' => 'orari', 'text' => 'aperto dalle 9']]))->toBe([0.93])
+        ->and((new WhisperTranscriber())->transcribe($path, 'audio/mpeg', new MediaAnalysisModelProfile('transcription', 'whisper', 'whisper', '')))->toBe('Buongiorno a tutti.');
+
+    @unlink($path);
+});
+
+it('keeps only the required fields of an answer, at every depth', function (): void {
+    $schema = $this->embeddings->responseSchema('/health', 'get', 200);
+    $answer = $this->embeddings->responseExample('/health', 'get', 200);
+    $answer['extra'] = true;
+    $answer['reranker']['allowed_models'] = ['m'];
+
+    $reduced = $this->embeddings->requiredOnly($schema, $answer);
+
+    expect($reduced)->not->toHaveKey('extra')
+        ->and($reduced['reranker'])->not->toHaveKey('allowed_models')
+        ->and(array_keys($reduced))->toBe($schema['required']);
+});
+
+/**
  * Every field a client reads must be declared in the answer's schema: reading one the service never promised
  * works only until the service stops sending it.
  */

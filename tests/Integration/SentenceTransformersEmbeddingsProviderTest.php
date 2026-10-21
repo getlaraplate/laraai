@@ -9,6 +9,7 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\Embeddings\SentenceTransformersEmbeddingsProvider;
+use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\Core\Search\Exceptions\EmbeddingsException;
 use NeuronAI\RAG\Document;
 
@@ -336,7 +337,7 @@ it('throws a failure carrying the request id and logs it once when the service a
     try {
         $provider->embedText('secret text');
         $this->fail('The call should have failed.');
-    } catch (Throwable $exception) {
+    } catch (SelfHostedServiceException $exception) {
         $id = $history[0]['request']->getHeaderLine('X-Request-Id');
 
         expect($exception->getMessage())->toContain("request_id {$id}");
@@ -351,3 +352,23 @@ it('throws a failure carrying the request id and logs it once when the service a
         ] && ! str_contains($message, 'secret text'),
     );
 });
+
+/**
+ * Guzzle resolves `embed` against the base URL, so the log names the URL the call really went to.
+ */
+it('logs the url the call really went to', function (string $base, string $called): void {
+    Log::spy();
+    $history = [];
+    $stack = HandlerStack::create(new MockHandler([new Response(503, [], json_encode(['error' => 'busy']))]));
+    $stack->push(Middleware::history($history));
+    $provider = new SentenceTransformersEmbeddingsProvider($base);
+    (new ReflectionClass($provider))->getProperty('client')->setValue($provider, new Client(['handler' => $stack, 'base_uri' => $base]));
+
+    expect(fn () => $provider->embedText('hello'))->toThrow(SelfHostedServiceException::class);
+
+    expect((string) $history[0]['request']->getUri())->toBe($called);
+    Log::shouldHaveReceived('warning')->once()->withArgs(fn (string $message, array $context): bool => $context['endpoint'] === $called);
+})->with([
+    'a base url with a trailing slash' => ['http://gw.test/st/', 'http://gw.test/st/embed'],
+    'a base url without one' => ['http://gw.test/st', 'http://gw.test/embed'],
+]);

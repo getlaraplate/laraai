@@ -6,6 +6,8 @@ namespace Modules\AI\Ai\Embeddings;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\Core\Search\AdaptiveBatchController;
@@ -24,7 +26,11 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
 
     private readonly int $batch_size_limit;
 
-    private readonly string $url;
+    /**
+     * The URL the client posts `embed` to: Guzzle resolves it against the base URL, so a base URL with a path
+     * and no trailing slash loses its last segment.
+     */
+    private readonly string $embed_url;
 
     public function __construct(
         string $url = 'http://localhost:8000',
@@ -41,7 +47,7 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
             $url = 'http://' . $url;
         }
 
-        $this->url = mb_rtrim($url, '/');
+        $this->embed_url = (string) UriResolver::resolve(new Uri($url), new Uri('embed'));
 
         $options = [
             'base_uri' => $url,
@@ -150,7 +156,7 @@ final class SentenceTransformersEmbeddingsProvider extends AbstractEmbeddingsPro
      */
     private function postEmbed(array $payload): mixed
     {
-        $request_id = new ServiceRequestId('sentence_transformers', $this->url . '/embed');
+        $request_id = new ServiceRequestId('sentence_transformers', $this->embed_url);
 
         try {
             $response = $this->client->post('embed', [

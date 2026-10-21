@@ -56,18 +56,27 @@ final class WhisperTranscriber implements MediaTranscriber
             $response = $request->post($endpoint);
 
             if (! $response->successful()) {
-                $request_id->logFailure($response->status());
+                self::logFailure($request_id, $response->status());
 
                 return null;
             }
 
             $text = $response->json('text');
         } catch (Throwable $exception) {
-            $request_id->logFailure(ServiceRequestId::statusOf($exception));
+            self::logFailure($request_id, ServiceRequestId::statusOf($exception));
 
             return null;
         }
 
         return is_string($text) && mb_trim($text) !== '' ? mb_trim($text) : null;
+    }
+
+    /**
+     * Logs the failure without ever throwing: a log that cannot be written must not turn a missing transcript
+     * into a failed analysis.
+     */
+    private static function logFailure(ServiceRequestId $request_id, ?int $status): void
+    {
+        rescue(static fn () => $request_id->logFailure($status), report: false);
     }
 }

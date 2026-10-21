@@ -116,3 +116,15 @@ it('returns null and logs the request id without a status when the service canno
 
     @unlink($path);
 });
+
+it('still returns null without throwing when the log itself fails', function (): void {
+    Log::shouldReceive('warning')->andThrow(new UnexpectedValueException('log stream not writable'));
+    config()->set('ai.providers.whisper.url', 'http://whisper.test');
+    Http::fake(['whisper.test/*' => Http::response(['error' => 'busy'], 503)]);
+
+    $path = audioFixture();
+
+    expect((new WhisperTranscriber())->transcribe($path, 'audio/mpeg', transcriptionProfile()))->toBeNull();
+
+    @unlink($path);
+});

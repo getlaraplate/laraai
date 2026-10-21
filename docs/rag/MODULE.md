@@ -669,8 +669,10 @@ cross-encoder and Whisper clients do not read `/health`.
 `whisper-api.openapi.json`) next to the service `VERSION` each comes from (`*.version`). The helper
 `tests/Stubs/SelfHostedServiceContract` validates a body against a schema and treats an object schema without
 `additionalProperties` as closed. The test fails when a client sends a field the schema does not declare
-or omits a required one, when it reads a field the answer schema does not declare, or when a client stops
-parsing the example answers.
+or omits a required one; when a client stops parsing the example answers, or an answer reduced to its
+schema's required fields (so a client that needs a field the service does not promise fails); and when an
+example no longer matches its own schema. A field a client reads only when present is not caught this way:
+the test lists those reads (`model`, `api_version`) and checks that the answer schemas declare them.
 
 When a service releases a new version, copy its `openapi.json` and `VERSION` into the fixtures and run the
 test:
