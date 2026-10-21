@@ -53,10 +53,16 @@ final readonly class SchemaToolProperty implements ToolPropertyInterface
      * What the model sends in the wrong type is converted when nothing is lost ("42" to 42, 42 to "42",
      * "true" to true), as Neuron converts its own scalar properties. Unlike them, a value that cannot be
      * converted is not refused here: it reaches the tool unchanged, as it did before Neuron 4. A value
-     * outside the enum of the property is refused, and the model is told which values are allowed.
+     * outside the enum of the property is refused, and the model is told which values are allowed. An
+     * optional property the model sends as null is accepted as null, with no enum check, as when it
+     * sends nothing; a required one stays strict.
      */
     public function cast(mixed $input): mixed
     {
+        if ($input === null && ! $this->required) {
+            return null;
+        }
+
         if ($this->type === PropertyType::ARRAY || $this->type === PropertyType::OBJECT) {
             return $input;
         }

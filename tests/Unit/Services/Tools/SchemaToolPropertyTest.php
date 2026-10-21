@@ -79,3 +79,25 @@ it('runs a tool whose id is declared a string when the model sends a number', fu
 
     expect((string) $tool->getResult())->toBe('record:42');
 });
+
+it('accepts an explicit null for an optional property, even one with an enum', function (): void {
+    $property = new SchemaToolProperty('bucket', PropertyType::STRING, 'A bucket', false, ['day', 'month']);
+
+    expect($property->cast(null))->toBeNull();
+});
+
+it('keeps a required property with an enum strict about null', function (): void {
+    $property = new SchemaToolProperty('bucket', PropertyType::STRING, 'A bucket', true, ['day', 'month']);
+
+    $property->cast(null);
+})->throws(InvalidToolInput::class, 'must be one of "day", "month"; null given');
+
+it('runs a tool whose optional enum parameter the model sends as null', function (): void {
+    $tool = new CallbackTool('pick', 'Pick a bucket', static fn (?string $bucket = null): string => $bucket ?? 'none');
+    $tool->addProperty(new SchemaToolProperty('bucket', PropertyType::STRING, 'A bucket', false, ['day', 'month']));
+
+    $tool->setInputs(['bucket' => null]);
+    $tool->execute();
+
+    expect((string) $tool->getResult())->toBe('none');
+});

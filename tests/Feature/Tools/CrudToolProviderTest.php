@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Exceptions;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
@@ -18,6 +20,7 @@ use Modules\Core\Models\ImportSession;
 use Modules\Core\Models\Permission;
 use Modules\Core\Services\Authorization\AuthorizationService;
 use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
+use Modules\Core\Services\Crud\Aggregate\AggregateMeasure;
 use Modules\Core\Services\Crud\Aggregate\AggregateQuery;
 use Modules\Core\Services\Crud\Aggregate\AggregateResult;
 use Modules\Core\Services\Crud\CrudService;
@@ -86,6 +89,31 @@ function findTool(array $tools, string $name): ?ToolDefinition
     }
 
     return null;
+}
+
+/**
+ * The summarize tool of a core entity for a user who may select it, optionally over a given CrudService.
+ */
+function summarizeTool(string $entity = 'setting', ?CrudService $crud = null): ToolDefinition
+{
+    $user = user_class()::factory()->create();
+    Auth::login($user);
+    grantEntityAbility($user, $entity, 'select');
+    Config::set('ai.features.tools.crud.entities', ['core.' . $entity => ['summarize']]);
+
+    return findTool(makeCrudToolProvider($user, $crud)->tools(inAppContext($user)), 'crud_summarize_core_' . $entity)
+        ?? throw new LogicException('The summarize tool is not offered.');
+}
+
+function emptyAggregateResult(): AggregateResult
+{
+    return new AggregateResult(
+        series: [],
+        total: ['count' => 0],
+        other: null,
+        compare: null,
+        meta: ['row_count' => 0, 'group_count' => 0, 'truncated' => false, 'generated_at' => '2026-10-21T08:30:00Z'],
+    );
 }
 
 beforeEach(function (): void {
@@ -423,7 +451,9 @@ it('rejects more than one group_by column with the tool error shape', function (
     expect($result)->toHaveKeys(['request', 'error'])
         ->and($result)->not->toHaveKey('data')
         ->and($result['request']['group_by'])->toBe(['group_name', 'module'])
-        ->and($result['error'])->toContain('one');
+        ->and($result['error'])->toContain('one')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('group_by');
 });
 
 it('refuses a bucket that has no column to apply to', function (): void {
@@ -437,12 +467,15 @@ it('refuses a bucket that has no column to apply to', function (): void {
     /** @var array<string, mixed> $result */
     $result = ($tool->handler)(bucket: 'month');
 
-    expect($result)->toHaveKeys(['request', 'error'])
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
         ->and($result)->not->toHaveKey('data')
-        ->and($result['error'])->toContain('group_by');
+        ->and($result['error'])->toContain('group_by')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('bucket');
 });
 
-it('reports NOT_MEASURABLE for a sum over a key in the error shape', function (): void {
+it('reports NOT_MEASURABLE for a sum over a key in the error shape, without reporting the model mistake', function (): void {
+    Exceptions::fake();
     $user = user_class()::factory()->create();
     Auth::login($user);
     grantSettingAbility($user, 'select');
@@ -458,9 +491,11 @@ it('reports NOT_MEASURABLE for a sum over a key in the error shape', function ()
     expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
         ->and($result)->not->toHaveKey('data')
         ->and($result['code'])->toBe('NOT_MEASURABLE')
-        ->and($result['field'])->toBe('measures.1.field')
+        ->and($result['field'])->toBe('metrics.0.property')
         ->and($result['error'])->toContain('"id"')
         ->and($result['request']['metrics'])->toBe([['property' => 'id', 'function' => 'sum']]);
+
+    Exceptions::assertNotReported(AggregateException::class);
 });
 
 it('reports a request the validator refuses with its code and field', function (): void {
@@ -476,7 +511,7 @@ it('reports a request the validator refuses with its code and field', function (
 
     expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
         ->and($result['code'])->toBe('INVALID_FIELD')
-        ->and($result['field'])->toBe('group_by.bucket');
+        ->and($result['field'])->toBe('bucket');
 });
 
 it('hands the model the total, the rest of the groups, the currency and the warnings of the engine', function (): void {
@@ -485,7 +520,7 @@ it('hands the model the total, the rest of the groups, the currency and the warn
     grantSettingAbility($user, 'select');
     Config::set('ai.features.tools.crud.entities', ['core.setting' => ['summarize']]);
 
-    $warning = ['code' => 'MIXED_CURRENCY', 'field' => 'sum_value', 'message' => '"sum_value" adds amounts in more than one currency, so it has no value.'];
+    $warning = ['code' => 'MIXED_CURRENCY', 'field' => 'sum_value', 'message' => '"sum_value" adds amounts in more than one currency, so it has no value: group by "currency" to get one value per currency.'];
     $crud = Mockery::mock(resolve(CrudService::class));
     $crud->shouldReceive('aggregate')->once()->andReturn(new AggregateResult(
         series: [
@@ -514,7 +549,11 @@ it('hands the model the total, the rest of the groups, the currency and the warn
             'aggregated_rows' => 5,
             'truncated' => true,
             'currency' => 'EUR',
-            'warnings' => [$warning],
+            'warnings' => [[
+                'code' => 'MIXED_CURRENCY',
+                'field' => 'sum(value)',
+                'message' => '"sum(value)" adds amounts in more than one currency, so it has no value: group by "currency" to get one value per currency.',
+            ]],
         ]);
 });
 
@@ -565,8 +604,267 @@ it('describes summarize with one group_by column, an optional bucket and an opti
         ->and($parameters['bucket']['required'])->toBeFalse()
         ->and($parameters['period']['type'])->toBe('object')
         ->and($parameters['period']['required'])->toBeFalse()
+        ->and($parameters['metrics']['maxItems'])->toBe(2)
+        ->and($parameters['metrics']['description'])->toContain('at most 2 metrics')
         ->and($tool->description)->toContain('one column')
-        ->and($tool->description)->toContain('period');
+        ->and($tool->description)->toContain('period')
+        ->and($tool->description)->toContain('at most 50 groups, ranked by the first metric');
+
+    Config::set('core.aggregate.max_measures', 5);
+    Config::set('core.aggregate.max_groups', 8);
+    $wider = collect(summarizeTool()->parameters)->keyBy('name');
+
+    expect($wider['metrics']['maxItems'])->toBe(4);
+});
+
+it('shows the groups that rank first by the first metric and folds the rest into other', function (): void {
+    Config::set('core.aggregate.max_groups', 2);
+    $tool = summarizeTool('import_session');
+
+    ImportSession::factory()->count(3)->create(['entity_key' => 'core.user', 'created_rows' => 1]);
+    ImportSession::factory()->create(['entity_key' => 'core.role', 'created_rows' => 100]);
+    ImportSession::factory()->count(2)->create(['entity_key' => 'core.template', 'created_rows' => 10]);
+
+    $keys = static fn (array $result): array => array_map(static fn (array $entry): string => $entry['group']['entity_key'], $result['data']);
+
+    /** @var array<string, mixed> $byMetric */
+    $byMetric = ($tool->handler)(group_by: ['entity_key'], metrics: [['property' => 'created_rows', 'function' => 'sum']]);
+
+    expect($byMetric)->not->toHaveKey('error')
+        ->and($keys($byMetric))->toBe(['core.role', 'core.template'])
+        ->and($byMetric['data'][0]['metrics'])->toEqual(['sum(created_rows)' => 100])
+        ->and($byMetric['other'])->toEqual(['count' => 3, 'metrics' => ['sum(created_rows)' => 3], 'groups' => 1])
+        ->and($byMetric['total'])->toEqual(['count' => 6, 'metrics' => ['sum(created_rows)' => 123]])
+        ->and($byMetric['meta']['truncated'])->toBeTrue()
+        ->and($byMetric['meta']['total_records'])->toBe(6);
+
+    /** @var array<string, mixed> $byCount */
+    $byCount = ($tool->handler)(group_by: ['entity_key']);
+
+    expect($byCount)->not->toHaveKey('error')
+        ->and($keys($byCount))->toBe(['core.user', 'core.template'])
+        ->and($byCount['other'])->toEqual(['count' => 1, 'metrics' => [], 'groups' => 1])
+        ->and($byCount['meta']['truncated'])->toBeTrue();
+});
+
+it('does not truncate and gives no rest when every group fits the limit', function (): void {
+    Config::set('core.aggregate.max_groups', 5);
+    $tool = summarizeTool('import_session');
+
+    ImportSession::factory()->create(['entity_key' => 'core.user']);
+    ImportSession::factory()->create(['entity_key' => 'core.role']);
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['entity_key']);
+
+    expect($result)->not->toHaveKey('other')
+        ->and($result['data'])->toHaveCount(2)
+        ->and($result['meta']['truncated'])->toBeFalse();
+});
+
+it('asks the engine for the top groups only for a column group, with the first metric first', function (): void {
+    Config::set('core.aggregate.max_groups', 7);
+
+    $queries = [];
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->times(4)->andReturnUsing(function (mixed $data, AggregateQuery $query) use (&$queries): AggregateResult {
+        $queries[] = $query;
+
+        return emptyAggregateResult();
+    });
+
+    $tool = summarizeTool('setting', $crud);
+    $metrics = [['property' => 'value', 'function' => 'sum'], ['property' => 'value', 'function' => 'max']];
+
+    ($tool->handler)(group_by: ['group_name'], metrics: $metrics);
+    ($tool->handler)(group_by: ['group_name']);
+    ($tool->handler)(group_by: ['created_at'], bucket: 'month', period: ['field' => 'created_at', 'last' => ['n' => 2, 'unit' => 'month']]);
+    ($tool->handler)(metrics: $metrics);
+
+    [$ranked, $counted, $bucketed, $ungrouped] = $queries;
+    $names = static fn (AggregateQuery $query): array => array_map(static fn (AggregateMeasure $measure): string => $measure->name(), $query->measures);
+
+    expect($names($ranked))->toBe(['sum_value', 'count', 'max_value'])
+        ->and($ranked->limit)->toBe(7)
+        ->and($ranked->other)->toBeTrue()
+        ->and($ranked->sortBy)->toBe('measure')
+        ->and($ranked->sortDir)->toBe('desc')
+        ->and($names($counted))->toBe(['count'])
+        ->and($counted->limit)->toBe(7)
+        ->and($bucketed->limit)->toBeNull()
+        ->and($bucketed->other)->toBeFalse()
+        ->and($ungrouped->limit)->toBeNull()
+        ->and($ungrouped->other)->toBeFalse()
+        ->and($names($ungrouped))->toBe(['sum_value', 'count', 'max_value']);
+});
+
+it('answers a fixed error and reports the exception when the summary fails unexpectedly', function (): void {
+    Exceptions::fake();
+
+    $failure = new QueryException(
+        'sqlite',
+        'select count(*) from "core_settings" where "acl_secret_column" = ?',
+        ['s3cr3t-value'],
+        new PDOException('SQLSTATE[HY000]: General error: 1 no such column: acl_secret_column'),
+    );
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->once()->andThrow($failure);
+
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool('setting', $crud)->handler)(group_by: ['group_name']);
+
+    expect($result)->toHaveKeys(['request', 'error'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['error'])->toBe('The summary could not be computed.')
+        ->and(json_encode($result))->not->toContain('SQLSTATE')
+        ->and(json_encode($result))->not->toContain('s3cr3t-value')
+        ->and(json_encode($result))->not->toContain('acl_secret_column')
+        ->and(json_encode($result))->not->toContain('core_settings');
+
+    Exceptions::assertReported(QueryException::class);
+});
+
+it('reports a refusal that is a fault of the deployment while it still answers the model', function (): void {
+    Exceptions::fake();
+
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->once()->andThrow(new AggregateException(AggregateErrorCode::InvalidField, 'The database driver has no day expression.', 'group_by.bucket', reportable: true));
+
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool('setting', $crud)->handler)(group_by: ['created_at'], bucket: 'month', period: ['field' => 'created_at', 'last' => ['n' => 2, 'unit' => 'month']]);
+
+    expect($result['error'])->toBe('The database driver has no day expression.')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('bucket');
+
+    Exceptions::assertReported(AggregateException::class);
+});
+
+it('names a refused metric by its place in the metrics of the call', function (): void {
+    $tool = summarizeTool('import_session');
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['entity_key'], metrics: [
+        ['property' => 'created_rows', 'function' => 'sum'],
+        ['property' => 'id', 'function' => 'sum'],
+    ]);
+
+    expect($result['code'])->toBe('NOT_MEASURABLE')
+        ->and($result['field'])->toBe('metrics.1.property');
+});
+
+it('names the group_by column of a refusal as the tool does', function (): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(group_by: ['no_such_column']);
+
+    expect($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('group_by.0')
+        ->and($result['error'])->toContain('"no_such_column"');
+});
+
+it('refuses more metrics than a request may hold, counting the implicit count', function (): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool('import_session')->handler)(metrics: [
+        ['property' => 'created_rows', 'function' => 'sum'],
+        ['property' => 'created_rows', 'function' => 'avg'],
+        ['property' => 'created_rows', 'function' => 'max'],
+    ]);
+
+    expect($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('metrics')
+        ->and($result['error'])->toContain('2 metrics');
+});
+
+it('refuses a malformed metrics list instead of dropping what it cannot read', function (mixed $metrics, string $code, string $field): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(group_by: ['group_name'], metrics: $metrics);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['code'])->toBe($code)
+        ->and($result['field'])->toBe($field);
+})->with([
+    'a text' => ['sum', 'INVALID_FIELD', 'metrics'],
+    'an object' => [['property' => 'value', 'function' => 'sum'], 'INVALID_FIELD', 'metrics'],
+    'an entry that is not an object' => [['sum(value)'], 'INVALID_FIELD', 'metrics.0'],
+    'an entry without a property' => [[['property' => 'value', 'function' => 'sum'], ['function' => 'sum']], 'INVALID_FIELD', 'metrics.1.property'],
+    'an unsupported function' => [[['property' => 'value', 'function' => 'median']], 'UNSUPPORTED_FUNCTION', 'metrics.0.function'],
+    'a function that is not a text' => [[['property' => 'value', 'function' => ['sum']]], 'UNSUPPORTED_FUNCTION', 'metrics.0.function'],
+]);
+
+it('refuses a group_by that is not a list with one column name', function (mixed $groupBy): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(group_by: $groupBy);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('group_by');
+})->with([
+    'a text' => ['group_name'],
+    'an object' => [['field' => 'group_name']],
+    'a column that is not a text' => [[5]],
+    'an empty column name' => [['']],
+    'a list of lists' => [[['group_name']]],
+]);
+
+it('refuses a bucket that is not a text', function (mixed $bucket): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(group_by: ['created_at'], bucket: $bucket, period: ['field' => 'created_at', 'last' => ['n' => 2, 'unit' => 'month']]);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('bucket')
+        ->and($result['request']['bucket'])->toBeNull();
+})->with([
+    'a list' => [['month']],
+    'a number' => [5],
+    'a boolean' => [true],
+]);
+
+it('refuses a period that is not an object of the contract', function (mixed $period, string $field): void {
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(period: $period);
+
+    expect($result)->toHaveKeys(['request', 'error', 'code', 'field'])
+        ->and($result)->not->toHaveKey('data')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe($field);
+})->with([
+    'a text' => ['last month', 'period'],
+    'a list' => [[['field' => 'created_at']], 'period'],
+    'an object without a field' => [['last' => ['n' => 2, 'unit' => 'month']], 'period'],
+]);
+
+it('reads the count of a relative period when the model writes it as a text', function (): void {
+    $tool = summarizeTool();
+
+    Modules\Core\Models\Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'recent']);
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['created_at'], bucket: 'month', period: ['field' => 'created_at', 'last' => ['n' => '2', 'unit' => 'month']]);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['data'])->toHaveCount(2)
+        ->and($result['data'][0]['count'])->toBe(0)
+        ->and($result['data'][1]['count'])->toBe(1)
+        ->and($result['total']['count'])->toBe(1);
+});
+
+it('asks for a metric the model repeats only once', function (): void {
+    $tool = summarizeTool('import_session');
+
+    ImportSession::factory()->create(['entity_key' => 'core.user', 'created_rows' => 4]);
+    ImportSession::factory()->create(['entity_key' => 'core.user', 'created_rows' => 6]);
+
+    $metric = ['property' => 'created_rows', 'function' => 'sum'];
+
+    /** @var array<string, mixed> $result */
+    $result = ($tool->handler)(group_by: ['entity_key'], metrics: [$metric, $metric]);
+
+    expect($result)->not->toHaveKey('error')
+        ->and($result['data'][0]['metrics'])->toEqual(['sum(created_rows)' => 10]);
 });
 
 it('exports records to a csv file with the selected columns', function (): void {

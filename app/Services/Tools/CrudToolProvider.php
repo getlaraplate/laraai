@@ -25,6 +25,7 @@ use Modules\Core\Casts\DetailRequestData;
 use Modules\Core\Casts\ListRequestData;
 use Modules\Core\Casts\ModifyRequestData;
 use Modules\Core\Casts\SearchRequestData;
+use Modules\Core\Enums\AggregateErrorCode;
 use Modules\Core\Enums\TimeBucket;
 use Modules\Core\Exceptions\AggregateException;
 use Modules\Core\Http\Requests\DetailRequest;
@@ -84,6 +85,12 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
      * The operations that change data.
      */
     private const array WRITE_OPERATIONS = ['create', 'update', 'delete', 'bulk_update', 'bulk_delete'];
+
+    /**
+     * What the model is told when a summary fails for a reason it cannot act on. The exception is reported
+     * instead: its message can hold SQL text, the values of the filters and the row-level ACL.
+     */
+    private const string SUMMARIZE_FAILURE = 'The summary could not be computed.';
 
     /**
      * Upper bound on rows written to an export file.
@@ -237,6 +244,11 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         $data = new ListRequestData($this->makeRequest(ListRequest::class), $entity, $validated, $this->primaryKey($module, $entity), $module);
 
         return $this->crud->aggregate($data, $query);
+    }
+
+    private static function invalidRequest(string $message, string $field): AggregateException
+    {
+        return new AggregateException(AggregateErrorCode::InvalidField, $message, $field);
     }
 
     /**
@@ -403,7 +415,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'list' => "List {$label} records the current user may read.",
             'detail' => "Fetch a single {$label} record by id.",
             'search' => "Full-text search {$label} records.",
-            'summarize' => "Aggregate {$label} records: group by one column (optionally cut a date column into day, week, month, quarter or year buckets over a period) and compute a count plus optional sum/avg/min/max metrics. Honours the same structured filters as list.",
+            'summarize' => "Aggregate {$label} records: group by one column (optionally cut a date column into day, week, month, quarter or year buckets over a period) and compute a count plus optional sum/avg/min/max metrics. A column group shows at most " . AggregateLimits::fromConfig()->maxGroups . ' groups, ranked by the first metric (by count when there is none), and the rest is returned under `other`. Honours the same structured filters as list.',
             'export' => "Export {$label} records the current user may read to a CSV or PDF file. Honours the same structured filters and sort as list; returns the file inline (base64).",
             'create' => "Propose creating a {$label} record. Nothing is created: the proposal waits for the signed-in person to confirm it in the interface. Tell them what you propose and that it needs their confirmation.",
             'update' => "Propose changing a {$label} record by id. Nothing is changed: the proposal waits for the signed-in person to confirm it in the interface. Tell them what you propose and that it needs their confirmation.",
@@ -425,6 +437,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         $limit = ['name' => 'limit', 'type' => 'integer', 'description' => 'Maximum rows to return.', 'required' => false];
 
         $page = ['name' => 'page', 'type' => 'integer', 'description' => 'Page number (1-based).', 'required' => false];
+        $maxMetrics = max(0, AggregateLimits::fromConfig()->maxMeasures - 1);
 
         return match ($operation) {
             'view', 'list' => [
@@ -442,7 +455,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'summarize' => [
                 $filters,
                 ['name' => 'group_by', 'type' => 'array', 'required' => false, 'maxItems' => 1, 'items' => ['type' => 'string'], 'description' => 'The one column to group by: at most one is allowed. Omit for a single overall bucket.'],
-                ['name' => 'metrics', 'type' => 'array', 'required' => false, 'items' => ['type' => 'object'], 'description' => 'Numeric metrics per group. Each item is {property, function} where function is one of sum, avg, min, max; sum and avg need a numeric column that is not a key. A per-group count is always returned.'],
+                ['name' => 'metrics', 'type' => 'array', 'required' => false, 'maxItems' => $maxMetrics, 'items' => ['type' => 'object'], 'description' => "Numeric metrics per group. Each item is {property, function} where function is one of sum, avg, min, max; sum and avg need a numeric column that is not a key. A per-group count is always returned and takes one of the measures a request may hold: at most {$maxMetrics} metrics."],
                 ['name' => 'bucket', 'type' => 'string', 'required' => false, 'enum' => TimeBucket::names(), 'description' => 'Cuts the date column named in group_by into buckets (a week starts on Monday). Needs a period over the same column.'],
                 ['name' => 'period', 'type' => 'object', 'required' => false, 'description' => 'Restricts the rows to a date range of a date column: {field, and exactly one of last: {n, unit: day|week|month|quarter|year}, preset: today|yesterday|this_week|last_week|this_month|last_month|this_quarter|last_quarter|this_year|last_year, or from and to as YYYY-MM-DD}.'],
             ],
@@ -602,8 +615,12 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
      * shape the model reads (a count and the requested metrics per group), with the same figures for every
      * matching row under `total`.
      *
-     * The engine groups by one dimension, so a second `group_by` column is refused, and a refusal of the
-     * engine or of its validator comes back in the error shape with its code.
+     * A group by a column shows its `max_groups` first groups, ranked by the first metric the model asked for
+     * (by count when it asked for none), and the figures of the others come back under `other`; a group by a
+     * time bucket shows every bucket. The engine groups by one dimension, so a second `group_by` column is
+     * refused. A refusal of the engine or of the call comes back in the error shape with its code and the
+     * place it is about, in the vocabulary of the tool; anything else unexpected is reported and answered with
+     * a fixed text, since the message of such an exception can hold SQL, bindings and the row-level ACL.
      *
      * @return array<string, mixed>
      */
@@ -612,8 +629,10 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         $normalizedFilters = $this->normalizeFilters($filters);
         $groups = $this->normalizeStringList($groupBy);
         $metricSpecs = $this->normalizeMetrics($metrics);
-        $bucketName = $this->toString($bucket);
+        $bucketName = is_string($bucket) ? $bucket : '';
         $periodSpec = $period === '' || $period === [] ? null : $period;
+        $limits = AggregateLimits::fromConfig();
+        $plan = $this->summarizeMeasures($metricSpecs);
 
         $request = [
             'verb' => 'summarize',
@@ -626,45 +645,131 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'period' => is_array($periodSpec) ? $periodSpec : null,
         ];
 
-        if (count($groups) > 1) {
-            return ['request' => $request, 'error' => 'Only one group_by column is allowed: name one column, or summarize once per column.'];
-        }
+        $refusal = $this->summarizeRefusal($groupBy, $metrics, $bucket);
 
-        if ($bucketName !== '' && $groups === []) {
-            return ['request' => $request, 'error' => 'A bucket cuts the date column named in group_by: name that column, or leave the bucket out.'];
+        if ($refusal instanceof AggregateException) {
+            return ['request' => $request, ...$this->aggregateRefusal($refusal, $plan['sources'], $limits)];
         }
 
         try {
+            $topGroups = $groups !== [] && $bucketName === '' ? ['limit' => $limits->maxGroups, 'other' => true] : [];
             $query = AggregateQuery::fromArray([
-                'measures' => $this->summarizeMeasures($metricSpecs),
+                'measures' => $plan['measures'],
                 'group_by' => $groups === [] ? null : ['field' => $groups[0], 'bucket' => $bucketName === '' ? null : $bucketName],
                 'period' => $periodSpec,
-            ], AggregateLimits::fromConfig());
+                ...$topGroups,
+            ], $limits);
 
             return $this->presentSummary($this->aggregate($module, $entity, $normalizedFilters, $query), $query, $request);
         } catch (AggregateException $exception) {
-            return ['request' => $request, ...$this->aggregateRefusal($exception)];
+            if ($exception->reportable) {
+                report($exception);
+            }
+
+            return ['request' => $request, ...$this->aggregateRefusal($exception, $plan['sources'], $limits)];
         } catch (Throwable $exception) {
-            return $this->fail($request, $exception);
+            report($exception);
+
+            return ['request' => $request, 'error' => self::SUMMARIZE_FAILURE];
         }
     }
 
     /**
-     * The aggregate engine's measures for the metrics of a summarize call: the count of the rows first, then each
-     * metric once, so that repeating one is not a refusal.
+     * The first part of a summarize call that the engine could not read as it is, in the vocabulary of the tool: a
+     * `group_by` that is not a list with one column name, a metric that is not an object with a column and a
+     * supported function, a bucket that is not a text or has no column to cut. The lenient readers of the call
+     * would drop such a part and answer another question than the one asked.
+     */
+    private function summarizeRefusal(mixed $groupBy, mixed $metrics, mixed $bucket): ?AggregateException
+    {
+        $grouped = $groupBy !== null && $groupBy !== '' && $groupBy !== [];
+
+        if ($grouped) {
+            if (! is_array($groupBy) || ! array_is_list($groupBy) || array_filter($groupBy, static fn (mixed $column): bool => ! is_string($column) || $column === '') !== []) {
+                return self::invalidRequest('The group_by of a summary is a list with the name of one column.', 'group_by');
+            }
+
+            if (count($groupBy) > 1) {
+                return self::invalidRequest('Only one group_by column is allowed: name one column, or summarize once per column.', 'group_by');
+            }
+        }
+
+        $refusal = $this->metricsRefusal($metrics);
+
+        if ($refusal instanceof AggregateException) {
+            return $refusal;
+        }
+
+        if ($bucket === null || $bucket === '' || $bucket === []) {
+            return null;
+        }
+
+        if (! is_string($bucket)) {
+            return self::invalidRequest('The bucket of a summary is the name of one bucket.', 'bucket');
+        }
+
+        return $grouped ? null : self::invalidRequest('A bucket cuts the date column named in group_by: name that column, or leave the bucket out.', 'bucket');
+    }
+
+    private function metricsRefusal(mixed $metrics): ?AggregateException
+    {
+        if ($metrics === null || $metrics === '' || $metrics === []) {
+            return null;
+        }
+
+        if (! is_array($metrics) || ! array_is_list($metrics)) {
+            return self::invalidRequest('The metrics of a summary are a list of {property, function}.', 'metrics');
+        }
+
+        foreach ($metrics as $index => $metric) {
+            $path = 'metrics.' . $index;
+
+            if (! is_array($metric)) {
+                return self::invalidRequest('A metric is an object {property, function}.', $path);
+            }
+
+            if (! is_string($metric['property'] ?? null) || $metric['property'] === '') {
+                return self::invalidRequest('A metric names the column it measures.', $path . '.property');
+            }
+
+            $function = $metric['function'] ?? null;
+
+            if ($function !== null && (! is_string($function) || ! in_array(mb_strtolower($function), self::SUMMARIZE_FUNCTIONS, true))) {
+                return new AggregateException(
+                    AggregateErrorCode::UnsupportedFunction,
+                    'The function of a metric is one of ' . implode(', ', self::SUMMARIZE_FUNCTIONS) . '.',
+                    $path . '.function',
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The aggregate engine's measures for the metrics of a summarize call, each metric once: the first metric, so
+     * that the engine's default sort (by the first measure, descending) ranks the groups by what the model asked
+     * about, then the count of the rows, then the other metrics. With no metric the count is the only measure.
+     *
+     * `sources` says, for each measure, the place of its metric in the metrics of the call, or null for the count:
+     * it turns the paths of a refusal back into the paths the model wrote.
      *
      * @param  list<array{property: string, function: string}>  $metrics
-     * @return list<array{fn: string, field?: string}>
+     * @return array{measures: list<array{fn: string, field?: string}>, sources: list<int|null>}
      */
     private function summarizeMeasures(array $metrics): array
     {
-        $measures = ['count' => ['fn' => 'count']];
+        $entries = [];
 
-        foreach ($metrics as $metric) {
-            $measures[$metric['function'] . '(' . $metric['property'] . ')'] = ['fn' => $metric['function'], 'field' => $metric['property']];
+        foreach ($metrics as $index => $metric) {
+            $entries[$metric['function'] . '(' . $metric['property'] . ')'] ??= ['measure' => ['fn' => $metric['function'], 'field' => $metric['property']], 'source' => $index];
         }
 
-        return array_values($measures);
+        $count = ['measure' => ['fn' => 'count'], 'source' => null];
+        $first = array_shift($entries);
+        $ordered = $first === null ? [$count] : [$first, $count, ...array_values($entries)];
+
+        return ['measures' => array_column($ordered, 'measure'), 'sources' => array_column($ordered, 'source')];
     }
 
     /**
@@ -690,7 +795,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         }
 
         if (is_array($result->meta['warnings'] ?? null) && $result->meta['warnings'] !== []) {
-            $meta['warnings'] = $result->meta['warnings'];
+            $meta['warnings'] = $this->summaryWarnings($result->meta['warnings'], $query->measures);
         }
 
         $summary = ['request' => $request, 'data' => $data, 'total' => $this->summaryFigures($result->total, $query->measures)];
@@ -718,7 +823,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
 
         foreach ($measures as $measure) {
             if ($measure->field !== null) {
-                $metrics[sprintf('%s(%s)', $measure->fn, $measure->field)] = $values[$measure->name()] ?? null;
+                $metrics[$this->metricLabel($measure)] = $values[$measure->name()] ?? null;
             }
         }
 
@@ -726,20 +831,93 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     }
 
     /**
-     * A refusal of the aggregate engine for the model to read: the message, with the code and the part of the
-     * request that it is about.
+     * The warnings of the engine with each measure named as the model asked for it, in the field and in the text:
+     * `sum(total)`, not `sum_total`.
      *
+     * @param  array<array-key, mixed>  $warnings
+     * @param  list<AggregateMeasure>  $measures
+     * @return list<array<array-key, mixed>>
+     */
+    private function summaryWarnings(array $warnings, array $measures): array
+    {
+        $labels = [];
+
+        foreach ($measures as $measure) {
+            $labels[$measure->name()] = $this->metricLabel($measure);
+        }
+
+        $translated = [];
+
+        foreach ($warnings as $warning) {
+            if (! is_array($warning)) {
+                continue;
+            }
+
+            $name = $warning['field'] ?? null;
+
+            if (is_string($name) && isset($labels[$name])) {
+                $label = $labels[$name];
+                $warning['field'] = $label;
+
+                if (is_string($warning['message'] ?? null)) {
+                    $warning['message'] = preg_replace_callback('/"' . preg_quote($name, '/') . '"/u', static fn (): string => '"' . $label . '"', $warning['message'], 1) ?? $warning['message'];
+                }
+            }
+
+            $translated[] = $warning;
+        }
+
+        return $translated;
+    }
+
+    /**
+     * How the model names a measure: `sum(total)`, and `count` for the count of the rows.
+     */
+    private function metricLabel(AggregateMeasure $measure): string
+    {
+        return $measure->field === null ? $measure->fn : sprintf('%s(%s)', $measure->fn, $measure->field);
+    }
+
+    /**
+     * A refusal for the model to read: the message, with the code and the part of the call that it is about. The
+     * paths of the engine are turned into the paths of the tool, so that a refusal names the `metrics` entry or
+     * the `bucket` the model wrote and not a `measures` list or a `group_by.bucket` it never saw.
+     *
+     * @param  list<int|null>  $sources  The place in the metrics of the call of each measure of the query.
      * @return array<string, string>
      */
-    private function aggregateRefusal(AggregateException $exception): array
+    private function aggregateRefusal(AggregateException $exception, array $sources, AggregateLimits $limits): array
     {
         $refusal = $exception->toArray();
+        $field = $refusal['field'] ?? null;
+        $message = $field === 'measures'
+            ? sprintf('At most %d metrics are allowed: the count of each group takes one of the %d measures a summary may hold.', max(0, $limits->maxMeasures - 1), $limits->maxMeasures)
+            : $refusal['message'];
 
         return [
-            'error' => $refusal['message'],
+            'error' => $message,
             'code' => $refusal['code'],
-            ...isset($refusal['field']) ? ['field' => $refusal['field']] : [],
+            ...$field === null ? [] : ['field' => $this->toolField($field, $sources)],
         ];
+    }
+
+    /**
+     * @param  list<int|null>  $sources
+     */
+    private function toolField(string $field, array $sources): string
+    {
+        if (preg_match('/^measures\.(\d+)\.(field|fn)$/', $field, $matches) === 1) {
+            $source = $sources[(int) $matches[1]] ?? null;
+
+            return $source === null ? $field : sprintf('metrics.%d.%s', $source, $matches[2] === 'field' ? 'property' : 'function');
+        }
+
+        return match ($field) {
+            'measures' => 'metrics',
+            'group_by.field' => 'group_by.0',
+            'group_by.bucket' => 'bucket',
+            default => $field,
+        };
     }
 
     private function rowValue(mixed $row, string $property): mixed
