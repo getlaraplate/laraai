@@ -22,6 +22,7 @@ use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Models\Setting;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 use RuntimeException;
 
 /**
@@ -277,11 +278,19 @@ final class EmbeddingSwitchHarness
     }
 
     /**
-     * A provider fake answering with vectors of the length of the profile in force.
+     * A provider fake answering with vectors of the length of the profile in force: batches of documents for
+     * the re-embedding, and single texts through the provider itself for the smoke query of the verify phase,
+     * which bypasses the query cache.
      */
     private static function embeddingService(): IEmbeddingService
     {
+        $provider = Mockery::mock(EmbeddingsProviderInterface::class);
+        $provider->shouldReceive('embedText')->andReturnUsing(
+            static fn (): array => array_fill(0, app(EmbeddingModelRegistry::class)->active()->dimensions, 0.3),
+        );
+
         $service = Mockery::mock(IEmbeddingService::class);
+        $service->shouldReceive('getEmbeddingsProvider')->andReturn($provider);
         $service->shouldReceive('embedDocumentsBatch')->andReturnUsing(static function (array $texts): array {
             $profile = app(EmbeddingModelRegistry::class)->active();
             self::$embeddedWith[] = $profile->key;
