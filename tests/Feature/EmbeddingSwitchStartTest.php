@@ -472,3 +472,18 @@ it('prints idle when no switch has run', function (): void {
         ->expectsOutputToContain('idle')
         ->assertSuccessful();
 });
+
+it('starts a switch to a profile whose own server is the only one configured', function (): void {
+    Queue::fake();
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.embeddings_minilm', ['url' => 'http://minilm.test:8082', 'api_key' => null]);
+    switch_probe_measures(384);
+    Http::fake([
+        'minilm.test:8082/info' => Http::response(['model_id' => 'all-MiniLM-L6-v2']),
+        'minilm.test:8082/v1/embeddings' => Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]),
+    ]);
+
+    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])->assertSuccessful();
+
+    expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('running');
+});

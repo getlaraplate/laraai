@@ -14,7 +14,6 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchState;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
-use Modules\AI\Ai\Providers\Models\ProviderConfiguration;
 use Modules\AI\Jobs\SwitchEmbeddingModelJob;
 use Modules\Core\Models\Setting;
 use Override;
@@ -57,7 +56,6 @@ final class EmbeddingsSwitchCommand extends Command
 
     public function handle(
         EmbeddingModelRegistry $registry,
-        ProviderConfiguration $providers,
         EmbeddingSwitchStore $store,
         EmbeddingDimensionProbe $probe,
         EmbeddingServerIdentity $identity,
@@ -113,7 +111,7 @@ final class EmbeddingsSwitchCommand extends Command
                 return $this->refuse("An embedding model switch is already {$current->status} (phase {$current->phase}, target {$current->target}). Nothing was changed.");
             }
 
-            $failure = $providers->isConfigured($profile->provider)
+            $failure = in_array($profile->key, $registry->configuredKeys(), true)
                 ? $this->preflight($profile, $probe, $identity)
                 : "the provider \"{$profile->provider}\" is not configured";
 

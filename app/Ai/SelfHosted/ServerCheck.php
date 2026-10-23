@@ -137,8 +137,15 @@ final readonly class ServerCheck
 
     private function maxClientBatchSize(AiServer $server): ?int
     {
+        $url = $server->url . '/info';
+        $request = Http::withHeaders(new ServiceRequestId('rerank', $url)->header())->timeout(5);
+
+        if ($server->apiKey !== null && $server->apiKey !== '') {
+            $request = $request->withToken($server->apiKey);
+        }
+
         try {
-            $max = Http::timeout(5)->get($server->url . '/info')->json('max_client_batch_size');
+            $max = $request->get($url)->json('max_client_batch_size');
         } catch (ConnectionException) {
             return null;
         }

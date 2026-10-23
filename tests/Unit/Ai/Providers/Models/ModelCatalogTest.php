@@ -122,3 +122,13 @@ it('keeps every model of an OpenAI-compatible server behind a base URL', functio
 
     expect(array_map(static fn ($m) => $m->id, $models))->toBe(['qwen2.5-1.5b-instruct-q4_k_m.gguf']);
 });
+
+it('offers no transcription model when only an embeddings server is configured', function (): void {
+    Http::fake();
+    config()->set('ai.servers.embeddings.url', 'http://tei.test:8080');
+    config()->set('ai.servers.transcription.url', '');
+
+    $result = app(ModelCatalog::class)->build([AiModelFeature::Transcription], []);
+
+    expect($result->choices['features.media_analysis.transcription.model'])->toBe([]);
+});

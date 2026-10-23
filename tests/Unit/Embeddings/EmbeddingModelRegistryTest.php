@@ -181,7 +181,7 @@ it('knows voyageai and openai_compatible configuration', function (): void {
     config()->set('ai.providers.voyageai.api_key', 'k');
     config()->set('ai.servers.embeddings.url', 'http://x');
     expect($providers->isConfigured('voyageai'))->toBeTrue()
-        ->and($providers->isConfigured('openai_compatible'))->toBeTrue();
+        ->and($providers->isConfigured('openai_compatible'))->toBeFalse();
 
     config()->set('ai.servers.embeddings.url', '');
     config()->set('ai.servers.transcription.url', 'http://speaches.test');

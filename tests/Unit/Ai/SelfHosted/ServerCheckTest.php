@@ -172,3 +172,19 @@ it('reports nothing when no server is configured', function (): void {
 
     expect(new ServerCheck()->run())->toBe([]);
 });
+
+it('reads the batch limit of a keyed tei reranker with the key and a request id', function (): void {
+    config()->set('ai.servers.rerank.api_key', 'rerank-key');
+    server_check_fake([
+        'tei.test:8080/v1/embeddings' => Http::response(server_check_embeddings()),
+        'tei.test:8080/info' => Http::response('not found', 404),
+        'rerank.test:8081/rerank' => Http::response([['index' => 0, 'score' => 0.9], ['index' => 1, 'score' => 0.1]]),
+        'rerank.test:8081/info' => static fn (Request $request) => $request->hasHeader('Authorization', 'Bearer rerank-key') && preg_match('/^[0-9a-f]{32}$/', $request->header('X-Request-Id')[0] ?? '') === 1
+            ? Http::response(['model_id' => 'BAAI/bge-reranker-base', 'max_client_batch_size' => 32])
+            : Http::response('unauthorized', 401),
+    ]);
+
+    $row = new ServerCheck()->run()[1];
+
+    expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('batch')->toContain('32')->toContain('64');
+});

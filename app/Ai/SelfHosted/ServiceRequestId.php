@@ -131,15 +131,14 @@ final readonly class ServiceRequestId
         $status = self::statusOf($previous);
         $outcome = $status === null ? 'failed' : "failed with status {$status}";
 
-        // Neuron's error answer carries the body of the response, which a server may fill with what it was sent.
-        $detail = $previous instanceof HttpException && $previous->response instanceof \NeuronAI\HttpClient\HttpResponse
-            ? '.'
-            : ': ' . self::withoutUrlSecrets($previous->getMessage());
+        // An error answer carries the body of the response, which a server may fill with what it was sent (FastAPI
+        // servers echo the offending input): the status is all that is kept, and the HTTP exception is not chained,
+        // because its message holds the body and would reach the log through the previous exception.
+        $detail = $status === null ? ': ' . self::withoutUrlSecrets($previous->getMessage()) : '.';
 
         return new SelfHostedServiceException(
             "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}{$detail}",
             $this->context($status),
-            $previous,
         );
     }
 

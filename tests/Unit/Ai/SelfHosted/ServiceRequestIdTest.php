@@ -76,7 +76,7 @@ it('carries the request id in the message and the report context of the exceptio
     expect($exception)->toBeInstanceOf(SelfHostedServiceException::class)
         ->and($exception->getMessage())->toStartWith("[request_id {$request_id->value}]")
         ->and($exception->getMessage())->toContain('connection refused')
-        ->and($exception->getPrevious())->toBe($previous)
+        ->and($exception->getPrevious())->toBeNull()
         ->and($exception->context())->toBe([
             'service' => 'embeddings',
             'endpoint' => 'http://st.test/health',
@@ -118,3 +118,15 @@ it('logs an error of the client apart from a failed call, naming its class only'
         'exception' => LogicException::class,
     ]);
 });
+
+it('never carries the body of an error answer, in the message or in a chained exception', function (Throwable $failure): void {
+    $exception = new ServiceRequestId('embeddings', 'http://st.test/v1/embeddings')->exception($failure);
+
+    expect($exception->getMessage())->not->toContain('ECHOED-TEXT')
+        ->and($exception->getPrevious())->toBeNull()
+        ->and((string) $exception)->not->toContain('ECHOED-TEXT')
+        ->and($exception->context()['status'])->toBe(422);
+})->with([
+    'a neuron error answer' => [fn () => HttpException::statusError(HttpRequest::post('http://st.test/v1/embeddings'), new HttpResponse(422, '{"detail":"input ECHOED-TEXT is invalid"}'))],
+    'a laravel error answer' => [fn () => new RequestException(new Response(new GuzzleResponse(422, [], '{"detail":"input ECHOED-TEXT is invalid"}')))],
+]);

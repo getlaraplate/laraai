@@ -170,7 +170,7 @@ final readonly class CrossEncoderService implements IRerankerWithModel
             return $failure;
         }
 
-        return new SelfHostedServiceException($failure->getMessage() . ' The model the server runs is not a reranker.', $failure->context(), $exception);
+        return new SelfHostedServiceException($failure->getMessage() . ' The model the server runs is not a reranker.', $failure->context());
     }
 
     /**

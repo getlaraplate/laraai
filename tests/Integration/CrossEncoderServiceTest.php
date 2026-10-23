@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
@@ -231,7 +230,7 @@ it('names the request id, the endpoint and the status in the failure it throws, 
         expect($exception->getMessage())->toContain("request_id {$id}")
             ->and($exception->getMessage())->toContain('http://rerank.test:8081/rerank')
             ->and($exception->getMessage())->toContain('500')
-            ->and($exception->getPrevious())->toBeInstanceOf(RequestException::class);
+            ->and($exception->getPrevious())->toBeNull();
     }
 
     Log::shouldNotHaveReceived('warning');

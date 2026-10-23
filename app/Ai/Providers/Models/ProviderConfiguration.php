@@ -10,7 +10,7 @@ use Modules\AI\Ai\SelfHosted\AiServers;
 
 /**
  * Whether a provider is configured, and how to list its models. A provider is configured
- * when its API key (openai, which also accepts a base URL, anthropic, mistral, voyageai, deepl), its URL (ollama) or a server of `ai.servers` (openai_compatible: embeddings or transcription) is set.
+ * when its API key (openai, which also accepts a base URL, anthropic, mistral, voyageai, deepl), its URL (ollama) or the transcription server of `ai.servers` (openai_compatible) is set; an embedding profile is configured by the server it names (see EmbeddingModelRegistry::configuredKeys()).
  */
 final readonly class ProviderConfiguration
 {
@@ -21,7 +21,7 @@ final readonly class ProviderConfiguration
             'anthropic', 'mistral', 'voyageai' => ai_config_string("ai.providers.{$provider}.api_key") !== '',
             'deepl' => ai_config_string('core.deepl_api_key') !== '',
             'ollama' => ai_config_string('ai.providers.ollama.api_url') !== '',
-            'openai_compatible' => new AiServers()->named(AiServers::DEFAULT_EMBEDDINGS)->isConfigured() || new AiServers()->transcription()->isConfigured(),
+            'openai_compatible' => new AiServers()->transcription()->isConfigured(),
             default => false,
         };
     }
