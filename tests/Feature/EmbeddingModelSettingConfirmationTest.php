@@ -23,12 +23,12 @@ use Modules\Core\Models\User;
 use Modules\Core\Services\SettingChangeConfirmations;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
-const CONFIRM_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const CONFIRM_SAME_DIMENSIONS = 'sentence_transformers:all-MiniLM-L6-v2';
-const CONFIRM_OTHER_DIMENSIONS = 'sentence_transformers:BAAI/bge-m3';
+const CONFIRM_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const CONFIRM_SAME_DIMENSIONS = 'openai_compatible:all-MiniLM-L6-v2';
+const CONFIRM_OTHER_DIMENSIONS = 'openai_compatible:BAAI/bge-m3';
 
 beforeEach(function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('ai.features.embeddings.models', [
         CONFIRM_ACTIVE => ['dimensions' => 384],
         CONFIRM_SAME_DIMENSIONS => ['dimensions' => 384],

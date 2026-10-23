@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\EmbeddingsProviderFactory;
+use Modules\AI\Ai\Embeddings\OpenAiCompatibleEmbeddingsProvider;
 use Modules\AI\Ai\Embeddings\PrefixingEmbeddingsProvider;
-use Modules\AI\Ai\Embeddings\SentenceTransformersEmbeddingsProvider;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 use NeuronAI\RAG\Embeddings\MistralEmbeddingsProvider;
 use NeuronAI\RAG\Embeddings\OllamaEmbeddingsProvider;
@@ -56,21 +56,62 @@ function factoryProviderBehindPrefixes(EmbeddingsProviderInterface $provider): E
     return $provider instanceof PrefixingEmbeddingsProvider ? (fn (): EmbeddingsProviderInterface => $this->inner)->call($provider) : $provider;
 }
 
-it('creates a SentenceTransformers embeddings provider', function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+it('builds the OpenAI-compatible provider of the profile server with the profile model', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.api_key', 'default-key');
+    config()->set('ai.servers.embeddings.batch_size', 16);
 
-    $provider = EmbeddingsProviderFactory::make('sentence_transformers');
+    $provider = factoryProviderBehindPrefixes(EmbeddingsProviderFactory::make('openai_compatible'));
 
-    expect(factoryProviderBehindPrefixes($provider))->toBeInstanceOf(SentenceTransformersEmbeddingsProvider::class);
+    expect($provider)->toBeInstanceOf(OpenAiCompatibleEmbeddingsProvider::class)
+        ->and((fn (): string => $this->baseUri)->call($provider))->toBe('http://localhost:8000/v1')
+        ->and((fn (): string => $this->model)->call($provider))->toBe('intfloat/multilingual-e5-small')
+        ->and((fn (): int => $this->batchSize)->call($provider))->toBe(16)
+        ->and((fn (): array => $this->httpHeaders)->call($provider)['Authorization'])->toBe('Bearer default-key');
 });
 
-it('also accepts hyphenated sentence-transformers key', function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+it('uses the server a profile names', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://default.test:8000');
+    config()->set('ai.servers.embeddings_other', ['url' => 'http://other.test:8081', 'api_key' => null, 'timeout' => 12, 'batch_size' => 8]);
+    config()->set('ai.features.embeddings.models.openai_compatible:other-model', ['dimensions' => 384, 'server' => 'embeddings_other']);
 
-    $provider = EmbeddingsProviderFactory::make('sentence-transformers');
+    $provider = app(EmbeddingModelRegistry::class)->withActive('openai_compatible:other-model', static fn (): EmbeddingsProviderInterface => EmbeddingsProviderFactory::make());
+    $provider = factoryProviderBehindPrefixes($provider);
 
-    expect(factoryProviderBehindPrefixes($provider))->toBeInstanceOf(SentenceTransformersEmbeddingsProvider::class);
+    expect((fn (): string => $this->baseUri)->call($provider))->toBe('http://other.test:8081/v1')
+        ->and((fn (): string => $this->model)->call($provider))->toBe('other-model')
+        ->and((fn (): int => $this->batchSize)->call($provider))->toBe(8);
 });
+
+it('falls back to the default server for a profile whose named server has no url', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://default.test:8000');
+    config()->set('ai.servers.embeddings_minilm.url', '');
+
+    $provider = app(EmbeddingModelRegistry::class)->withActive('openai_compatible:all-MiniLM-L6-v2', static fn (): EmbeddingsProviderInterface => EmbeddingsProviderFactory::make());
+
+    expect((fn (): string => $this->baseUri)->call(factoryProviderBehindPrefixes($provider)))->toBe('http://default.test:8000/v1');
+});
+
+it('no longer knows the sentence_transformers provider, with or without a hyphen', function (string $name): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
+
+    EmbeddingsProviderFactory::make($name);
+})->with(['sentence_transformers', 'sentence-transformers'])->throws(InvalidArgumentException::class, 'Unsupported embeddings provider');
+
+it('refuses an OpenAI-compatible provider that is not the active profile and has no model to send', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
+    config()->set('core.search.vector.model', 'voyageai:voyage-3-lite');
+    config()->set('ai.features.embeddings.models.voyageai:voyage-3-lite', ['dimensions' => 512]);
+
+    EmbeddingsProviderFactory::make('openai_compatible');
+})->throws(Modules\Core\Exceptions\ConfigurationException::class, 'no model');
+
+it('throws when no embeddings server is configured for the profile', function (): void {
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+
+    EmbeddingsProviderFactory::make();
+})->throws(Modules\Core\Exceptions\ConfigurationException::class, 'embeddings server');
 
 it('keeps the 60-second request timeout of Neuron 3 on the embeddings providers that call an API', function (string $name, array $config): void {
     foreach ($config as $key => $value) {
@@ -93,12 +134,12 @@ it('throws exception for unsupported embeddings provider', function (): void {
 })->throws(Exception::class, 'Unsupported embeddings provider: non-existent');
 
 it('uses default provider from config when none specified', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:intfloat/multilingual-e5-small');
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
 
     $provider = EmbeddingsProviderFactory::make();
 
-    expect(factoryProviderBehindPrefixes($provider))->toBeInstanceOf(SentenceTransformersEmbeddingsProvider::class);
+    expect(factoryProviderBehindPrefixes($provider))->toBeInstanceOf(OpenAiCompatibleEmbeddingsProvider::class);
 });
 
 it('throws when the Ollama URL is missing for embeddings', function (): void {

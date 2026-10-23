@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings;
 
-use function ai_config_int;
-use function ai_config_nullable_string;
 use function ai_config_string;
 
 use InvalidArgumentException;
 use Modules\AI\Ai\Providers\ProviderFactory;
+use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\Core\Exceptions\ConfigurationException;
 use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
@@ -43,7 +42,7 @@ final class EmbeddingsProviderFactory
             'ollama' => self::createOllama($model),
             'mistral' => self::createMistral($model),
             'voyageai' => self::createVoyage($model),
-            'sentence-transformers', 'sentence_transformers' => self::createSentenceTransformers($model),
+            'openai_compatible' => self::createOpenAiCompatible($model, $profile),
             default => throw new InvalidArgumentException("Unsupported embeddings provider: {$provider}"),
         };
 
@@ -99,18 +98,19 @@ final class EmbeddingsProviderFactory
     }
 
     /**
-     * The service is multi-model: the model is sent per request, so it embeds with the model
-     * Laraplate expects.
+     * The server of the profile (`ai.servers`, the default `embeddings` one when the profile names none) serves one
+     * model or many; the model is sent in every request and an answer from another model is refused. The profile's
+     * dimensions are not sent: no server tells which models take them, and the probe checks the vector length.
      */
-    private static function createSentenceTransformers(?string $model): SentenceTransformersEmbeddingsProvider
+    private static function createOpenAiCompatible(?string $model, EmbeddingModelProfile $profile): OpenAiCompatibleEmbeddingsProvider
     {
-        return new SentenceTransformersEmbeddingsProvider(
-            url: ai_config_string('ai.providers.sentence_transformers.url', 'http://localhost:8000'),
-            api_key: ai_config_nullable_string('ai.providers.sentence_transformers.api_key'),
-            timeout: ai_config_int('ai.providers.sentence_transformers.timeout', 30),
-            batch_size: ai_config_int('ai.providers.sentence_transformers.batch_size', 32),
-            model: $model,
-        );
+        throw_if($model === null, ConfigurationException::class, 'The openai_compatible embeddings provider has no model to send: it is the provider of the active profile, or none.');
+
+        $server = new AiServers()->forProfile($profile);
+
+        throw_unless($server->isConfigured(), ConfigurationException::class, "The embeddings server \"{$server->name}\" has no URL: set AI_EMBEDDINGS_URL or the URL of the server the profile names.");
+
+        return new OpenAiCompatibleEmbeddingsProvider($server, $model);
     }
 
     /**

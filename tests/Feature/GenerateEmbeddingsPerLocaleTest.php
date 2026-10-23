@@ -85,7 +85,7 @@ function makeBilingualEmbeddedModel(array $it = [0.1, 0.1], array $en = [0.2, 0.
 }
 
 beforeEach(function (): void {
-    config()->set('ai.features.embeddings.models.sentence_transformers:intfloat/multilingual-e5-small.dimensions', 2);
+    config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();
         $table->string('title')->nullable();
@@ -318,8 +318,8 @@ it('recomputes every locale when the active embedding model changed', function (
     $model = makeBilingualEmbeddedModel();
 
     // Switch the active embedding-model profile: model_key no longer matches.
-    config()->set('core.search.vector.model', 'sentence_transformers:all-MiniLM-L6-v2');
-    config()->set('ai.features.embeddings.models.sentence_transformers:all-MiniLM-L6-v2.dimensions', 2);
+    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
+    config()->set('ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.dimensions', 2);
     $new_key = app(EmbeddingModelRegistry::class)->active()->key;
 
     $service = Mockery::mock(IEmbeddingService::class);

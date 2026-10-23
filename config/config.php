@@ -60,13 +60,14 @@ return [
             // Profiles are keyed `provider:service_model`, split at the first colon. Each
             // declares the dimensions of its vectors; Core's `core.search.vector.*` follows.
             'models' => [
-                'sentence_transformers:intfloat/multilingual-e5-small' => [
+                'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,
                     'query_prefix' => 'query: ',
                     'passage_prefix' => 'passage: ',
                     'normalize' => true,
                 ],
-                'sentence_transformers:all-MiniLM-L6-v2' => [
+                'openai_compatible:all-MiniLM-L6-v2' => [
+                    'server' => 'embeddings_minilm',
                     'dimensions' => 384,
                     'query_prefix' => '',
                     'passage_prefix' => '',

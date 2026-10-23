@@ -8,8 +8,8 @@ it('round-trips through JSON', function (): void {
     $state = new EmbeddingSwitchState(
         status: 'running',
         phase: 'embeddings',
-        target: 'sentence_transformers:all-MiniLM-L6-v2',
-        previous: 'sentence_transformers:intfloat/multilingual-e5-small',
+        target: 'openai_compatible:all-MiniLM-L6-v2',
+        previous: 'openai_compatible:intfloat/multilingual-e5-small',
         total: 10,
         done: 4,
         error: null,

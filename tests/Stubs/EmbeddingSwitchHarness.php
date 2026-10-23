@@ -34,11 +34,11 @@ use RuntimeException;
  */
 final class EmbeddingSwitchHarness
 {
-    public const string ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
+    public const string ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
 
-    public const string TARGET = 'sentence_transformers:all-MiniLM-L6-v2';
+    public const string TARGET = 'openai_compatible:all-MiniLM-L6-v2';
 
-    public const string WIDE = 'sentence_transformers:wide-768';
+    public const string WIDE = 'openai_compatible:wide-768';
 
     /**
      * Texts the fake provider refuses to embed.

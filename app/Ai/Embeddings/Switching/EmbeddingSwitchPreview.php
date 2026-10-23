@@ -18,7 +18,7 @@ use Throwable;
 
 /**
  * Computes what a switch to a target profile would cost: the two models and their dimensions, the
- * records to embed and a rough time. It only counts rows and, for the sentence-transformers service
+ * records to embed and a rough time. It only counts rows and, for the openai_compatible provider
  * only, probes the target once with a short timeout (the latency is cached), so the settings page
  * can call it on every confirmation. A hosted provider gets no time estimate.
  */
@@ -117,14 +117,14 @@ final readonly class EmbeddingSwitchPreview
     }
 
     /**
-     * Seconds one call to the sentence-transformers service takes, measured with a short timeout of
+     * Seconds one call to the embeddings server takes, measured with a short timeout of
      * its own and cached (a success for ten minutes, a failure for thirty seconds), so a confirmation
      * shown twice does not call the service twice. Any other provider is not measured: its client has
      * no per-call timeout, and the settings page must not wait on it.
      */
     private function latency(EmbeddingModelProfile $target): ?float
     {
-        if ($target->provider !== 'sentence_transformers') {
+        if ($target->provider !== 'openai_compatible') {
             return null;
         }
 

@@ -8,7 +8,7 @@ use Modules\AI\Ai\Embeddings\PrefixingEmbeddingsProvider;
 use Modules\AI\Tests\Stubs\Embeddings\RecordingEmbeddingsProvider;
 use NeuronAI\RAG\Document;
 
-const E5_MODEL = 'sentence_transformers:intfloat/multilingual-e5-small';
+const E5_MODEL = 'openai_compatible:intfloat/multilingual-e5-small';
 
 it('embeds a question with the query prefix and a chunk with the passage prefix', function (): void {
     $inner = new RecordingEmbeddingsProvider;
@@ -44,6 +44,7 @@ it('keeps the order of the documents it embeds', function (): void {
 });
 
 it('is the provider of a profile that has prefixes, for the factory and for the documentation agent', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('core.search.vector.model', E5_MODEL);
 
     $agent = DocumentationAgent::make();
@@ -54,7 +55,8 @@ it('is the provider of a profile that has prefixes, for the factory and for the 
 });
 
 it('is not added for a profile without prefixes or for a provider that is not the profile\'s', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:all-MiniLM-L6-v2');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
+    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
     expect(EmbeddingsProviderFactory::make())->not->toBeInstanceOf(PrefixingEmbeddingsProvider::class);
 
     config()->set('core.search.vector.model', E5_MODEL);

@@ -11,7 +11,7 @@ use Modules\Core\Models\ModelEmbedding;
 use NeuronAI\RAG\Document;
 
 beforeEach(function (): void {
-    config()->set('ai.features.embeddings.models.sentence_transformers:intfloat/multilingual-e5-small.dimensions', 2);
+    config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();
         $table->string('title')->nullable();

@@ -26,11 +26,11 @@ use Modules\Core\Models\Setting;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
-const SWITCH_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const SWITCH_TARGET = 'sentence_transformers:all-MiniLM-L6-v2';
+const SWITCH_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const SWITCH_TARGET = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     $this->seed(AIDatabaseSeeder::class);
 
     $suspended = Setting::factory()->persistedWithoutApprovalCapture()->create([

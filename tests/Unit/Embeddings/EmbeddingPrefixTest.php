@@ -19,7 +19,7 @@ function activeProfileProvider(RecordingEmbeddingsProvider $provider): Embedding
 }
 
 test('SearchEmbedder::embed prepends the active profile query prefix', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:intfloat/multilingual-e5-small');
+    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     $provider = new RecordingEmbeddingsProvider;
     $embeddingService = new EmbeddingService(fn () => activeProfileProvider($provider));
@@ -31,7 +31,7 @@ test('SearchEmbedder::embed prepends the active profile query prefix', function 
 });
 
 test('EmbeddingService::embedDocument prepends the active profile passage prefix', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:intfloat/multilingual-e5-small');
+    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     $provider = new RecordingEmbeddingsProvider;
     $embeddingService = new EmbeddingService(fn () => activeProfileProvider($provider));
@@ -43,7 +43,7 @@ test('EmbeddingService::embedDocument prepends the active profile passage prefix
 });
 
 test('EmbeddingService::embedDocument prefixes every chunk when the body is split', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:intfloat/multilingual-e5-small');
+    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     $provider = new RecordingEmbeddingsProvider;
     $embeddingService = new EmbeddingService(fn () => activeProfileProvider($provider), new FixedChunkSplitter);
@@ -58,7 +58,7 @@ test('EmbeddingService::embedDocument prefixes every chunk when the body is spli
 });
 
 test('EmbeddingService::embedDocument does not prefix when the active profile has no passage prefix', function (): void {
-    config()->set('core.search.vector.model', 'sentence_transformers:all-MiniLM-L6-v2');
+    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
 
     $provider = new RecordingEmbeddingsProvider;
     $embeddingService = new EmbeddingService(fn () => activeProfileProvider($provider));

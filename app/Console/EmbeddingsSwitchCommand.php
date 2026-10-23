@@ -47,7 +47,7 @@ final class EmbeddingsSwitchCommand extends Command
 {
     #[Override]
     protected $signature = 'ai:embeddings:switch
-                            {profile? : Target embedding model profile key, e.g. sentence_transformers:all-MiniLM-L6-v2}
+                            {profile? : Target embedding model profile key, e.g. openai_compatible:all-MiniLM-L6-v2}
                             {--resume : Continue a failed switch, or a running one that stopped making progress, from its stored phase}
                             {--abandon : Give up the switch and return to the active model (a refused start is just cleared)}
                             {--report-failure : Internal (the settings confirmation): record a refused start as a failed switch, so the settings page shows why}';
@@ -284,7 +284,7 @@ final class EmbeddingsSwitchCommand extends Command
 
     /**
      * Why the switch back to the previous model cannot start, or null when it can: its profile is no
-     * longer declared, or the sentence-transformers service does not run its model (the same identity
+     * longer declared, or the embeddings server does not run its model (the same identity
      * check as the start's preflight).
      */
     private function returnRefusal(EmbeddingModelRegistry $registry, EmbeddingServiceIdentity $identity, string $previous): ?string
@@ -295,7 +295,7 @@ final class EmbeddingsSwitchCommand extends Command
             return $exception->getMessage();
         }
 
-        if ($profile->provider !== 'sentence_transformers') {
+        if ($profile->provider !== 'openai_compatible') {
             return null;
         }
 
@@ -355,7 +355,7 @@ final class EmbeddingsSwitchCommand extends Command
             return "the embedding probe failed: {$exception->getMessage()}";
         }
 
-        if ($profile->provider !== 'sentence_transformers') {
+        if ($profile->provider !== 'openai_compatible') {
             return null;
         }
 
@@ -363,7 +363,7 @@ final class EmbeddingsSwitchCommand extends Command
     }
 
     /**
-     * The sentence-transformers service must answer `/health` and must run the profile's model, as
+     * The embeddings server of the profile must answer and must run the profile's model, as
      * `ai:embeddings:repair` checks it: the probe answer names the model, `/health` is the fallback.
      * Unlike the repair, a service that cannot be identified stops the switch.
      */

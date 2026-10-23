@@ -96,7 +96,7 @@ function repairProbeAnswer(): GuzzleHttp\Promise\PromiseInterface
 }
 
 beforeEach(function (): void {
-    config()->set('ai.features.embeddings.models.sentence_transformers:intfloat/multilingual-e5-small.dimensions', 2);
+    config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
     Config::set('core.search.vector.enabled', true);
 
     Schema::create('embeddable_test_models', function ($table): void {
@@ -282,7 +282,7 @@ it('--stale regenerates records whose embeddings carry a non-active model_key, l
 it('--stale converges: a record kept by another configured profile is regenerated once, then no longer selected', function (): void {
     fakeHealthyEmbeddingService();
 
-    $other_key = 'sentence_transformers:all-MiniLM-L6-v2';
+    $other_key = 'openai_compatible:all-MiniLM-L6-v2';
     $active_key = app(EmbeddingModelRegistry::class)->active()->key;
 
     $record = new EmbeddableTestModel(['title' => 'Switched content']);

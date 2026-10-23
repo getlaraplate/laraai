@@ -6,9 +6,11 @@ namespace Modules\AI\Ai\Providers\Models;
 
 use function ai_config_string;
 
+use Modules\AI\Ai\SelfHosted\AiServers;
+
 /**
  * Whether a provider is configured, and how to list its models. A provider is configured
- * when its API key (openai, which also accepts a base URL, anthropic, mistral, voyageai, deepl) or its URL (ollama, sentence_transformers, whisper) is set.
+ * when its API key (openai, which also accepts a base URL, anthropic, mistral, voyageai, deepl), its URL (ollama) or a server of `ai.servers` (openai_compatible: embeddings or transcription) is set.
  */
 final readonly class ProviderConfiguration
 {
@@ -19,7 +21,7 @@ final readonly class ProviderConfiguration
             'anthropic', 'mistral', 'voyageai' => ai_config_string("ai.providers.{$provider}.api_key") !== '',
             'deepl' => ai_config_string('core.deepl_api_key') !== '',
             'ollama' => ai_config_string('ai.providers.ollama.api_url') !== '',
-            'sentence_transformers' => ai_config_string('ai.providers.sentence_transformers.url') !== '',
+            'openai_compatible' => new AiServers()->named(AiServers::DEFAULT_EMBEDDINGS)->isConfigured() || new AiServers()->transcription()->isConfigured(),
             'whisper' => ai_config_string('ai.providers.whisper.url') !== '',
             default => false,
         };
