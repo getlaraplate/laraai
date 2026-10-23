@@ -113,6 +113,7 @@ final readonly class CrossEncoderService implements IRerankerWithModel
         }
 
         $payload = $response->json();
+        $scores = $this->parseScores($dialect, $payload, count($pairs));
         $answered = is_array($payload) && is_string($payload['model'] ?? null) && $payload['model'] !== '' ? $payload['model'] : null;
         $model = match (true) {
             ! $withModel => null,
@@ -120,7 +121,7 @@ final readonly class CrossEncoderService implements IRerankerWithModel
             default => $answered ?? $server->model,
         };
 
-        return new RerankResult($this->parseScores($dialect, $payload, count($pairs)), $model);
+        return new RerankResult($scores, $model);
     }
 
     /**
