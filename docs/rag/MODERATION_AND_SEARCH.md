@@ -46,7 +46,7 @@ When embeddings enabled and model has `$embed`: register `embeddings` pre-proces
 
 ### `HandleModelTranslationListener`
 
-On `TranslatedModelSaved`: if `translations.auto.{table}` enabled, may attach `translation` to pending `model_indexing:*` cache or run standalone `TranslateModelJob`.
+On `TranslatedModelSaved`: if `translations.auto.{table}` enabled, may attach `translation` to pending `model_indexing:*` cache or run standalone `TranslateModelJob`. On a versioned record the job writes all its locales as one revision of its own, reason `ai-translation` and no actor (`withinRevision()`), so a machine translation never merges with the revision of whoever wrote the source; a locale that fails leaves the others written.
 
 If AI does not handle indexing, Core `IndexModelFallbackListener` still runs `IndexInSearchJob`.
 
