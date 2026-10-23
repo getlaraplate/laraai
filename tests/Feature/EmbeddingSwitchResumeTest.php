@@ -21,6 +21,7 @@ use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Models\Setting;
 
 beforeEach(function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     Event::fake([ModelPreProcessingCompleted::class]);
     $this->seed(AIDatabaseSeeder::class);
     $this->engine = Harness::boot();
@@ -45,13 +46,13 @@ function resume_store(): EmbeddingSwitchStore
 }
 
 /**
- * The sentence-transformers service reports $model on /health and in the /embed answer.
+ * The embeddings server reports $model on /info and in the /v1/embeddings answer.
  */
 function resume_service_reports(string $model, int $dimensions = 384): void
 {
     Http::fake([
-        '*/health' => Http::response(['status' => 'healthy', 'model' => $model]),
-        '*/embed' => Http::response(['model' => $model, 'embeddings' => [array_fill(0, $dimensions, 0.1)]]),
+        '*/info' => Http::response(['model_id' => $model]),
+        '*/v1/embeddings' => Http::response(['model' => $model, 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector($dimensions)]]]),
     ]);
 }
 
@@ -271,7 +272,7 @@ it('refuses to abandon, changing nothing, when the service does not run the prev
     resume_store()->put($failed);
 
     $this->artisan('ai:embeddings:switch', ['--abandon' => true])
-        ->expectsOutputToContain('was not abandoned: the embedding service /embed reports model "sentence-transformers/all-MiniLM-L6-v2" but the profile expects "intfloat/multilingual-e5-small"')
+        ->expectsOutputToContain('was not abandoned: the embedding server /v1/embeddings reports model "sentence-transformers/all-MiniLM-L6-v2" but the profile expects "intfloat/multilingual-e5-small"')
         ->assertFailed();
 
     expect(resume_store()->get())->toEqual($failed)

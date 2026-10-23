@@ -4,31 +4,30 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\MediaAnalysis\Transcription;
 
-use function ai_config_string;
-
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelProfile;
+use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Throwable;
 
 /**
- * Transcribes audio/video by POSTing the file to the self-hosted Whisper service
- * (Task 8), mirroring the self-hosted embedding service pattern: base URL +
- * optional Bearer key from config. When no URL is configured, or on any error, it
- * returns null so the media still indexes without a transcript (M12). Returns the
- * transcript in the spoken/source language (M17). A failed call logs one warning with
- * its request id (and nothing of the media), which the service log repeats.
+ * Transcribes audio/video by POSTing the file to an OpenAI-style transcription server (speaches, LocalAI, a cloud
+ * API): `POST {url}/v1/audio/transcriptions`, multipart `file` and `model`, `response_format=json`, of which
+ * only `text` is read. The server is `ai.servers.transcription`. When no URL is configured, or on any error, it
+ * returns null so the media still indexes without a transcript (M12). Returns the transcript in the
+ * spoken/source language (M17). A failed call logs one warning with its request id (and nothing of the
+ * media), which the server or its proxy may repeat.
  */
-final class WhisperTranscriber implements MediaTranscriber
+final class OpenAiTranscriber implements MediaTranscriber
 {
     public function transcribe(string $path, string $mimeType, MediaAnalysisModelProfile $profile): ?string
     {
-        $url = ai_config_string('ai.providers.whisper.url', '');
+        $server = new AiServers()->transcription();
 
-        if ($url === '' || ! is_file($path)) {
+        if (! $server->isConfigured() || ! is_file($path)) {
             return null;
         }
 
@@ -38,24 +37,25 @@ final class WhisperTranscriber implements MediaTranscriber
             return null;
         }
 
-        $timeout = config('ai.providers.whisper.timeout', 120);
-        $timeout = is_numeric($timeout) ? (int) $timeout : 120;
-
-        $endpoint = mb_rtrim($url, '/') . '/transcribe';
-        $request_id = new ServiceRequestId('whisper', $endpoint);
+        $endpoint = $server->url . '/v1/audio/transcriptions';
+        $request_id = new ServiceRequestId('transcription', $endpoint);
 
         try {
-            $request = Http::timeout($timeout)
+            $request = Http::timeout($server->timeout)
                 ->withHeaders($request_id->header())
                 ->attach('file', $contents, basename($path));
 
-            $apiKey = ai_config_string('ai.providers.whisper.api_key', '');
-
-            if ($apiKey !== '') {
-                $request = $request->withToken($apiKey);
+            if ($server->apiKey !== null && $server->apiKey !== '') {
+                $request = $request->withToken($server->apiKey);
             }
 
-            $response = $request->post($endpoint);
+            $fields = [['name' => 'response_format', 'contents' => 'json']];
+
+            if ($profile->serviceModel !== '') {
+                $fields[] = ['name' => 'model', 'contents' => $profile->serviceModel];
+            }
+
+            $response = $request->post($endpoint, $fields);
 
             if (! $response->successful()) {
                 self::quietly(static fn () => $request_id->logFailure($response->status()));

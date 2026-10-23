@@ -79,7 +79,7 @@ enum AiModelFeature: string
         return match ($this) {
             self::Translation => 'deepl',
             self::Vision => 'anthropic:claude-sonnet-5',
-            self::Transcription => 'whisper',
+            self::Transcription => 'openai_compatible:Systran/faster-whisper-base',
             default => 'ollama:llama3.2:3b',
         };
     }
@@ -92,7 +92,7 @@ enum AiModelFeature: string
         return match ($this) {
             self::Translation => ['deepl', ...self::CHAT_PROVIDERS],
             self::Vision => ['anthropic', 'openai', 'ollama'],
-            self::Transcription => ['whisper'],
+            self::Transcription => ['openai_compatible'],
             default => self::CHAT_PROVIDERS,
         };
     }

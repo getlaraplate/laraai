@@ -10,8 +10,8 @@ use Modules\AI\Ai\Rag\RagIndexRebuilder;
 use Modules\AI\Exceptions\UnknownDocumentAudienceException;
 use Modules\AI\Services\DocumentationService;
 
-const RAG_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const RAG_WIDE = 'sentence_transformers:wide-768';
+const RAG_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const RAG_WIDE = 'openai_compatible:wide-768';
 
 beforeEach(function (): void {
     config()->set('ai.features.embeddings.models.' . RAG_WIDE, ['dimensions' => 768]);

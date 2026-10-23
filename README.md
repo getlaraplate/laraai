@@ -101,13 +101,20 @@ VOYAGEAI_MODEL=voyage-3-lite        # VoyageAI model
 MISTRAL_API_KEY=                     # Mistral API key
 MISTRAL_MODEL=mistral-large-latest  # Model used by embeddings with Mistral (AI features take their model from Settings)
 
-# Sentence Transformers Configuration
-SENTENCE_TRANSFORMERS_URL=http://localhost:8000  # Sentence Transformers API URL
-SENTENCE_TRANSFORMERS_API_KEY=       # Bearer key; same value as SENTENCE_TRANSFORMERS_API_KEY on the service (unset = no auth)
-SENTENCE_TRANSFORMERS_TIMEOUT=30     # Per-request HTTP timeout in seconds (raise for slow CPU-bound services)
-SENTENCE_TRANSFORMERS_BATCH_SIZE=32  # Documents per /embed batch (lower it if one batch exceeds the timeout)
-CROSS_ENCODER_URL=                   # Base URL of the service exposing POST /score; falls back to SENTENCE_TRANSFORMERS_URL (no built-in address)
-CROSS_ENCODER_API_KEY=               # Key for that service; falls back to SENTENCE_TRANSFORMERS_API_KEY (a distinct key must be listed on the service too)
+# Servers for embeddings, reranking and transcription (docs/STANDARD_SERVERS_INSTALLATION.md)
+AI_EMBEDDINGS_URL=                   # Root URL of the default embeddings server, without /v1 (TEI, Infinity, Ollama, LocalAI); unset = the profiles that use it are not offered
+AI_EMBEDDINGS_API_KEY=               # Bearer key of that server (unset = no auth)
+AI_EMBEDDINGS_TIMEOUT=30             # Per-request HTTP timeout in seconds (raise for slow CPU-bound servers)
+AI_EMBEDDINGS_BATCH_SIZE=32          # Documents per request (a TEI refuses more than its --max-client-batch-size, 32 by default)
+AI_EMBEDDINGS_MINILM_URL=            # Server of the profile openai_compatible:all-MiniLM-L6-v2 when it is another process (one TEI process per model); unset = the default server
+AI_EMBEDDINGS_MINILM_API_KEY=        # Its key
+AI_RERANK_URL=                       # Reranker server (no built-in address; unset = no reranking)
+AI_RERANK_API_KEY=                   # Its key
+AI_RERANK_DIALECT=tei                # tei (POST /rerank {query, texts}) or cohere (Infinity, vLLM)
+AI_RERANK_MODEL=                     # Model to rank with; required for cohere
+AI_TRANSCRIPTION_URL=                # OpenAI-style POST /v1/audio/transcriptions server (speaches, LocalAI); unset = media index without a transcript
+AI_TRANSCRIPTION_API_KEY=            # Its key
+AI_TRANSCRIPTION_TIMEOUT=120         # Seconds a transcription request may take
 
 # Embedding model switch
 AI_EMBEDDINGS_INDEX_CHUNK_SIZE=250   # Records per IndexDocumentsChunkJob when a switch writes the search indexes (embeddings-index queue); below 1 or not a number: 250, capped at 2000
@@ -188,7 +195,7 @@ The AI Module utilizes several packages to enhance its functionality:
 - **Ollama**: `nomic-embed-text`, `nomic-embed-large` (and custom models)
 - **VoyageAI**: `voyage-3`, `voyage-3-large`, `voyage-3-lite`, `voyage-code-2`, `voyage-code-3`, `voyage-finance-2`, `voyage-law-2`
 - **Mistral**: Mistral embedding models
-- **Sentence Transformers**: Self-hosted Sentence Transformers API — [installation guide](docs/SENTENCE_TRANSFORMERS_INSTALLATION.md)
+- **OpenAI-compatible server**: Text Embeddings Inference, Infinity, Ollama, LocalAI or a cloud API through `POST /v1/embeddings` (provider `openai_compatible`) — [installation guide](docs/STANDARD_SERVERS_INSTALLATION.md)
 
 #### Automatic Translation
 - **OpenAI**: GPT models for translation
@@ -280,7 +287,7 @@ Core is the **event bus**; this module registers AI listeners and jobs. Full dia
 |-------|----------|
 | **Overview** (indexing + moderation, comparison, extension) | [Modules/Core/docs/EVENT_ORCHESTRATION.md](../Core/docs/EVENT_ORCHESTRATION.md) |
 | **Embeddings, Elasticsearch, translations** | [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md) |
-| **Self-hosted Sentence Transformers** | [docs/SENTENCE_TRANSFORMERS_INSTALLATION.md](docs/SENTENCE_TRANSFORMERS_INSTALLATION.md) |
+| **Servers for embeddings, reranking and transcription** | [docs/STANDARD_SERVERS_INSTALLATION.md](docs/STANDARD_SERVERS_INSTALLATION.md) |
 | **Modification moderation (AI vote)** | [docs/MODERATION.md](docs/MODERATION.md) |
 | **Optional text generation** (answers `AiTextGenerationRequested`, e.g. SAO ownership phrasing) | `HandleAiTextGenerationListener`, gated by the setting `features.text_generation.enabled` |
 | Chat, tools (module-internal) | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |

@@ -26,11 +26,11 @@ use Modules\Core\Models\Setting;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
-const SWITCH_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const SWITCH_TARGET = 'sentence_transformers:all-MiniLM-L6-v2';
+const SWITCH_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const SWITCH_TARGET = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     $this->seed(AIDatabaseSeeder::class);
 
     $suspended = Setting::factory()->persistedWithoutApprovalCapture()->create([
@@ -73,13 +73,13 @@ function switch_probe_measures(?int $dimensions): void
 }
 
 /**
- * The sentence-transformers service reports $model on /health and in the /embed answer.
+ * The embeddings server reports $model on /info and in the /v1/embeddings answer.
  */
 function switch_service_reports(string $model, int $dimensions = 384): void
 {
     Http::fake([
-        '*/health' => Http::response(['status' => 'healthy', 'model' => $model]),
-        '*/embed' => Http::response(['model' => $model, 'embeddings' => [array_fill(0, $dimensions, 0.1)]]),
+        '*/info' => Http::response(['model_id' => $model]),
+        '*/v1/embeddings' => Http::response(['model' => $model, 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector($dimensions)]]]),
     ]);
 }
 
@@ -129,19 +129,17 @@ it('does not start when the service is unreachable', function (): void {
     switch_expect_nothing_changed();
 });
 
-it('does not start when /health is unreachable even if the probe embeds', function (): void {
+it('starts when /info is unreachable, because the probe answer alone names the model', function (): void {
     Queue::fake();
     switch_probe_measures(384);
     Http::fake([
-        '*/health' => static fn () => throw new ConnectionException('health timed out'),
-        '*/embed' => Http::response(['model' => 'all-MiniLM-L6-v2', 'embeddings' => [array_fill(0, 384, 0.1)]]),
+        '*/info' => static fn () => throw new ConnectionException('info timed out'),
+        '*/v1/embeddings' => Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]),
     ]);
 
-    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])
-        ->expectsOutputToContain('health timed out')
-        ->assertFailed();
+    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])->assertSuccessful();
 
-    switch_expect_nothing_changed();
+    expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('running');
 });
 
 it('does not start when the service reports another model', function (): void {
@@ -156,25 +154,27 @@ it('does not start when the service reports another model', function (): void {
     switch_expect_nothing_changed();
 });
 
-it('trusts the model the probe answer names over the default /health reports, as the repair does', function (): void {
+it('does not start when /info and the probe answer name different models', function (): void {
     Queue::fake();
     switch_probe_measures(384);
     Http::fake([
-        '*/health' => Http::response(['status' => 'healthy', 'model' => 'intfloat/multilingual-e5-small']),
-        '*/embed' => Http::response(['model' => 'sentence-transformers/all-MiniLM-L6-v2', 'embeddings' => [array_fill(0, 384, 0.1)]]),
+        '*/info' => Http::response(['model_id' => 'intfloat/multilingual-e5-small']),
+        '*/v1/embeddings' => Http::response(['model' => 'sentence-transformers/all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]),
     ]);
 
-    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])->assertSuccessful();
+    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])
+        ->expectsOutputToContain('/info reports model "intfloat/multilingual-e5-small"')
+        ->assertFailed();
 
-    expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('running');
+    switch_expect_nothing_changed();
 });
 
 it('does not start when the service names no model, so it cannot be checked', function (): void {
     Queue::fake();
     switch_probe_measures(384);
     Http::fake([
-        '*/health' => Http::response(['status' => 'healthy']),
-        '*/embed' => Http::response(['embeddings' => [array_fill(0, 384, 0.1)]]),
+        '*/info' => Http::response([]),
+        '*/v1/embeddings' => Http::response(['data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]),
     ]);
 
     $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])
@@ -471,4 +471,19 @@ it('prints idle when no switch has run', function (): void {
     $this->artisan('ai:embeddings:status')
         ->expectsOutputToContain('idle')
         ->assertSuccessful();
+});
+
+it('starts a switch to a profile whose own server is the only one configured', function (): void {
+    Queue::fake();
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.embeddings_minilm', ['url' => 'http://minilm.test:8082', 'api_key' => null]);
+    switch_probe_measures(384);
+    Http::fake([
+        'minilm.test:8082/info' => Http::response(['model_id' => 'all-MiniLM-L6-v2']),
+        'minilm.test:8082/v1/embeddings' => Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]),
+    ]);
+
+    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])->assertSuccessful();
+
+    expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('running');
 });

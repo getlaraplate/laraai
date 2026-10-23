@@ -14,7 +14,7 @@ use Modules\Core\Events\ModelPreProcessingCompleted;
 use NeuronAI\RAG\Document;
 
 beforeEach(function (): void {
-    config()->set('ai.features.embeddings.models.sentence_transformers:intfloat/multilingual-e5-small.dimensions', 2);
+    config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
     Log::spy();
 });
 

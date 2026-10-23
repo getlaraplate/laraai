@@ -14,8 +14,8 @@ use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Models\ModelEmbedding;
 use NeuronAI\RAG\Document;
 
-const PROFILE_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const PROFILE_OTHER = 'sentence_transformers:all-MiniLM-L6-v2';
+const PROFILE_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const PROFILE_OTHER = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
     Event::fake([ModelPreProcessingCompleted::class]);

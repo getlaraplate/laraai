@@ -2,15 +2,13 @@
 
 declare(strict_types=1);
 
-use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Response;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\EmbeddingsProviderFactory;
 
 test('active resolves the configured multilingual-e5-small profile', function (): void {
     $profile = app(EmbeddingModelRegistry::class)->active();
 
-    expect($profile->key)->toBe('sentence_transformers:intfloat/multilingual-e5-small')
+    expect($profile->key)->toBe('openai_compatible:intfloat/multilingual-e5-small')
         ->and($profile->queryPrefix)->toBe('query: ')
         ->and($profile->passagePrefix)->toBe('passage: ')
         ->and($profile->dimensions)->toBe(384);
@@ -34,9 +32,9 @@ it('takes dimensions and similarity from the profile, not from Core', function (
 });
 
 it('rejects a profile with no dimensions', function (mixed $dimensions): void {
-    config(['ai.features.embeddings.models.sentence_transformers:broken' => ['dimensions' => $dimensions]]);
+    config(['ai.features.embeddings.models.openai_compatible:broken' => ['dimensions' => $dimensions]]);
 
-    expect(fn () => app(EmbeddingModelRegistry::class)->get('sentence_transformers:broken'))
+    expect(fn () => app(EmbeddingModelRegistry::class)->get('openai_compatible:broken'))
         ->toThrow(InvalidArgumentException::class);
 })->with([
     'missing' => [null],
@@ -45,8 +43,8 @@ it('rejects a profile with no dimensions', function (mixed $dimensions): void {
 
 it('lists the configured profile keys', function (): void {
     expect(app(EmbeddingModelRegistry::class)->keys())->toBe([
-        'sentence_transformers:intfloat/multilingual-e5-small',
-        'sentence_transformers:all-MiniLM-L6-v2',
+        'openai_compatible:intfloat/multilingual-e5-small',
+        'openai_compatible:all-MiniLM-L6-v2',
     ]);
 });
 
@@ -54,10 +52,10 @@ it('derives provider and service model from the key, splitting on the first colo
     config(['ai.features.embeddings.models.ollama:nomic-embed-text:latest' => ['dimensions' => 768]]);
 
     $registry = app(EmbeddingModelRegistry::class);
-    $first = $registry->get('sentence_transformers:intfloat/multilingual-e5-small');
+    $first = $registry->get('openai_compatible:intfloat/multilingual-e5-small');
     $second = $registry->get('ollama:nomic-embed-text:latest');
 
-    expect($first->provider)->toBe('sentence_transformers')
+    expect($first->provider)->toBe('openai_compatible')
         ->and($first->serviceModel)->toBe('intfloat/multilingual-e5-small')
         ->and($second->provider)->toBe('ollama')
         ->and($second->serviceModel)->toBe('nomic-embed-text:latest')
@@ -66,45 +64,66 @@ it('derives provider and service model from the key, splitting on the first colo
 
 it('returns the overridden profile while a callback runs and restores the previous one after, also when it throws', function (): void {
     $registry = app(EmbeddingModelRegistry::class);
-    $other = 'sentence_transformers:all-MiniLM-L6-v2';
+    $other = 'openai_compatible:all-MiniLM-L6-v2';
 
     $inside = $registry->withActive($other, fn (): string => $registry->active()->key);
 
     expect($inside)->toBe($other)
-        ->and($registry->active()->key)->toBe('sentence_transformers:intfloat/multilingual-e5-small');
+        ->and($registry->active()->key)->toBe('openai_compatible:intfloat/multilingual-e5-small');
 
     expect(fn () => $registry->withActive($other, function (): never {
         throw new RuntimeException('boom');
     }))->toThrow(RuntimeException::class);
 
-    expect($registry->active()->key)->toBe('sentence_transformers:intfloat/multilingual-e5-small');
+    expect($registry->active()->key)->toBe('openai_compatible:intfloat/multilingual-e5-small');
 });
 
 it('resolves the provider and service model of the overridden profile in the factory', function (): void {
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     $registry = app(EmbeddingModelRegistry::class);
 
-    $sent = $registry->withActive('sentence_transformers:all-MiniLM-L6-v2', function (): ?string {
-        $captured = null;
-        $client = Mockery::mock(Client::class);
-        $client->shouldReceive('post')
-            ->once()
-            ->with('embed', Mockery::on(function (array $arg) use (&$captured): bool {
-                $captured = $arg['json']['model'] ?? null;
-
-                return true;
-            }))
-            ->andReturn(new Response(200, [], json_encode(['embeddings' => [array_fill(0, 384, 0.1)]])));
+    $sent = $registry->withActive('openai_compatible:all-MiniLM-L6-v2', function (): ?string {
+        $client = new Modules\AI\Tests\Stubs\ScriptedHttpClient(fn (NeuronAI\HttpClient\HttpRequest $request): NeuronAI\HttpClient\HttpResponse => new NeuronAI\HttpClient\HttpResponse(200, json_encode(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => [0.1, 0.2]]]])));
 
         $provider = EmbeddingsProviderFactory::make();
-        $property = new ReflectionProperty($provider, 'client');
-        $property->setValue($provider, $client);
+        $inner = $provider instanceof Modules\AI\Ai\Embeddings\PrefixingEmbeddingsProvider ? (fn (): NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface => $this->inner)->call($provider) : $provider;
+        $inner->setHttpClient($client);
         $provider->embedText('hello');
 
-        return $captured;
+        return $client->requests[0]->body['model'] ?? null;
     });
 
     expect($sent)->toBe('all-MiniLM-L6-v2');
+});
+
+it('reads the server a profile names', function (): void {
+    config()->set('ai.features.embeddings.models.openai_compatible:other', ['dimensions' => 384, 'server' => 'embeddings_other']);
+
+    $registry = app(EmbeddingModelRegistry::class);
+
+    expect($registry->get('openai_compatible:other')->server)->toBe('embeddings_other')
+        ->and($registry->get('openai_compatible:intfloat/multilingual-e5-small')->server)->toBeNull()
+        ->and($registry->get('openai_compatible:all-MiniLM-L6-v2')->server)->toBe('embeddings_minilm');
+});
+
+it('does not offer a profile whose server has no url and no default', function (): void {
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.embeddings_minilm.url', '');
+
+    expect(app(EmbeddingModelRegistry::class)->configuredKeys())->not->toContain('openai_compatible:all-MiniLM-L6-v2')
+        ->and(app(EmbeddingModelRegistry::class)->configuredKeys())->not->toContain('openai_compatible:intfloat/multilingual-e5-small');
+});
+
+it('offers a profile whose named server falls back to the default one, and one whose server has its own url', function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://default.test:8000');
+    config()->set('ai.servers.embeddings_minilm.url', '');
+
+    expect(app(EmbeddingModelRegistry::class)->configuredKeys())->toContain('openai_compatible:all-MiniLM-L6-v2', 'openai_compatible:intfloat/multilingual-e5-small');
+
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.embeddings_minilm.url', 'http://minilm.test:8081');
+
+    expect(app(EmbeddingModelRegistry::class)->configuredKeys())->toBe(['openai_compatible:all-MiniLM-L6-v2']);
 });
 
 it('rejects a malformed key with an empty provider or service model', function (string $key): void {
@@ -126,9 +145,9 @@ it('resolves a dotted profile key when the whole models array is replaced', func
 
 it('serves the model named by Core search.vector.model', function (): void {
     config()->set('core.search.vector.model', 'voyageai:voyage-3-lite');
-    config()->set('ai.providers.sentence_transformers.url', 'http://localhost:8000');
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('ai.features.embeddings.models', [
-        'sentence_transformers:intfloat/multilingual-e5-small' => ['dimensions' => 384],
+        'openai_compatible:intfloat/multilingual-e5-small' => ['dimensions' => 384],
         'voyageai:voyage-3-lite' => ['dimensions' => 512],
     ]);
 
@@ -140,26 +159,31 @@ it('serves the model named by Core search.vector.model', function (): void {
 
 it('defaults the active profile to the first configured one when Core names no model', function (?string $model): void {
     config()->set('core.search.vector.model', $model);
-    config()->set('ai.providers.sentence_transformers.url', '');
+    config()->set('ai.servers.embeddings.url', '');
     config()->set('ai.providers.voyageai.api_key', 'k');
     config()->set('ai.features.embeddings.models', [
-        'sentence_transformers:intfloat/multilingual-e5-small' => ['dimensions' => 384],
+        'openai_compatible:intfloat/multilingual-e5-small' => ['dimensions' => 384],
         'voyageai:voyage-3-lite' => ['dimensions' => 512],
     ]);
 
     expect(app(EmbeddingModelRegistry::class)->active()->key)->toBe('voyageai:voyage-3-lite');
 })->with(['null' => [null], 'empty' => ['']]);
 
-it('knows voyageai and sentence_transformers configuration', function (): void {
+it('knows voyageai and openai_compatible configuration', function (): void {
     $providers = new Modules\AI\Ai\Providers\Models\ProviderConfiguration;
 
     config()->set('ai.providers.voyageai.api_key', '');
-    config()->set('ai.providers.sentence_transformers.url', '');
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.transcription.url', '');
     expect($providers->isConfigured('voyageai'))->toBeFalse()
-        ->and($providers->isConfigured('sentence_transformers'))->toBeFalse();
+        ->and($providers->isConfigured('openai_compatible'))->toBeFalse();
 
     config()->set('ai.providers.voyageai.api_key', 'k');
-    config()->set('ai.providers.sentence_transformers.url', 'http://x');
+    config()->set('ai.servers.embeddings.url', 'http://x');
     expect($providers->isConfigured('voyageai'))->toBeTrue()
-        ->and($providers->isConfigured('sentence_transformers'))->toBeTrue();
+        ->and($providers->isConfigured('openai_compatible'))->toBeFalse();
+
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.transcription.url', 'http://speaches.test');
+    expect($providers->isConfigured('openai_compatible'))->toBeTrue();
 });

@@ -354,7 +354,7 @@ serve search. Vector search is off while it runs; search continues by keywords. 
 ### Profiles
 
 Profiles live in `ai.features.embeddings.models` (`Modules/AI/config/config.php`), keyed
-`provider:service_model` and split at the first colon (`sentence_transformers:intfloat/multilingual-e5-small`,
+`provider:service_model` and split at the first colon (`openai_compatible:intfloat/multilingual-e5-small`,
 `ollama:nomic-embed-text:latest`). The key is also the value of the settings below and the
 `model_key` stamped on every `core_model_embeddings` row. A profile block holds:
 
@@ -363,12 +363,13 @@ Profiles live in `ai.features.embeddings.models` (`Modules/AI/config/config.php`
 | `dimensions` | required, at least 1: the length of the model's vectors. `EmbeddingModelRegistry::get()` throws without it |
 | `similarity` | optional, default `cosine`; copied into Core's `search.vector.similarity` at activation |
 | `query_prefix` / `passage_prefix` | text prepended to queries and documents (e5 models need `query: ` / `passage: `). `EmbeddingsProviderFactory::make()` wraps the provider of the profile in `PrefixingEmbeddingsProvider`, so every caller hands over the raw text: `embedText()` adds the query prefix, `embedDocument()` and `embedDocuments()` embed a prefixed copy and keep the vector, never touching `Document::$content` |
-| `normalize` | whether the service normalizes the vectors |
+| `normalize` | whether the server normalizes the vectors; the probe of `ai:servers:check`, of the switch and of the repair then refuses a server whose vector norm is not 1 |
+| `server` | optional: the name of the server of `ai.servers` that runs the model (`embeddings_minilm`); without it the default `embeddings` server. A named server without a URL falls back to the default one |
 
-The two shipped profiles, `sentence_transformers:intfloat/multilingual-e5-small` and
-`sentence_transformers:all-MiniLM-L6-v2`, both declare 384. A profile is offered only when its
-provider is configured (`ProviderConfiguration::isConfigured()`: its API key or URL is set;
-`sentence_transformers` needs `SENTENCE_TRANSFORMERS_URL`). There is no environment variable for
+The two shipped profiles, `openai_compatible:intfloat/multilingual-e5-small` and
+`openai_compatible:all-MiniLM-L6-v2` (which names the server `embeddings_minilm`), both declare 384. A profile is offered only when its
+provider is configured (`EmbeddingModelRegistry::configuredKeys()`: its API key or URL is set; an
+`openai_compatible` profile needs the URL of the server it names, or of the default one, `AI_EMBEDDINGS_URL`). There is no environment variable for
 the provider or the model: `AI_EMBEDDINGS_MODEL` and `AI_EMBEDDINGS_PROVIDER` were removed, and the
 RAG index takes its vector length from the active profile, not from `AI_FAQ_ES_EMBEDDING_DIMS`.
 
@@ -412,7 +413,7 @@ cannot be the target of a switch, and a vector of the wrong length is refused wh
 A managed setting is read-only in the settings form and written by code through
 `Setting::writeManaged()`, which skips approval (see `Modules/Core/docs/rag/SETTING_ACTIONS_DEVELOPER.md`).
 A fresh installation gets its serving model from Core, which seeds `search.vector.model` with
-`sentence_transformers:intfloat/multilingual-e5-small`, 384 and `cosine`, whatever profiles are
+`openai_compatible:intfloat/multilingual-e5-small`, 384 and `cosine`, whatever profiles are
 configured. The AI seeder runs after Core and defaults `features.embeddings.model` to that stored
 value, adding it to the choices when its provider is not configured, so the target and the serving
 model agree from the start. To serve another model, run a switch to it.
@@ -427,7 +428,7 @@ saved yet: a confirmation lists
   re-embedded) or **dimensions equal** (every record is re-embedded, the mapping is kept);
 - the number of texts to embed (searchable embeddable records times their translations) and a rough
   time, marked as an estimate. The time is the probe latency times the batch count, measured only for
-  `sentence_transformers` with a 3-second timeout and cached (ten minutes, thirty seconds after a
+  `openai_compatible` (on the server the target profile names) with a 3-second timeout and cached (ten minutes, thirty seconds after a
   failure); other providers show no estimate;
 - that vector search is off meanwhile and search uses keywords only;
 - that going back to the previous model is the same procedure and costs the same.
@@ -465,8 +466,8 @@ failed switch in phase `preflight`, which locks the field and shows why; vector 
 **Start.** `ai:embeddings:switch {profile}` refuses, changing nothing, when the profile is unknown or
 already active, another start holds the start lock (cache lock `embeddings:switch`, 120 s), a switch
 is already running or failed, the provider is not configured, the probe fails or measures other
-dimensions, or (for `sentence_transformers`) the service does not answer `/health`, names no model,
-or names another one (the `/embed` answer decides, `/health` is the fallback). Otherwise it stores
+dimensions, or (for `openai_compatible`) the profile's server does not answer a probe of `POST /v1/embeddings`, names no model,
+names another one (the probe answer and `GET /info`, where the server has it, must both agree with the profile), or returns vectors that are not normalised for a profile that declares `normalize`. Otherwise it stores
 `running`/`preflight`, sets `search.vector.suspended_reason = switching` in the same transaction and
 dispatches `SwitchEmbeddingModelJob`; when the job cannot be queued the start is rolled back.
 
@@ -540,7 +541,7 @@ set back to the active model, suspension lifted, nothing re-embedded. After a la
 running switch stopped making progress, the same procedure runs with the previous model as target:
 its rows still exist, so only missing records are embedded, the indexes are rebuilt for its
 dimensions, verified and it is activated again. Before it stores the return switch, `--abandon`
-checks that the previous profile is still declared and, for `sentence_transformers`, that the service
+checks that the previous profile is still declared and, for `openai_compatible`, that the server
 runs its model (the start's identity check); otherwise it refuses and changes nothing. The probe of
 the start is not repeated.
 
@@ -625,81 +626,84 @@ the start is not repeated.
 `EmbeddingModelSettingConfirmation::warn()` is called twice by Core, before the modal and again
 after the save: it must stay cheap and write nothing.
 
-## Self-hosted AI services
+## Standard servers
 
-Four clients call the two self-hosted services, `sentence-transformers-api` and `whisper-api`
-(install guides: `../SENTENCE_TRANSFORMERS_INSTALLATION.md`, `../WHISPER_INSTALLATION.md`):
+Four clients call the servers of `ai.servers` (guide: `../STANDARD_SERVERS_INSTALLATION.md`), which speak standard
+APIs: Text Embeddings Inference or Infinity for embeddings and reranking, speaches or any OpenAI-style server for
+transcription. `Ai/SelfHosted/AiServers` resolves a server by name (`embeddings`, a profile's own, `rerank`,
+`transcription`); URL, key, timeout and batch size come from `.env` through `config/ai.php`, never from a setting.
 
-| Client | Service, endpoint | On failure |
-|--------|-------------------|------------|
-| `Ai/Embeddings/SentenceTransformersEmbeddingsProvider` | sentence-transformers, `POST /embed` | logs, throws |
-| `Ai/Embeddings/EmbeddingServiceIdentity` | sentence-transformers, `GET /health`, `POST /embed` (probe) | logs, throws |
-| `Services/CrossEncoderService` | sentence-transformers (or `CROSS_ENCODER_URL`), `POST /score` | throws; the search logs it |
-| `Ai/MediaAnalysis/Transcription/WhisperTranscriber` | whisper, `POST /transcribe` | logs, returns `null` |
+| Client | Server, endpoint | On failure |
+|--------|------------------|------------|
+| `Ai/Embeddings/OpenAiCompatibleEmbeddingsProvider` | the profile's server, `POST /v1/embeddings` | logs, throws |
+| `Ai/Embeddings/EmbeddingServerIdentity` | the profile's server, `POST /v1/embeddings` (probe), `GET /info` where it exists | logs, throws |
+| `Services/CrossEncoderService` | `rerank`, `POST /rerank` (dialect `tei` or `cohere`) | throws; the search logs it |
+| `Ai/MediaAnalysis/Transcription/OpenAiTranscriber` | `transcription`, `POST /v1/audio/transcriptions` | logs, returns `null` |
+
+`OpenAiCompatibleEmbeddingsProvider` extends Neuron's `OpenAILikeEmbeddings` and adds what Neuron does not do:
+batches sized by the server's `batch_size` and halved by the adaptive batcher when a request fails or is slow
+(Neuron's fixed chunks of 100 are refused by a TEI at its default limit of 32), a request id per request, and
+`SelfHostedServiceException` on failure. Prefixes stay on the client (`PrefixingEmbeddingsProvider`); the profile's
+dimensions are not sent (the probe checks the length). `CrossEncoderService` sends one query and the texts of the
+pairs, places each score by the `index` the server answers with and throws on a repeated, missing or out-of-range index
+or a count other than the pairs; `tei` asks `GET /info` for the model name (cached ten minutes, never a reason to fail),
+`cohere` reads it from the answer or `AI_RERANK_MODEL`.
 
 ### Request id
 
-`Ai/SelfHosted/ServiceRequestId` is one call: a new id of 32 lowercase hex characters, sent as
-`X-Request-Id`, which the services echo and log. `CrossEncoderService` sets it once on the pending
-request, so its retry sends the same id. A call that cannot reach the service, or gets an error status:
+`Ai/SelfHosted/ServiceRequestId` is one call: a new id of 32 lowercase hex characters, sent as `X-Request-Id`.
+A server, or the reverse proxy in front of it, that logs request headers repeats it. `CrossEncoderService` sets it
+once on the pending request, so its retry sends the same id. A call that cannot reach the server, or gets an error status:
 
-- logs one warning, `Self-hosted AI service call failed`, with `service` (`sentence_transformers`,
-  `cross_encoder`, `whisper`), `endpoint` (the URL without credentials or query), `status` (`null` when
+- logs one warning, `Self-hosted AI service call failed`, with `service` (`embeddings`, `rerank`,
+  `transcription`), `endpoint` (the URL without credentials or query), `status` (`null` when
   unreachable) and `request_id`; never a text, a query, a file name or a key;
 - throws `Ai/SelfHosted/SelfHostedServiceException` (a `RuntimeException`; the HTTP exception is its
-  previous), whose message starts with `[request_id …]` and whose `context()` gives the exception handler
+  previous), whose message starts with `[request_id ...]` and whose `context()` gives the exception handler
   the same four fields. The message repeats the reason of the HTTP exception with every URL in it reduced
-  to scheme, host, port and path. `WhisperTranscriber` throws nothing (its contract is `null`), even when
-  the log cannot be written.
+  to scheme, host, port and path, and never the body of an error answer of Neuron's client. `OpenAiTranscriber`
+  throws nothing (its contract is `null`), even when the log cannot be written.
 
-`WhisperTranscriber` logs any other exception of the call (a bug, an answer it cannot handle) apart, as
+`OpenAiTranscriber` logs any other exception of the call (a bug, an answer it cannot handle) apart, as
 `Self-hosted AI service call could not be handled`, with `service`, `endpoint`, `request_id` and the
 exception class only, so it is not taken for an outage.
 
 `CrossEncoderService` does not log: `EnsembleSearchService` catches the failure and logs it as `Reranker
 failed; returning fused results without reranking`, with the message in `error` and the exception's
 `context()` merged in, so `request_id` and `status` are keys of that line too. The adaptive batcher of
-`SentenceTransformersEmbeddingsProvider` retries a failed batch with fewer texts, so a service that is down
+`OpenAiCompatibleEmbeddingsProvider` retries a failed batch with fewer texts, so a server that is down
 logs one warning per attempt, each with its own id. An answer with a `2xx` status that the client cannot use (no vector, the
 wrong model, one score short) keeps its own exception (`EmbeddingsException`, `RuntimeException`,
-`EmbeddingDimensionMismatch`) without a request id: the service log shows that call as a success.
+`EmbeddingDimensionMismatch`) without a request id: the server log shows that call as a success.
 
-### API version
+### Health
 
-`EmbeddingServiceIdentity::API_VERSION` is the version of the service contract this client speaks.
-`healthModel()` reads `api_version` from `/health` and logs a warning, once per process (Laravel `once()`),
-when it is another one (`"1"` and `1.0` count as `1`); a service that does not report the field predates it
-and is not warned about. The cross-encoder and Whisper clients do not read `/health`.
+There is no health convention to implement on a server: `EmbeddingServerIdentity::inspect()` probes the server of a
+profile with a `POST /v1/embeddings` for a fixed text and reads the model the answer names, the vector length and
+norm and, where the server has `GET /info` (TEI), its `model_id` and `max_client_batch_size`. The probe answer and
+`/info` must both agree with the profile's model. `refusal()` is the verdict the switch and `--abandon` use; the repair
+uses `inspect()` and warns instead of aborting when no model is named. `ai:servers:check` probes every configured
+server (each embedding profile through the server it names, the reranker with two fixed pairs, the batch limits of a
+TEI server against the configured batch size and against 64) and exits 1 when one fails; transcription is listed and
+not probed because it would need audio.
 
 ### Contract test
 
-`tests/Integration/SelfHostedServicesContractTest.php` checks the clients against the services'
-`openapi.json`, copied in `tests/Fixtures/SelfHostedServices/` (`sentence-transformers-api.openapi.json`,
-`whisper-api.openapi.json`) next to the service `VERSION` each comes from (`*.version`). The helper
-`tests/Stubs/SelfHostedServiceContract` validates a body against a schema and treats an object schema without
-`additionalProperties` as closed. It checks `type`, `required`, `properties`, `additionalProperties`,
-`items`, `enum`, `const`, `pattern` and local `$ref`s, and refuses any other keyword (`anyOf`,
-`minItems`…): a fixture that starts using one fails until the helper learns it. The test fails when a client sends a field the schema does not declare
-or omits a required one; when a client stops parsing the example answers, or an answer reduced to its
-schema's required fields (so a client that needs a field the service does not promise fails); and when an
-example no longer matches its own schema. A field a client reads only when present is not caught this way:
-the test lists those reads (`model`, `api_version`) and checks that the answer schemas declare them.
+`tests/Integration/StandardServersContractTest.php` checks the clients against the OpenAPI documents of the documented
+servers, copied in `tests/Fixtures/StandardServers/` (`tei`, `infinity`, `speaches` `.openapi.json`) next to the release
+each comes from (`*.version`). The helper `tests/Stubs/OpenApiContract` validates a body against a schema and treats an
+object schema without `additionalProperties` as closed; it checks `type`, `required`, `properties`,
+`additionalProperties`, `items`, `enum`, `const`, `pattern`, `oneOf`, `anyOf`, `allOf`, `nullable` and the numeric,
+length and item bounds, and refuses any other keyword: a fixture that starts using one fails until the helper learns it.
+The test fails when a client sends a field the schema does not declare or omits a required one, when a client stops
+parsing a sample answer or one reduced to the required fields (so a client that needs a field the server does not
+promise fails), and when a field a client cannot do without stops being required in the answer schema. Infinity
+publishes `/embeddings` and `/rerank` under its `--url-prefix`; the guide starts it with `/v1`, which is where the
+client sends them.
 
-When a service releases a new version, copy its `openapi.json` and `VERSION` into the fixtures and run the
-test:
-
-```bash
-cp ../laraplate-sentencetransformer/openapi.json Modules/AI/tests/Fixtures/SelfHostedServices/sentence-transformers-api.openapi.json
-cp ../laraplate-sentencetransformer/VERSION Modules/AI/tests/Fixtures/SelfHostedServices/sentence-transformers-api.version
-cp ../laraplate-whisper/openapi.json Modules/AI/tests/Fixtures/SelfHostedServices/whisper-api.openapi.json
-cp ../laraplate-whisper/VERSION Modules/AI/tests/Fixtures/SelfHostedServices/whisper-api.version
-php artisan test --compact Modules/AI/tests/Integration/SelfHostedServicesContractTest.php
-```
-
-The paths are those of the stack checkout; elsewhere, take the files from the service repositories at the
-commit that sets the new `VERSION`. A failing test is a contract change to settle in the client, or to
-raise with the service; a new `api_version` also means raising `EmbeddingServiceIdentity::API_VERSION` once
-the client speaks it (the test compares the fixtures with it).
+To adopt a new release of a documented server, copy its OpenAPI document and write its release in the `.version` file
+(`gh api repos/<owner>/<repo>/contents/<path>?ref=<tag> -H "Accept: application/vnd.github.raw"`), then run
+`php artisan test --compact Modules/AI/tests/Integration/StandardServersContractTest.php`.
 
 ## Operational guidance
 
@@ -808,15 +812,15 @@ divide by every scored case. A strategy that never runs on any scored case
 is omitted from the report. Design:
 `docs/superpowers/specs/2026-09-10-r3-phase2-per-strategy-breakdown-design.md`.
 
-**Did the reranker run?** The second call only asks for the reranker: when the cross-encoder service is
+**Did the reranker run?** The second call only asks for the reranker: when the rerank server is
 down or the reranker is disabled, `EnsembleSearchService` keeps the fused order and sets
 `meta['reranked'] = false`, and the `reranked` figures would be the `fused` ones under another name. The
 report therefore carries `reranker: {requested, ran, status, model}` (`ran` counts the cases whose result had
 `meta['reranked'] === true`; `status` is `ran`, `partial` or `not_run`; `model` is the model the
 service named in `meta['reranker_model']`, or null when none did, so a report says which model it measured), and both
 `ai:evaluate-retrieval-strategies` and `ai:tune-retrieval` print a warning when it is not `ran`. A
-`reranked` block next to a `not_run` status measures nothing: start the service (see
-`SENTENCE_TRANSFORMERS_INSTALLATION.md`) and run again. `RerankerRun` holds the summary and the wording.
+`reranked` block next to a `not_run` status measures nothing: start the rerank server (see
+`STANDARD_SERVERS_INSTALLATION.md`) and run again. `RerankerRun` holds the summary and the wording.
 
 ### Evaluation datasets: `synthetic` and `private`
 

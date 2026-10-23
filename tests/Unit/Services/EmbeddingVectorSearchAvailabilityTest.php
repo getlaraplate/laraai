@@ -12,7 +12,7 @@ use Modules\Core\Search\DTOs\VectorAvailability;
 
 uses(RefreshDatabase::class);
 
-const ACTIVE_KEY = 'sentence_transformers:intfloat/multilingual-e5-small';
+const ACTIVE_KEY = 'openai_compatible:intfloat/multilingual-e5-small';
 
 beforeEach(function (): void {
     config()->set('core.search.vector.model', ACTIVE_KEY);
@@ -46,7 +46,7 @@ it('returns the Core answer when Core says no', function (): void {
 });
 
 it('answers no_vectors when no embedding is stamped with the active profile', function (): void {
-    stampedEmbedding('sentence_transformers:all-MiniLM-L6-v2');
+    stampedEmbedding('openai_compatible:all-MiniLM-L6-v2');
 
     $answer = availabilityWith(VectorAvailability::yes())->check(new EmbeddableTestModel);
 

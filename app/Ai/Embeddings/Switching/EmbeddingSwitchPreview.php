@@ -4,21 +4,20 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings\Switching;
 
-use function ai_config_int;
-
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
-use Modules\AI\Ai\Embeddings\EmbeddingServiceIdentity;
+use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
+use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Throwable;
 
 /**
  * Computes what a switch to a target profile would cost: the two models and their dimensions, the
- * records to embed and a rough time. It only counts rows and, for the sentence-transformers service
+ * records to embed and a rough time. It only counts rows and, for the openai_compatible provider
  * only, probes the target once with a short timeout (the latency is cached), so the settings page
  * can call it on every confirmation. A hosted provider gets no time estimate.
  */
@@ -33,12 +32,11 @@ final readonly class EmbeddingSwitchPreview
 
     private const int FAILED_LATENCY_CACHE_SECONDS = 30;
 
-    private const int DEFAULT_BATCH_SIZE = 32;
-
     public function __construct(
         private EmbeddingModelRegistry $registry,
         private IEmbeddableModels $embeddableModels,
-        private EmbeddingServiceIdentity $identity = new EmbeddingServiceIdentity(),
+        private EmbeddingServerIdentity $identity = new EmbeddingServerIdentity(),
+        private AiServers $servers = new AiServers(),
     ) {}
 
     public function for(EmbeddingModelProfile $target): SwitchPreview
@@ -111,20 +109,20 @@ final readonly class EmbeddingSwitchPreview
             return null;
         }
 
-        $batchSize = max(1, ai_config_int('ai.providers.sentence_transformers.batch_size', self::DEFAULT_BATCH_SIZE));
+        $batchSize = $this->servers->forProfile($target)->batchSize;
 
         return (int) ceil($latency * (int) ceil($records / $batchSize));
     }
 
     /**
-     * Seconds one call to the sentence-transformers service takes, measured with a short timeout of
+     * Seconds one call to the embeddings server takes, measured with a short timeout of
      * its own and cached (a success for ten minutes, a failure for thirty seconds), so a confirmation
      * shown twice does not call the service twice. Any other provider is not measured: its client has
      * no per-call timeout, and the settings page must not wait on it.
      */
     private function latency(EmbeddingModelProfile $target): ?float
     {
-        if ($target->provider !== 'sentence_transformers') {
+        if ($target->provider !== 'openai_compatible') {
             return null;
         }
 
@@ -140,7 +138,7 @@ final readonly class EmbeddingSwitchPreview
         $started = hrtime(true);
 
         try {
-            $this->identity->probeModel($target, self::LATENCY_TIMEOUT_SECONDS);
+            $this->identity->inspect($target, self::LATENCY_TIMEOUT_SECONDS, withInfo: false);
 
             $seconds = (hrtime(true) - $started) / 1e9;
         } catch (Throwable) {

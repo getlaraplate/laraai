@@ -60,13 +60,14 @@ return [
             // Profiles are keyed `provider:service_model`, split at the first colon. Each
             // declares the dimensions of its vectors; Core's `core.search.vector.*` follows.
             'models' => [
-                'sentence_transformers:intfloat/multilingual-e5-small' => [
+                'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,
                     'query_prefix' => 'query: ',
                     'passage_prefix' => 'passage: ',
                     'normalize' => true,
                 ],
-                'sentence_transformers:all-MiniLM-L6-v2' => [
+                'openai_compatible:all-MiniLM-L6-v2' => [
+                    'server' => 'embeddings_minilm',
                     'dimensions' => 384,
                     'query_prefix' => '',
                     'passage_prefix' => '',
@@ -94,6 +95,11 @@ return [
             // Optional per-module allowlist. Empty = every module (default).
             // Matched by FeatureModuleGate against the model's Modules\{Name}\ namespace.
             'modules' => [],
+            // The transcription models the dropdown offers for the transcription server (`ai.servers.transcription`),
+            // as the server names them (a Hugging Face id for speaches); the installer adds the ones it serves.
+            'transcription' => [
+                'models' => ['Systran/faster-whisper-base'],
+            ],
         ],
 
         'translation' => [
@@ -221,6 +227,43 @@ return [
         ],
     ],
 
+    /*
+    | The servers that run embeddings, reranking and transcription, declared by whoever installs. URL and key
+    | come from `.env`; settings only choose among them. An embeddings server without a URL falls back to the
+    | `embeddings` one, so one process per model (TEI) and one process for every model (Infinity, Ollama) both
+    | fit: a profile names its server in `ai.features.embeddings.models`. Rerank and transcription do not fall back.
+    */
+    'servers' => [
+        'embeddings' => [
+            'url' => env('AI_EMBEDDINGS_URL'),
+            'api_key' => env('AI_EMBEDDINGS_API_KEY'),
+            // Per-request HTTP timeout (seconds) and documents per request. A CPU-bound server is slow, so keep the
+            // batch small enough that one request completes within the timeout; TEI refuses more than its
+            // --max-client-batch-size (32 by default).
+            'timeout' => (int) env('AI_EMBEDDINGS_TIMEOUT', 30),
+            'batch_size' => (int) env('AI_EMBEDDINGS_BATCH_SIZE', 32),
+        ],
+        // The server of the profiles that name it, when it is another process than the default one.
+        'embeddings_minilm' => [
+            'url' => env('AI_EMBEDDINGS_MINILM_URL'),
+            'api_key' => env('AI_EMBEDDINGS_MINILM_API_KEY'),
+        ],
+        // Dialect `tei` (POST /rerank {query, texts}) or `cohere` (POST /rerank {model, query, documents}, Infinity, vLLM).
+        // `model` is required for the `cohere` dialect.
+        'rerank' => [
+            'url' => env('AI_RERANK_URL'),
+            'api_key' => env('AI_RERANK_API_KEY'),
+            'dialect' => env('AI_RERANK_DIALECT', 'tei'),
+            'model' => env('AI_RERANK_MODEL'),
+        ],
+        // An OpenAI-style POST /v1/audio/transcriptions server (speaches, LocalAI). Unset URL = no transcript.
+        'transcription' => [
+            'url' => env('AI_TRANSCRIPTION_URL'),
+            'api_key' => env('AI_TRANSCRIPTION_API_KEY'),
+            'timeout' => (int) env('AI_TRANSCRIPTION_TIMEOUT', 120),
+        ],
+    ],
+
     'providers' => [
         'openai' => [
             'api_key' => env('OPENAI_API_KEY'),
@@ -246,32 +289,6 @@ return [
 
         'anthropic' => [
             'api_key' => env('ANTHROPIC_API_KEY'),
-        ],
-
-        'sentence_transformers' => [
-            'url' => env('SENTENCE_TRANSFORMERS_URL'),
-            'api_key' => env('SENTENCE_TRANSFORMERS_API_KEY'),
-            // Per-request HTTP timeout (seconds) and documents per /embed batch.
-            // A CPU-bound embedding service is slow (~0.4s per long chunk), so keep
-            // the batch small enough that one batch completes within the timeout.
-            'timeout' => (int) env('SENTENCE_TRANSFORMERS_TIMEOUT', 30),
-            'batch_size' => (int) env('SENTENCE_TRANSFORMERS_BATCH_SIZE', 32),
-        ],
-
-        // Self-hosted Whisper transcription service (Task 8). Unset URL = the
-        // transcriber is a no-op (media index without a transcript). See
-        // Modules/AI/docs/WHISPER_INSTALLATION.md to stand up the service.
-        'whisper' => [
-            'url' => env('WHISPER_URL'),
-            'api_key' => env('WHISPER_API_KEY'),
-            'timeout' => (int) env('WHISPER_TIMEOUT', 120),
-        ],
-
-        // Base URL of the service exposing POST /score (the client adds the path). It falls back to the
-        // embedding service, which can serve /score too, and so does its key. No built-in address.
-        'cross_encoder' => [
-            'url' => env('CROSS_ENCODER_URL', env('SENTENCE_TRANSFORMERS_URL')),
-            'api_key' => env('CROSS_ENCODER_API_KEY', env('SENTENCE_TRANSFORMERS_API_KEY')),
         ],
     ],
 ];

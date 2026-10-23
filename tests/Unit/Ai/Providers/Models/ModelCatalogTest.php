@@ -16,7 +16,8 @@ beforeEach(function (): void {
     config()->set('core.deepl_api_key', '');
     config()->set('ai.providers.openai.base_url', '');
     config()->set('ai.providers.ollama.api_url', '');
-    config()->set('ai.providers.whisper.url', '');
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.transcription.url', '');
 });
 
 it('drops the entries of a provider that is not configured', function (): void {
@@ -87,15 +88,16 @@ it('filters by the capabilities each feature requires and calls each provider on
     Http::assertSentCount(2);
 });
 
-it('offers providers without a catalogue by name when configured', function (): void {
+it('offers the configured transcription models of the OpenAI-compatible provider, and deepl by name, when configured', function (): void {
     Http::fake();
     config()->set('core.deepl_api_key', 'dk-test');
-    config()->set('ai.providers.whisper.url', 'http://whisper.test');
+    config()->set('ai.servers.transcription.url', 'http://speaches.test');
+    config()->set('ai.features.media_analysis.transcription.models', ['Systran/faster-whisper-small', 'Systran/faster-whisper-base']);
 
     $result = app(ModelCatalog::class)->build([AiModelFeature::Translation, AiModelFeature::Transcription], []);
 
     expect($result->choices['features.translation.model'])->toBe(['deepl'])
-        ->and($result->choices['features.media_analysis.transcription.model'])->toBe(['whisper']);
+        ->and($result->choices['features.media_analysis.transcription.model'])->toBe(['openai_compatible:Systran/faster-whisper-base', 'openai_compatible:Systran/faster-whisper-small']);
 
     Http::assertNothingSent();
 });
@@ -119,4 +121,14 @@ it('keeps every model of an OpenAI-compatible server behind a base URL', functio
     $models = (new OpenAiModelLister('', 'http://localhost:8080/v1'))->list();
 
     expect(array_map(static fn ($m) => $m->id, $models))->toBe(['qwen2.5-1.5b-instruct-q4_k_m.gguf']);
+});
+
+it('offers no transcription model when only an embeddings server is configured', function (): void {
+    Http::fake();
+    config()->set('ai.servers.embeddings.url', 'http://tei.test:8080');
+    config()->set('ai.servers.transcription.url', '');
+
+    $result = app(ModelCatalog::class)->build([AiModelFeature::Transcription], []);
+
+    expect($result->choices['features.media_analysis.transcription.model'])->toBe([]);
 });

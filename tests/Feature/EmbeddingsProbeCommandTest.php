@@ -23,8 +23,8 @@ function probe_command_with_length(int $measured): void
 it('prints the profile, its model and the measured dimensions', function (): void {
     probe_command_with_length(384);
 
-    $this->artisan('ai:embeddings:probe', ['profile' => 'sentence_transformers:all-MiniLM-L6-v2'])
-        ->expectsOutputToContain('sentence_transformers:all-MiniLM-L6-v2')
+    $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2'])
+        ->expectsOutputToContain('openai_compatible:all-MiniLM-L6-v2')
         ->expectsOutputToContain('all-MiniLM-L6-v2')
         ->expectsOutputToContain('384')
         ->assertSuccessful();
@@ -33,7 +33,7 @@ it('prints the profile, its model and the measured dimensions', function (): voi
 it('fails with the mismatch message when declared and measured differ', function (): void {
     probe_command_with_length(768);
 
-    $this->artisan('ai:embeddings:probe', ['profile' => 'sentence_transformers:all-MiniLM-L6-v2'])
+    $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2'])
         ->expectsOutputToContain('declares 384')
         ->assertFailed();
 });

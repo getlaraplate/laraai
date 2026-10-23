@@ -7,6 +7,7 @@ namespace Modules\AI\Ai\Embeddings;
 use Closure;
 use InvalidArgumentException;
 use Modules\AI\Ai\Providers\Models\ProviderConfiguration;
+use Modules\AI\Ai\SelfHosted\AiServers;
 
 /**
  * Resolves embedding-model profiles from `ai.features.embeddings.models`.
@@ -18,7 +19,10 @@ final class EmbeddingModelRegistry
 {
     private ?string $override = null;
 
-    public function __construct(private readonly ProviderConfiguration $providers = new ProviderConfiguration) {}
+    public function __construct(
+        private readonly ProviderConfiguration $providers = new ProviderConfiguration,
+        private readonly AiServers $servers = new AiServers,
+    ) {}
 
     public function active(): EmbeddingModelProfile
     {
@@ -26,7 +30,9 @@ final class EmbeddingModelRegistry
     }
 
     /**
-     * The profile keys whose provider is configured, in declaration order.
+     * The profile keys whose provider is configured, in declaration order. A profile of the
+     * `openai_compatible` provider is configured when the server it names, or else the default
+     * embeddings server, has a URL.
      *
      * @return list<string>
      */
@@ -34,7 +40,7 @@ final class EmbeddingModelRegistry
     {
         return array_values(array_filter(
             $this->keys(),
-            fn (string $key): bool => $this->providers->isConfigured(explode(':', $key, 2)[0]),
+            fn (string $key): bool => $this->isConfigured($key),
         ));
     }
 
@@ -113,6 +119,22 @@ final class EmbeddingModelRegistry
             passagePrefix: (string) ($model['passage_prefix'] ?? ''),
             similarity: (string) ($model['similarity'] ?? 'cosine'),
             normalize: (bool) ($model['normalize'] ?? false),
+            server: is_string($model['server'] ?? null) && $model['server'] !== '' ? $model['server'] : null,
         );
+    }
+
+    private function isConfigured(string $key): bool
+    {
+        $provider = explode(':', $key, 2)[0];
+
+        if ($provider !== 'openai_compatible') {
+            return $this->providers->isConfigured($provider);
+        }
+
+        /** @var array<string, array<string, mixed>> $models */
+        $models = (array) config('ai.features.embeddings.models', []);
+        $server = $models[$key]['server'] ?? null;
+
+        return $this->servers->named(is_string($server) && $server !== '' ? $server : AiServers::DEFAULT_EMBEDDINGS)->isConfigured();
     }
 }

@@ -9,9 +9,9 @@ use Modules\AI\Database\Seeders\AIDatabaseSeeder;
 use Modules\AI\Tests\Stubs\EmbeddableTestModel;
 use Modules\Core\Models\ModelEmbedding;
 
-const PRUNE_ACTIVE = 'sentence_transformers:intfloat/multilingual-e5-small';
-const PRUNE_ORPHAN = 'sentence_transformers:removed-model';
-const PRUNE_OTHER = 'sentence_transformers:all-MiniLM-L6-v2';
+const PRUNE_ACTIVE = 'openai_compatible:intfloat/multilingual-e5-small';
+const PRUNE_ORPHAN = 'openai_compatible:removed-model';
+const PRUNE_OTHER = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
     $this->seed(AIDatabaseSeeder::class);

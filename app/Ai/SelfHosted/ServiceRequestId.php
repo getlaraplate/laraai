@@ -7,11 +7,12 @@ namespace Modules\AI\Ai\SelfHosted;
 use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
+use NeuronAI\Exceptions\HttpException;
 use Throwable;
 
 /**
- * The id of one call to a self-hosted AI service (`sentence-transformers-api`, `whisper-api`), sent as
- * `X-Request-Id`. The service echoes it and logs it, so a failure logged here leads to the service log
+ * The id of one call to a server of `ai.servers` (embeddings, rerank, transcription), sent as `X-Request-Id`.
+ * A server that logs it, or a reverse proxy in front of it, lets a failure logged here lead to the log
  * line of the same call. A retry of the call keeps the id, so the service log shows the attempts together.
  *
  * The log context names the service, the endpoint, the status and the id: never the text, the query, the
@@ -32,7 +33,7 @@ final readonly class ServiceRequestId
     public string $endpoint;
 
     /**
-     * @param  string  $service  `sentence_transformers`, `cross_encoder` or `whisper`
+     * @param  string  $service  `embeddings`, `rerank` or `transcription`
      * @param  string  $url  the URL of the call
      */
     public function __construct(
@@ -54,6 +55,10 @@ final readonly class ServiceRequestId
 
         if ($exception instanceof GuzzleRequestException) {
             return $exception->getResponse()?->getStatusCode();
+        }
+
+        if ($exception instanceof HttpException) {
+            return $exception->response?->statusCode;
         }
 
         return null;
@@ -126,10 +131,14 @@ final readonly class ServiceRequestId
         $status = self::statusOf($previous);
         $outcome = $status === null ? 'failed' : "failed with status {$status}";
 
+        // An error answer carries the body of the response, which a server may fill with what it was sent (FastAPI
+        // servers echo the offending input): the status is all that is kept, and the HTTP exception is not chained,
+        // because its message holds the body and would reach the log through the previous exception.
+        $detail = $status === null ? ': ' . self::withoutUrlSecrets($previous->getMessage()) : '.';
+
         return new SelfHostedServiceException(
-            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}: " . self::withoutUrlSecrets($previous->getMessage()),
+            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}{$detail}",
             $this->context($status),
-            $previous,
         );
     }
 

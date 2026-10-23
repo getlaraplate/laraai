@@ -26,3 +26,15 @@ if (! function_exists('models')) {
         return array_values($models);
     }
 }
+
+if (! function_exists('ai_test_unit_vector')) {
+    /**
+     * A vector of the given length whose norm is 1: what a server that normalises answers to the embedding probe.
+     *
+     * @return list<float>
+     */
+    function ai_test_unit_vector(int $dimensions): array
+    {
+        return array_fill(0, $dimensions, 1 / sqrt($dimensions));
+    }
+}

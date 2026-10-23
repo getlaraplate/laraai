@@ -11,7 +11,7 @@ use Modules\AI\Enums\AiModelFeature;
 
 /**
  * One provider and model, stored in Settings as `provider:model`, or `provider` alone for
- * providers without a model catalogue (`deepl`, `whisper`). The value splits on the first
+ * providers without a model catalogue (`deepl`). The value splits on the first
  * colon because Ollama ids contain one (`llama3.2:3b`) and provider names never do.
  */
 final readonly class AiModelChoice

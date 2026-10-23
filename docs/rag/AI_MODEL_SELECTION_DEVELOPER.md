@@ -24,7 +24,7 @@ overlay writes, and falls back to `AiModelFeature::defaultChoice()`:
 | chat, text generation, moderation, search orchestration, FAQ, contextual suggestions, chat summary | `ollama:llama3.2:3b` |
 | translation | `deepl` |
 | vision | `anthropic:claude-sonnet-5` |
-| transcription | `whisper` |
+| transcription | `openai_compatible:Systran/faster-whisper-base` |
 
 `AIDatabaseSeeder::modelSettingDefinitions()` seeds one setting per feature with that default as value and
 as only choice, through `commandManagedChoicesSettingsDefinition()` (a re-seed never overwrites refreshed
@@ -49,7 +49,7 @@ provider and no model it uses `OPENAI_MODEL`, `OLLAMA_MODEL`, `MISTRAL_MODEL`, o
 ## Providers and capabilities
 
 A provider is configured when its API key (openai, anthropic, mistral; DeepL reads `core.deepl_api_key`)
-or its URL (ollama, whisper) is set. Ollama has no default URL: unset means not configured. `OLLAMA_API_URL`
+its URL (ollama) or a server of `ai.servers` (`openai_compatible`: embeddings or transcription) is set. Ollama has no default URL: unset means not configured. `OLLAMA_API_URL`
 is the server base (`http://host:11434`); chat, embeddings and the lister each append `/api`.
 
 | Provider | Endpoint | Capabilities |
@@ -59,7 +59,7 @@ is the server base (`http://host:11434`); chat, embeddings and the lister each a
 | Mistral | `GET https://api.mistral.ai/v1/models`, Bearer | `capabilities.completion_chat`, `function_calling`, `vision`; archived models skipped |
 | Ollama | `GET {url}/api/tags`, then `POST {url}/api/show` per model | `capabilities` (`completion`, `tools`, `vision`); unknown when missing or when `show` fails, except names containing `embed`, which are dropped |
 
-DeepL and Whisper have no lister: when configured, their entry is the provider name. Listers use a 3 s
+DeepL has no lister: when configured, its entry is the provider name. The `openai_compatible` provider is listed from `ai.features.media_analysis.transcription.models` (`ConfiguredModelLister`, no request). Listers use a 3 s
 connect timeout and a 10 s request timeout. A model with unknown capabilities satisfies every
 requirement.
 

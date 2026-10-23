@@ -9,7 +9,7 @@ use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
 /**
  * Fake embeddings provider that records the exact text handed to it, mirroring
- * how {@see \Modules\AI\Ai\Embeddings\SentenceTransformersEmbeddingsProvider}
+ * how {@see \Modules\AI\Ai\Embeddings\OpenAiCompatibleEmbeddingsProvider}
  * reads `formattedContent ?? content` for documents. Used to assert that
  * query/passage prefixes reach the provider boundary.
  */

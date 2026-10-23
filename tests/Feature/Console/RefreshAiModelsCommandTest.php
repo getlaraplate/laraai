@@ -13,7 +13,8 @@ beforeEach(function (): void {
     }
 
     config()->set('core.deepl_api_key', '');
-    config()->set('ai.providers.whisper.url', '');
+    config()->set('ai.servers.embeddings.url', '');
+    config()->set('ai.servers.transcription.url', '');
     config()->set('ai.providers.ollama.api_url', 'http://ollama.test');
 
     $this->seed(AIDatabaseSeeder::class);
