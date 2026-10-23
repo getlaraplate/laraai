@@ -71,13 +71,13 @@ The scheduler deletes expired documents every day (`ai:prune-rag-queries`). To d
 
 Changing the embedding model goes through `ai:embeddings:switch`, which recreates these indexes for the new model (`ai:create-rag-index --profile=all --force`) and reindexes the documentation in `IndexDocumentsChunkJob` chunks of `AI_EMBEDDINGS_RAG_CHUNK_SIZE` files on the `embeddings-index` queue (the work of `ai:index-rag-docs`, one range of files per chunk). By hand: `ai:create-rag-index --force` drops and recreates each index with the active profile's dimensions.
 
-### Embedding service timeout and batch size
+### Embedding server timeout and batch size
 
-`ai:index-rag-docs` calls the Sentence Transformers service in batches. A CPU-bound service is slow (~0.4s per long chunk), so a large batch can exceed the HTTP timeout and abort indexing (`cURL error 28 ... /embed`). Both are configurable:
+`ai:index-rag-docs` calls the embeddings server in batches. A CPU-bound server is slow (~0.4s per long chunk on the former service), so a large batch can exceed the HTTP timeout and abort indexing (`cURL error 28 ... /v1/embeddings`); the client halves a batch that fails or is slow, but the timeout still bounds one request. Both are configurable:
 
 ```env
-SENTENCE_TRANSFORMERS_TIMEOUT=120   # seconds per /embed request (default 30)
-SENTENCE_TRANSFORMERS_BATCH_SIZE=16 # documents per batch (default 32)
+AI_EMBEDDINGS_TIMEOUT=120   # seconds per /v1/embeddings request (default 30)
+AI_EMBEDDINGS_BATCH_SIZE=16 # documents per request (default 32; at most the --max-client-batch-size of a TEI)
 ```
 
 Keep `batch_size` small enough that one batch completes within `timeout`; on a GPU service the defaults are fine.

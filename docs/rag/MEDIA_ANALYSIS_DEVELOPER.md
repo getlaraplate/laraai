@@ -6,7 +6,7 @@ When a media is claimed onto a real owner and indexed, the AI module analyses th
 finds to search:
 
 - images: caption, entities, idea, intent, OCR (vision model);
-- audio and video: transcript (self-hosted Whisper, see `../WHISPER_INSTALLATION.md`);
+- audio and video: transcript (an OpenAI-style transcription server, see `../STANDARD_SERVERS_INSTALLATION.md`);
 - PDF: extracted text.
 
 Core indexes media on its deterministic layer with or without AI; the analysis only enriches it.
@@ -17,7 +17,7 @@ Core indexes media on its deterministic layer with or without AI; the analysis o
   `MediaAnalysisGate::enabled()`. No env variable. The per-module allowlist
   `ai.features.media_analysis.modules` stays in config.
 - Models: the settings `features.media_analysis.vision.model` (`provider:model`, default
-  `anthropic:claude-sonnet-5`) and `features.media_analysis.transcription.model` (`whisper`), resolved by
+  `anthropic:claude-sonnet-5`) and `features.media_analysis.transcription.model` (`openai_compatible:<model>`, default `openai_compatible:Systran/faster-whisper-base`; the dropdown offers `ai.features.media_analysis.transcription.models`), resolved by
   `MediaAnalysisModelRegistry`. See `AI_MODEL_SELECTION_DEVELOPER.md`.
 
 ## Pipeline
@@ -52,9 +52,9 @@ accepted), fails the attempt, so `AnalyzeMediaJob` retries (3 tries, backoff 30/
 empty analysis as completed. Only an unreadable file yields an empty vision result. Once retries are spent,
 `AnalyzeMediaJob::failed()` marks the analysis row `failed` (a completed row is left as it is), so it is never
 reused as a result and the next upload of the same file analyses it again, and signals completion anyway, so
-the media is still indexed on its deterministic layer. A Whisper service that is unset or down yields no
-transcript; the rest of the analysis runs. A failed Whisper call logs one warning with its request id (see
-*Self-hosted AI services* in `MODULE.md`).
+the media is still indexed on its deterministic layer. A transcription server that is unset or down yields no
+transcript; the rest of the analysis runs. A failed transcription call logs one warning with its request id (see
+*Standard servers* in `MODULE.md`).
 
 ## Filament surface (M22)
 

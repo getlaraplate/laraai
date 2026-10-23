@@ -26,9 +26,9 @@ Media analysis itself is switched on with `features.media_analysis.enabled` (off
 
 ## The value
 
-A choice reads `provider:model`, for example `anthropic:claude-sonnet-5` or `ollama:llama3.2:3b`. Two
-providers have no model to choose and appear by name alone: `deepl` (translation) and `whisper`
-(transcription).
+A choice reads `provider:model`, for example `anthropic:claude-sonnet-5` or `ollama:llama3.2:3b`. One
+provider has no model to choose and appears by name alone: `deepl` (translation). Transcription uses the
+`openai_compatible` provider, with a model such as `openai_compatible:Systran/faster-whisper-base`.
 
 Translation takes either `deepl` or an AI model. There is no fallback: if the chosen provider fails, the
 translation is not saved and is retried later, instead of storing the original text.
