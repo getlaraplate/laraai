@@ -14,7 +14,7 @@ use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaVisionAnalyzer;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisGate;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelRegistry;
-use Modules\AI\Ai\MediaAnalysis\Transcription\WhisperTranscriber;
+use Modules\AI\Ai\MediaAnalysis\Transcription\OpenAiTranscriber;
 use Modules\AI\Ai\MediaAnalysis\Vision\NeuronVisionAnalyzer;
 use Modules\AI\Ai\Rag\RagIndexRebuilder;
 use Modules\AI\Console\PruneRagQueryAnalyticsCommand;
@@ -100,11 +100,11 @@ class AIServiceProvider extends ModuleServiceProvider
         );
 
         // Media analysis (M6, M21): the model registry plus the swappable analyzer
-        // contracts. Vision is neuron-ai-backed; transcription posts to the self
-        // -hosted Whisper service (a no-op when WHISPER_URL is unset).
+        // contracts. Vision is neuron-ai-backed; transcription posts to the OpenAI-style
+        // server of `ai.servers.transcription` (a no-op when its URL is unset).
         $this->app->singleton(MediaAnalysisModelRegistry::class);
         $this->app->bind(MediaVisionAnalyzer::class, NeuronVisionAnalyzer::class);
-        $this->app->bind(MediaTranscriber::class, WhisperTranscriber::class);
+        $this->app->bind(MediaTranscriber::class, OpenAiTranscriber::class);
         $this->app->singleton(ITranslatableModelClassNames::class, DiscoveryTranslatableModelClassNames::class);
         $this->app->bind(GraphToolProvider::class);
         $this->app->bind(CrudToolProvider::class);

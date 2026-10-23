@@ -30,3 +30,9 @@ it('reads every AI server variable in the module config', function () use ($aiSe
         expect($config)->toContain("'" . $name . "'");
     }
 });
+
+it('reads no variable of the removed services in the module config', function (): void {
+    $config = (string) file_get_contents(dirname(__DIR__, 2) . '/config/config.php');
+
+    expect($config)->not->toMatch("/env\\('(SENTENCE_TRANSFORMERS_|CROSS_ENCODER_|WHISPER_)/");
+});

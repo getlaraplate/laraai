@@ -95,6 +95,11 @@ return [
             // Optional per-module allowlist. Empty = every module (default).
             // Matched by FeatureModuleGate against the model's Modules\{Name}\ namespace.
             'modules' => [],
+            // The transcription models the dropdown offers for the transcription server (`ai.servers.transcription`),
+            // as the server names them (a Hugging Face id for speaches); the installer adds the ones it serves.
+            'transcription' => [
+                'models' => ['Systran/faster-whisper-base'],
+            ],
         ],
 
         'translation' => [
@@ -284,15 +289,6 @@ return [
 
         'anthropic' => [
             'api_key' => env('ANTHROPIC_API_KEY'),
-        ],
-
-        // Self-hosted Whisper transcription service (Task 8). Unset URL = the
-        // transcriber is a no-op (media index without a transcript). See
-        // Modules/AI/docs/WHISPER_INSTALLATION.md to stand up the service.
-        'whisper' => [
-            'url' => env('WHISPER_URL'),
-            'api_key' => env('WHISPER_API_KEY'),
-            'timeout' => (int) env('WHISPER_TIMEOUT', 120),
         ],
     ],
 ];

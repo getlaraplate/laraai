@@ -17,12 +17,12 @@ it('builds the vision profile from the vision choice', function (): void {
         ->and($profile->serviceModel)->toBe('claude-sonnet-5');
 });
 
-it('builds the transcription profile on whisper', function (): void {
+it('builds the transcription profile on the OpenAI-compatible server', function (): void {
     $profile = (new MediaAnalysisModelRegistry())->active('transcription');
 
-    expect($profile->key)->toBe('whisper')
-        ->and($profile->provider)->toBe('whisper')
-        ->and($profile->serviceModel)->toBe('');
+    expect($profile->key)->toBe('openai_compatible:Systran/faster-whisper-base')
+        ->and($profile->provider)->toBe('openai_compatible')
+        ->and($profile->serviceModel)->toBe('Systran/faster-whisper-base');
 });
 
 it('follows a changed vision setting', function (): void {

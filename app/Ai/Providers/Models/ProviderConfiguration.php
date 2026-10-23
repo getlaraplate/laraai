@@ -22,14 +22,13 @@ final readonly class ProviderConfiguration
             'deepl' => ai_config_string('core.deepl_api_key') !== '',
             'ollama' => ai_config_string('ai.providers.ollama.api_url') !== '',
             'openai_compatible' => new AiServers()->named(AiServers::DEFAULT_EMBEDDINGS)->isConfigured() || new AiServers()->transcription()->isConfigured(),
-            'whisper' => ai_config_string('ai.providers.whisper.url') !== '',
             default => false,
         };
     }
 
     /**
-     * Null for providers without a model catalogue: DeepL has no model to choose, and the
-     * Whisper host picks its model through its own `WHISPER_MODEL`.
+     * Null for providers without a model catalogue: DeepL has no model to choose. The `openai_compatible`
+     * provider offers the transcription models the installer declared in `ai.features.media_analysis.transcription.models`.
      */
     public function lister(string $provider): ?ModelLister
     {
@@ -38,6 +37,7 @@ final readonly class ProviderConfiguration
             'anthropic' => new AnthropicModelLister(ai_config_string('ai.providers.anthropic.api_key')),
             'mistral' => new MistralModelLister(ai_config_string('ai.providers.mistral.api_key')),
             'ollama' => new OllamaModelLister(ai_config_string('ai.providers.ollama.api_url')),
+            'openai_compatible' => new ConfiguredModelLister('features.media_analysis.transcription.models'),
             default => null,
         };
     }
