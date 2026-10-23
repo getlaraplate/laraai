@@ -176,3 +176,17 @@ it('never puts a url password, a key, a text or an answer body in the exception 
 
     Log::shouldHaveReceived('warning')->with(Mockery::type('string'), Mockery::on(fn (array $context): bool => ! str_contains(json_encode($context), 'url-password') && ! str_contains(json_encode($context), 'secret-key')));
 });
+
+it('turns a 2xx answer that is not JSON into an EmbeddingsException carrying the request id', function (): void {
+    $client = new ScriptedHttpClient(fn (HttpRequest $request): HttpResponse => new HttpResponse(200, '<html>maintenance page</html>'));
+    $provider = new OpenAiCompatibleEmbeddingsProvider(embeddingsServer(), 'm', null, $client);
+
+    try {
+        $provider->embedText('hello');
+        $this->fail('A page that is not JSON should not parse.');
+    } catch (EmbeddingsException $exception) {
+        $id = $client->requests[0]->headers['X-Request-Id'];
+
+        expect($exception->getMessage())->toContain("request_id {$id}")->toContain('not JSON')->not->toContain('maintenance page');
+    }
+});

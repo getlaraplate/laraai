@@ -267,3 +267,24 @@ it('reads the rerank server of the configuration when it is given none, and fail
 
     expect(fn () => new CrossEncoderService()->score(cross_encoder_pairs(1)))->toThrow(RuntimeException::class, 'AI_RERANK_URL');
 });
+
+it('remembers that /info is unavailable for a while, so a proxy that only exposes /rerank costs one extra request, not one per search', function (): void {
+    Http::fake([
+        '*/rerank' => Http::response(rerank_answer('tei', [0 => 0.5])),
+        '*/info' => Http::response('not found', 404),
+    ]);
+    $service = new CrossEncoderService(rerank_server('tei', url: 'http://proxied-rerank.test'));
+
+    $service->scoreWithModel(cross_encoder_pairs(1));
+    $service->scoreWithModel(cross_encoder_pairs(1));
+
+    Http::assertSentCount(3);
+});
+
+it('does not retry a 424, the model of a server that is not a reranker', function (): void {
+    Http::fake(['*/rerank' => Http::response(['error' => 'Model is not a re-ranker model'], 424)]);
+
+    expect(fn () => new CrossEncoderService(rerank_server('tei', url: 'http://not-a-reranker.test'))->score(cross_encoder_pairs(1)))->toThrow(SelfHostedServiceException::class);
+
+    Http::assertSentCount(1);
+});

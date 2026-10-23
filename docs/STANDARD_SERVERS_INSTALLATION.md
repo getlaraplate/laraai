@@ -23,7 +23,7 @@ Restrict inbound access on every server host to trusted clients (VPN, private ne
 
 ## Configuration
 
-URLs, keys and timeouts are environment variables read by `config/ai.php` (`ai.servers`); the settings in Filament only choose among the servers the installer declared. Each URL is the **root** of the server, with no trailing path.
+URLs, keys and timeouts are environment variables read by `config/ai.php` (`ai.servers`); the settings in Filament only choose among the servers the installer declared. Each URL is the **root** of the server, with no trailing path; the one exception is the reranker URL of an Infinity started with `--url-prefix`, which carries that prefix (see its section).
 
 | Variable | Default | Purpose |
 |---|---|---|

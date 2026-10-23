@@ -17,6 +17,7 @@ use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\Core\Search\Contracts\IRerankerWithModel;
 use Modules\Core\Search\DTOs\RerankResult;
 use RuntimeException;
+use Throwable;
 
 /**
  * HTTP client for a rerank server, `ai.servers.rerank`: Text Embeddings Inference (dialect `tei`) or one that
@@ -42,6 +43,11 @@ final readonly class CrossEncoderService implements IRerankerWithModel
      * Seconds the model name that `GET /info` gives is remembered.
      */
     private const int MODEL_CACHE_SECONDS = 600;
+
+    /**
+     * Seconds an unavailable `/info` is not asked for again.
+     */
+    private const int MODEL_UNAVAILABLE_CACHE_SECONDS = 60;
 
     /**
      * @param  AiServer|null  $server  the server to ask; the configured `ai.servers.rerank` when null
@@ -103,7 +109,7 @@ final readonly class CrossEncoderService implements IRerankerWithModel
         $endpoint = $server->url . '/rerank';
         // Set once on the pending request, so every attempt of `retry()` sends the same id.
         $request_id = new ServiceRequestId('rerank', $endpoint);
-        $request = $this->request($server)->retry(2, 200)->withHeaders($request_id->header());
+        $request = $this->request($server)->retry(2, 200, static fn (Throwable $exception): bool => ! ($exception instanceof RequestException && $exception->response->status() === 424))->withHeaders($request_id->header());
 
         try {
             // `retry()` rethrows the last failure once its attempts are spent, so a response that gets here is a success.
@@ -186,15 +192,24 @@ final readonly class CrossEncoderService implements IRerankerWithModel
             return $cached;
         }
 
+        // A server without /info (a proxy that exposes only /rerank) is not asked again at every search.
+        if (Cache::has($key . ':unavailable')) {
+            return null;
+        }
+
         try {
             $response = $this->request($server)->timeout(5)->get($server->url . '/info');
         } catch (ConnectionException) {
+            Cache::put($key . ':unavailable', true, self::MODEL_UNAVAILABLE_CACHE_SECONDS);
+
             return null;
         }
 
         $model = $response->successful() ? $response->json('model_id') : null;
 
         if (! is_string($model) || $model === '') {
+            Cache::put($key . ':unavailable', true, self::MODEL_UNAVAILABLE_CACHE_SECONDS);
+
             return null;
         }
 
