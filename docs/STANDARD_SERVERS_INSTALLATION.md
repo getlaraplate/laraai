@@ -1,6 +1,6 @@
 # Servers for embeddings, reranking and transcription
 
-> **Status: written from the servers' own documentation, not yet run on the reference host.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. The hands-on verification (build time of TEI on the LXC, vector equality with the previous service, rerank speed, behaviour of speaches on a large file) is an open step of `docs/superpowers/plans/2026-10-22-ai-standard-servers.md` in the application repository; this guide changes when it is done.
+> **Status: Infinity is verified by a run, TEI and speaches are written from their documentation.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. Infinity was run on 2026-10-23 on a workstation (see its section). Still open, in the plan `2026-10-22-ai-standard-servers.md` of the application repository: TEI built from source on the reference LXC (build time and size, whether the two default models load, vector equality) and speaches on a large file; this guide changes when they are done.
 
 Laraplate does not run models inside PHP. The AI module calls **standard HTTP servers** on separate hosts (VM, LXC, bare metal), speaking OpenAI-style APIs. Any server that speaks the same API works; this guide documents the ones the module is tested against. It replaces the guides of the former `sentence-transformers-api` and `whisper-api` services, which are archived.
 
@@ -66,17 +66,26 @@ text-embeddings-router --model-id cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 --p
 
 ## Infinity (no Docker, alternative)
 
-Infinity v1 needs its own virtual environment (Python below 3.14, `numpy<2`, `sentence-transformers<4`, `transformers<=5.0`): it cannot share `/opt/ai-env` with newer pins. Version 0.0.78 is a maintenance release of v1; Infinity V3 has a source-available, restricted licence.
+**Verified on 2026-10-23** (Infinity 0.0.78, CPU, Python 3.12, a 14-core workstation, not the reference LXC): both default models load, vectors are identical to what `sentence-transformers` produces for the same prefixed text (cosine 0.99999999, largest difference 0.0), the reranker returns exactly the sigmoid of the `CrossEncoder` logits (difference 0.0, same order), and `ai:servers:check`, `ai:embeddings:probe` and the clients of the module pass against it.
+
+Infinity v1 needs its own virtual environment: it requires Python below 3.14 (a host whose only Python is 3.14 cannot install it; Debian 12 and 13 ship 3.11 and 3.13), `numpy<2`, `sentence-transformers<4` and `transformers<=5.0`, so it cannot share `/opt/ai-env` with newer pins. Version 0.0.78 is a maintenance release of v1; Infinity V3 has a source-available, restricted licence. On a CPU-only host install the CPU build of torch first, or pip pulls the CUDA wheels:
 
 ```bash
-python3.13 -m venv /opt/infinity-venv
-/opt/infinity-venv/bin/pip install 'infinity_emb[all]==0.0.78'
+python3.12 -m venv /opt/infinity-venv
+/opt/infinity-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+/opt/infinity-venv/bin/pip install 'infinity_emb[server,torch]==0.0.78'
 /opt/infinity-venv/bin/infinity_emb v2 --model-id intfloat/multilingual-e5-small --model-id cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 \
   --engine torch --device cpu --port 7997 --api-key "$KEY" --url-prefix /v1
 ```
 
-- Infinity publishes `/embeddings` and `/rerank` under its `--url-prefix` (confirm the flag with `infinity_emb v2 --help`). Start it with `/v1`, which is where the embeddings client sends its requests, and point the reranker at the same prefix: `AI_RERANK_URL=http://host:7997/v1`, `AI_RERANK_DIALECT=cohere`, `AI_RERANK_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`.
-- One process serves several models; the profile's model is sent in each request. `GET /health` of Infinity is a liveness answer only.
+The extras `server` and `torch` are what the module needs (the venv was 1.2 GB with them); `[all]` was not tried. The two models download from Hugging Face at the first start (about 470 MB each).
+
+- `--url-prefix /v1` puts `/embeddings`, `/rerank`, `/models` and `/openapi.json` under `/v1`, where the embeddings client sends its requests; `/health` stays at the root, without the prefix. Point the reranker at the same prefix: `AI_RERANK_URL=http://host:7997/v1`, `AI_RERANK_DIALECT=cohere`, `AI_RERANK_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`; `AI_EMBEDDINGS_URL=http://host:7997` is the root.
+- One process serves both models; the profile's model is sent in each request. A model name that is not loaded answers `400` with a message listing the loaded ones; asking an embedding model to rerank, or the reverse, answers `400` too. A rerank request without `model` is refused (the `cohere` dialect always sends it).
+- The key protects `/v1/embeddings`, `/v1/rerank` and `/v1/models`; `/health` and `/v1/openapi.json` answer without it. `/health` is a liveness answer only.
+- Infinity does not echo `X-Request-Id`; the id is in the Laravel log and in the log of a reverse proxy that records request headers.
+- The vectors have norm 1. Texts of 12 000 characters and empty texts are accepted (long ones are truncated to the model's limit); an empty batch is a `422`; batches of 200 texts are accepted. The `dimensions` request field truncates the vector for any model (256 gave 256 components) and is never sent by the module.
+- Speed seen on that workstation: 64 pairs reranked in 0.7 s, 64 texts embedded in 0.5 s; Infinity's own warm-up measured 5.8 s for 32 texts of 512 tokens (5.5 texts per second at full length). The reference LXC has 2 vCPU: measure there before sizing batches and timeouts.
 
 ## Transcription (speaches or any OpenAI-style server)
 
