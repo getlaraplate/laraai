@@ -83,6 +83,15 @@ it('is not configured when neither the named server nor the default has a url', 
     expect(new AiServers()->forProfile(aiServersProfile('embeddings_minilm'))->isConfigured())->toBeFalse();
 });
 
-it('lists every declared server by name', function (): void {
-    expect(array_keys(new AiServers()->all()))->toBe(['embeddings', 'embeddings_minilm', 'embeddings_other', 'rerank', 'transcription']);
+it('gives a named server with its own url the timeout and batch size of the default when it sets none', function (): void {
+    config()->set('ai.servers.embeddings.timeout', 120);
+    config()->set('ai.servers.embeddings.batch_size', 16);
+    config()->set('ai.servers.embeddings_minilm', ['url' => 'http://minilm.test:8082', 'api_key' => 'own-key']);
+
+    $server = new AiServers()->named('embeddings_minilm');
+
+    expect($server->url)->toBe('http://minilm.test:8082')
+        ->and($server->apiKey)->toBe('own-key')
+        ->and($server->timeout)->toBe(120)
+        ->and($server->batchSize)->toBe(16);
 });

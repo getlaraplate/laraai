@@ -13,12 +13,14 @@ use Modules\AI\Ai\Embeddings\EmbeddingDriftReferenceException;
 use Modules\AI\Ai\Embeddings\EmbeddingLanguageCheck;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
+use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Override;
 use Throwable;
 
 /**
  * Embeds a fixed text with a configured profile and reports the vector length the model really
- * produces, failing when it differs from the dimensions the profile declares.
+ * produces, failing when it differs from the dimensions the profile declares. For an `openai_compatible`
+ * profile it also checks the server of the profile: the model it runs and the norm of its vectors.
  *
  * With `--reference=save` it also embeds a fixed multilingual sample and stores the vectors; with
  * `--reference=compare` it embeds the sample again and fails when the lowest cosine against the
@@ -40,7 +42,7 @@ final class EmbeddingsProbeCommand extends Command
     #[Override]
     protected $description = 'Measure the vector length an embedding profile really produces and compare it with its declared dimensions <fg=magenta>(✨ Modules\AI)</fg=magenta>';
 
-    public function handle(EmbeddingModelRegistry $registry, EmbeddingDimensionProbe $probe, EmbeddingDriftReference $reference, EmbeddingLanguageCheck $languages): int
+    public function handle(EmbeddingModelRegistry $registry, EmbeddingDimensionProbe $probe, EmbeddingDriftReference $reference, EmbeddingLanguageCheck $languages, EmbeddingServerIdentity $identity): int
     {
         $mode = (string) ($this->option('reference') ?? '');
 
@@ -75,6 +77,16 @@ final class EmbeddingsProbeCommand extends Command
             $this->error("The embedding probe failed for profile \"{$profile->key}\": {$exception->getMessage()}");
 
             return self::FAILURE;
+        }
+
+        if ($profile->provider === 'openai_compatible') {
+            $refusal = $identity->refusal($profile);
+
+            if ($refusal !== null) {
+                $this->error("The embeddings server of profile \"{$profile->key}\" is not usable: {$refusal}.");
+
+                return self::FAILURE;
+            }
         }
 
         $this->info("profile: {$profile->key}");

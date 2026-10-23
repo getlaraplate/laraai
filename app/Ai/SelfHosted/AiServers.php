@@ -22,13 +22,16 @@ final readonly class AiServers
 
     public function named(string $name): AiServer
     {
-        $server = $this->read($name);
-
-        if ($server->isConfigured() || in_array($name, self::STANDALONE, true) || $name === self::DEFAULT_EMBEDDINGS) {
-            return $server;
+        if (in_array($name, self::STANDALONE, true) || $name === self::DEFAULT_EMBEDDINGS) {
+            return $this->read($name);
         }
 
         $default = $this->read(self::DEFAULT_EMBEDDINGS);
+        $server = $this->read($name, $default);
+
+        if ($server->isConfigured()) {
+            return $server;
+        }
 
         return new AiServer($name, $default->url, $default->apiKey, $default->timeout, $default->batchSize, $server->dialect, $server->model);
     }
@@ -49,20 +52,9 @@ final readonly class AiServers
     }
 
     /**
-     * @return array<string, AiServer>
+     * @param  AiServer|null  $inherit  the server whose timeout and batch size stand in for the ones this entry does not set
      */
-    public function all(): array
-    {
-        $servers = [];
-
-        foreach (array_keys((array) config('ai.servers', [])) as $name) {
-            $servers[(string) $name] = $this->named((string) $name);
-        }
-
-        return $servers;
-    }
-
-    private function read(string $name): AiServer
+    private function read(string $name, ?AiServer $inherit = null): AiServer
     {
         $key = 'ai.servers.' . $name . '.';
 
@@ -70,8 +62,8 @@ final readonly class AiServers
             name: $name,
             url: mb_rtrim(ai_config_string($key . 'url', ''), '/'),
             apiKey: ai_config_nullable_string($key . 'api_key'),
-            timeout: ai_config_int($key . 'timeout', 30),
-            batchSize: max(1, ai_config_int($key . 'batch_size', 32)),
+            timeout: ai_config_int($key . 'timeout', $inherit->timeout ?? 30),
+            batchSize: max(1, ai_config_int($key . 'batch_size', $inherit->batchSize ?? 32)),
             dialect: ai_config_nullable_string($key . 'dialect'),
             model: ai_config_nullable_string($key . 'model'),
         );
