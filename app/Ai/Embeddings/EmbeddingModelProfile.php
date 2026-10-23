@@ -8,7 +8,8 @@ namespace Modules\AI\Ai\Embeddings;
  * Immutable description of a single embedding model's attributes: which
  * provider serves it, its output dimensionality and similarity metric, and
  * the query/passage prefixes it expects (e.g. E5-family instruction
- * prefixes). Resolved from config by EmbeddingModelRegistry.
+ * prefixes), and optionally the name of the server in `ai.servers` that runs it.
+ * Resolved from config by EmbeddingModelRegistry.
  */
 final readonly class EmbeddingModelProfile
 {
@@ -21,6 +22,7 @@ final readonly class EmbeddingModelProfile
         public string $passagePrefix,
         public string $similarity,
         public bool $normalize,
+        public ?string $server = null,
     ) {}
 
     /**

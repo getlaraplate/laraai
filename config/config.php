@@ -221,6 +221,43 @@ return [
         ],
     ],
 
+    /*
+    | The servers that run embeddings, reranking and transcription, declared by whoever installs. URL and key
+    | come from `.env`; settings only choose among them. An embeddings server without a URL falls back to the
+    | `embeddings` one, so one process per model (TEI) and one process for every model (Infinity, Ollama) both
+    | fit: a profile names its server in `ai.features.embeddings.models`. Rerank and transcription do not fall back.
+    */
+    'servers' => [
+        'embeddings' => [
+            'url' => env('AI_EMBEDDINGS_URL'),
+            'api_key' => env('AI_EMBEDDINGS_API_KEY'),
+            // Per-request HTTP timeout (seconds) and documents per request. A CPU-bound server is slow, so keep the
+            // batch small enough that one request completes within the timeout; TEI refuses more than its
+            // --max-client-batch-size (32 by default).
+            'timeout' => (int) env('AI_EMBEDDINGS_TIMEOUT', 30),
+            'batch_size' => (int) env('AI_EMBEDDINGS_BATCH_SIZE', 32),
+        ],
+        // The server of the profiles that name it, when it is another process than the default one.
+        'embeddings_minilm' => [
+            'url' => env('AI_EMBEDDINGS_MINILM_URL'),
+            'api_key' => env('AI_EMBEDDINGS_MINILM_API_KEY'),
+        ],
+        // Dialect `tei` (POST /rerank {query, texts}) or `cohere` (POST /rerank {model, query, documents}, Infinity, vLLM).
+        // `model` is required for the `cohere` dialect.
+        'rerank' => [
+            'url' => env('AI_RERANK_URL'),
+            'api_key' => env('AI_RERANK_API_KEY'),
+            'dialect' => env('AI_RERANK_DIALECT', 'tei'),
+            'model' => env('AI_RERANK_MODEL'),
+        ],
+        // An OpenAI-style POST /v1/audio/transcriptions server (speaches, LocalAI). Unset URL = no transcript.
+        'transcription' => [
+            'url' => env('AI_TRANSCRIPTION_URL'),
+            'api_key' => env('AI_TRANSCRIPTION_API_KEY'),
+            'timeout' => (int) env('AI_TRANSCRIPTION_TIMEOUT', 120),
+        ],
+    ],
+
     'providers' => [
         'openai' => [
             'api_key' => env('OPENAI_API_KEY'),
