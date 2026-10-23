@@ -294,12 +294,5 @@ return [
             'api_key' => env('WHISPER_API_KEY'),
             'timeout' => (int) env('WHISPER_TIMEOUT', 120),
         ],
-
-        // Base URL of the service exposing POST /score (the client adds the path). It falls back to the
-        // embedding service, which can serve /score too, and so does its key. No built-in address.
-        'cross_encoder' => [
-            'url' => env('CROSS_ENCODER_URL', env('SENTENCE_TRANSFORMERS_URL')),
-            'api_key' => env('CROSS_ENCODER_API_KEY', env('SENTENCE_TRANSFORMERS_API_KEY')),
-        ],
     ],
 ];

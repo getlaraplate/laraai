@@ -17,8 +17,8 @@ use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\HttpClient\HttpResponse;
 
 it('is 32 lowercase hex characters, new for every call', function (): void {
-    $first = new ServiceRequestId('whisper', 'http://whisper.test/transcribe');
-    $second = new ServiceRequestId('whisper', 'http://whisper.test/transcribe');
+    $first = new ServiceRequestId('transcription', 'http://whisper.test/transcribe');
+    $second = new ServiceRequestId('transcription', 'http://whisper.test/transcribe');
 
     expect($first->value)->toMatch('/^[0-9a-f]{32}$/')
         ->and($second->value)->not->toBe($first->value)
@@ -30,19 +30,19 @@ it('is 32 lowercase hex characters, new for every call', function (): void {
  * belongs in a log.
  */
 it('keeps credentials and the query out of the endpoint it reports', function (): void {
-    $request_id = new ServiceRequestId('sentence_transformers', 'https://user:secret@st.test:8443/embed?key=abc');
+    $request_id = new ServiceRequestId('embeddings', 'https://user:secret@st.test:8443/embed?key=abc');
 
     expect($request_id->endpoint)->toBe('https://st.test:8443/embed');
 });
 
 it('logs one warning naming the service, the endpoint, the status and the request id', function (): void {
     Log::spy();
-    $request_id = new ServiceRequestId('cross_encoder', 'http://st.test/score');
+    $request_id = new ServiceRequestId('rerank', 'http://st.test/score');
 
     $request_id->logFailure(503);
 
     Log::shouldHaveReceived('warning')->once()->with(Mockery::type('string'), [
-        'service' => 'cross_encoder',
+        'service' => 'rerank',
         'endpoint' => 'http://st.test/score',
         'status' => 503,
         'request_id' => $request_id->value,
@@ -68,7 +68,7 @@ it('names the status of a neuron error but never its body', function (): void {
 });
 
 it('carries the request id in the message and the report context of the exception it builds', function (): void {
-    $request_id = new ServiceRequestId('sentence_transformers', 'http://st.test/health');
+    $request_id = new ServiceRequestId('embeddings', 'http://st.test/health');
     $previous = new ConnectionException('connection refused');
 
     $exception = $request_id->exception($previous);
@@ -78,7 +78,7 @@ it('carries the request id in the message and the report context of the exceptio
         ->and($exception->getMessage())->toContain('connection refused')
         ->and($exception->getPrevious())->toBe($previous)
         ->and($exception->context())->toBe([
-            'service' => 'sentence_transformers',
+            'service' => 'embeddings',
             'endpoint' => 'http://st.test/health',
             'status' => null,
             'request_id' => $request_id->value,
@@ -90,7 +90,7 @@ it('carries the request id in the message and the report context of the exceptio
  * built from it keeps the reason and drops those.
  */
 it('keeps credentials and the query out of the message of the exception it builds', function (): void {
-    $request_id = new ServiceRequestId('sentence_transformers', 'https://TOKEN@gw.test/embed?key=abc');
+    $request_id = new ServiceRequestId('embeddings', 'https://TOKEN@gw.test/embed?key=abc');
     $previous = new ConnectException(
         'cURL error 7: Failed to connect: Connection refused (see https://curl.haxx.se/libcurl/c/libcurl-errors.html) for https://TOKEN@gw.test/embed?key=abc',
         new GuzzleRequest('POST', 'https://TOKEN@gw.test/embed?key=abc'),
@@ -107,12 +107,12 @@ it('keeps credentials and the query out of the message of the exception it build
 
 it('logs an error of the client apart from a failed call, naming its class only', function (): void {
     Log::spy();
-    $request_id = new ServiceRequestId('whisper', 'http://whisper.test/transcribe');
+    $request_id = new ServiceRequestId('transcription', 'http://whisper.test/transcribe');
 
     $request_id->logClientError(new LogicException('/tmp/secret-file.mp3 broke'));
 
     Log::shouldHaveReceived('warning')->once()->with('Self-hosted AI service call could not be handled', [
-        'service' => 'whisper',
+        'service' => 'transcription',
         'endpoint' => 'http://whisper.test/transcribe',
         'request_id' => $request_id->value,
         'exception' => LogicException::class,
