@@ -44,7 +44,7 @@ beforeEach(function (): void {
         static fn (): EmbeddingsProviderInterface => $provider,
     ));
 
-    Http::fake(['*/embed' => Http::response(['model' => 'bge-m3', 'embeddings' => [array_fill(0, 1024, 0.1)]])]);
+    Http::fake(['*/v1/embeddings' => Http::response(['model' => 'bge-m3', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(1024)]]])]);
 
     $embeddable = Mockery::mock(IEmbeddableModels::class);
     $embeddable->shouldReceive('all')->andReturn([]);
@@ -135,7 +135,7 @@ it('locks the field with the phase while a switch runs or failed', function (): 
 
 it('still warns, with no estimate and after a short timeout, when the service hangs', function (): void {
     $timeouts = [];
-    Http::fake(['*/embed' => static function ($request, array $options) use (&$timeouts): never {
+    Http::fake(['*/v1/embeddings' => static function ($request, array $options) use (&$timeouts): never {
         $timeouts[] = $options['timeout'] ?? null;
 
         throw new ConnectionException('timed out');

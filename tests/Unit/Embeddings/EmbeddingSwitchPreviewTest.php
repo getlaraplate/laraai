@@ -95,7 +95,7 @@ it('counts the searchable records times their translations', function (): void {
     (new EmbeddableTestModel(['title' => 'One']))->saveQuietly();
     (new EmbeddableTestModel(['title' => 'Two']))->saveQuietly();
 
-    Http::fake(['*/embed' => Http::response(['model' => 'all-MiniLM-L6-v2', 'embeddings' => [array_fill(0, 384, 0.1)]])]);
+    Http::fake(['*/v1/embeddings' => Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]])]);
     $registry = app(EmbeddingModelRegistry::class);
     $preview = switch_preview([TranslatedEmbeddableTestModel::class, EmbeddableTestModel::class])
         ->for($registry->get('openai_compatible:all-MiniLM-L6-v2'));
@@ -104,9 +104,20 @@ it('counts the searchable records times their translations', function (): void {
         ->and($preview->estimatedSeconds)->toBeInt();
 });
 
+it('measures the latency on the server the target profile names', function (): void {
+    config()->set('ai.servers.embeddings_minilm', ['url' => 'http://minilm.test:8081', 'api_key' => null, 'timeout' => 30, 'batch_size' => 8]);
+    config()->set('ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.server', 'embeddings_minilm');
+    Http::fake(['*/v1/embeddings' => Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]])]);
+
+    switch_preview()->for(app(EmbeddingModelRegistry::class)->get('openai_compatible:all-MiniLM-L6-v2'));
+
+    Http::assertSent(static fn (Illuminate\Http\Client\Request $request): bool => $request->url() === 'http://minilm.test:8081/v1/embeddings');
+    Http::assertSentCount(1);
+});
+
 it('gives no estimate, after a short timeout, when the service cannot be measured', function (): void {
     $timeouts = [];
-    Http::fake(['*/embed' => static function ($request, array $options) use (&$timeouts): never {
+    Http::fake(['*/v1/embeddings' => static function ($request, array $options) use (&$timeouts): never {
         $timeouts[] = $options['timeout'] ?? null;
 
         throw new ConnectionException('timed out');
@@ -122,12 +133,12 @@ it('gives no estimate, after a short timeout, when the service cannot be measure
 
 it('measures again once a failed measurement has expired from the cache', function (): void {
     $reachable = false;
-    Http::fake(['*/embed' => static function () use (&$reachable) {
+    Http::fake(['*/v1/embeddings' => static function () use (&$reachable) {
         if (! $reachable) {
             throw new ConnectionException('timed out');
         }
 
-        return Http::response(['model' => 'all-MiniLM-L6-v2', 'embeddings' => [array_fill(0, 384, 0.1)]]);
+        return Http::response(['model' => 'all-MiniLM-L6-v2', 'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(384)]]]);
     }]);
     $target = app(EmbeddingModelRegistry::class)->get('openai_compatible:all-MiniLM-L6-v2');
     $preview = switch_preview();

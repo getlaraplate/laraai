@@ -30,27 +30,28 @@ function run_repair_embeddings_command(array $args): CommandTester
 }
 
 /**
- * A /embed answer carrying one vector, of the active profile's dimensions unless told otherwise.
+ * A /v1/embeddings answer carrying one vector, of the active profile's dimensions unless told otherwise.
  */
 function repair_probe_answer(?int $dimensions = null): GuzzleHttp\Promise\PromiseInterface
 {
     $dimensions ??= app(EmbeddingModelRegistry::class)->active()->dimensions;
 
-    return Http::response(['embeddings' => [array_fill(0, $dimensions, 0.1)]]);
+    return Http::response(['data' => [['index' => 0, 'embedding' => ai_test_unit_vector($dimensions)]]]);
 }
 
 /**
- * Fakes the embedding service: /health reports the active model and /embed embeds the probe.
+ * Fakes the embeddings server: /info reports the active model and /v1/embeddings embeds the probe.
  */
 function repair_fake_embedding_service(): void
 {
     Http::fake([
-        '*/health' => Http::response(['model' => app(EmbeddingModelRegistry::class)->active()->serviceModel]),
-        '*/embed' => repair_probe_answer(),
+        '*/info' => Http::response(['model_id' => app(EmbeddingModelRegistry::class)->active()->serviceModel]),
+        '*/v1/embeddings' => repair_probe_answer(),
     ]);
 }
 
 beforeEach(function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     Config::set('core.search.vector.enabled', true);
     Config::set('ai.features.embeddings.enabled', true);
 
@@ -112,7 +113,7 @@ it('skips records the search index would not hold, as shouldBeSearchable() decid
     Queue::assertPushed(GenerateEmbeddingsJob::class, 1);
 });
 
-it('probes /embed with the payload the jobs send before it dispatches anything', function (): void {
+it('probes /v1/embeddings of the active profile server before it dispatches anything', function (): void {
     Queue::fake();
     Config::set('ai.servers.embeddings.api_key', 'secret-key');
     repair_fake_embedding_service();
@@ -123,20 +124,18 @@ it('probes /embed with the payload the jobs send before it dispatches anything',
 
     $active = app(EmbeddingModelRegistry::class)->active();
 
-    Http::assertSent(static fn (Illuminate\Http\Client\Request $request): bool => str_ends_with($request->url(), '/embed')
+    Http::assertSent(static fn (Illuminate\Http\Client\Request $request): bool => str_ends_with($request->url(), '/v1/embeddings')
         && $request['model'] === $active->serviceModel
-        && $request['truncation'] === true
-        && $request['normalize_embeddings'] === true
-        && $request['max_length'] === 512
-        && is_array($request['texts'])
+        && $request['encoding_format'] === 'float'
+        && is_array($request['input'])
         && $request->hasHeader('Authorization', 'Bearer secret-key'));
 });
 
 it('aborts before dispatching anything when the embedding service cannot embed', function (Closure $embed, string $reason): void {
     Queue::fake();
     Http::fake([
-        '*/health' => Http::response(['model' => app(EmbeddingModelRegistry::class)->active()->serviceModel]),
-        '*/embed' => $embed(),
+        '*/info' => Http::response(['model_id' => app(EmbeddingModelRegistry::class)->active()->serviceModel]),
+        '*/v1/embeddings' => $embed(),
     ]);
 
     (new EmbeddableTestModel(['title' => 'Alpha']))->saveQuietly();
@@ -150,8 +149,8 @@ it('aborts before dispatching anything when the embedding service cannot embed',
 })->with([
     'a server error' => [fn (): GuzzleHttp\Promise\PromiseInterface => Http::response('Internal Server Error', 500), '500'],
     'an answer without embeddings' => [fn () => Http::response(['detail' => 'nope']), 'the answer carries no embedding'],
-    'an empty list of embeddings' => [fn () => Http::response(['embeddings' => []]), 'the answer carries no embedding'],
-    'the wrong dimensions' => [fn () => Http::response(['embeddings' => [[0.1, 0.2]]]), 'it returned 2 dimensions, the active profile "openai_compatible:intfloat/multilingual-e5-small" expects 384'],
+    'an empty list of embeddings' => [fn () => Http::response(['data' => []]), 'the answer carries no embedding'],
+    'the wrong dimensions' => [fn () => Http::response(['data' => [['index' => 0, 'embedding' => [0.1, 0.2]]]]), 'it returned 2 dimensions, the active profile "openai_compatible:intfloat/multilingual-e5-small" expects 384'],
     'a service that is unreachable' => [fn (): Closure => static fn () => throw new ConnectionException('connection timed out'), 'connection timed out'],
 ]);
 
@@ -257,10 +256,10 @@ it('runs with --if-idle when no embeddings job is queued', function (): void {
 function repair_fake_service_reporting(?string $health_model, array $embed_extra = []): void
 {
     Http::fake([
-        '*/health' => $health_model === null ? Http::response(null, 500) : Http::response(['model' => $health_model]),
-        '*/embed' => Http::response([
+        '*/info' => $health_model === null ? Http::response(null, 500) : Http::response(['model_id' => $health_model]),
+        '*/v1/embeddings' => Http::response([
             ...$embed_extra,
-            'embeddings' => [array_fill(0, app(EmbeddingModelRegistry::class)->active()->dimensions, 0.1)],
+            'data' => [['index' => 0, 'embedding' => ai_test_unit_vector(app(EmbeddingModelRegistry::class)->active()->dimensions)]],
         ]),
     ]);
 }
@@ -279,11 +278,11 @@ it('aborts when the service reports another model than the active profile, so wr
         ->and($tester->getDisplay())->toContain(app(EmbeddingModelRegistry::class)->active()->serviceModel);
     Queue::assertNothingPushed();
 })->with([
-    '/health, when /embed does not say' => ['/health', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', []],
-    '/embed, which answers for the request' => ['/embed', null, ['model' => 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2']],
+    '/info, when the probe does not say' => ['/info', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', []],
+    '/v1/embeddings, which answers for the request' => ['/v1/embeddings', null, ['model' => 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2']],
 ]);
 
-it('trusts the model /embed reports over the one /health reports, which a multi-model service may only echo as its default', function (): void {
+it('aborts when the probe names the right model but /info names another, a second witness that must agree', function (): void {
     Queue::fake();
     $service_model = app(EmbeddingModelRegistry::class)->active()->serviceModel;
     repair_fake_service_reporting('some-default-model', ['model' => $service_model]);
@@ -292,8 +291,9 @@ it('trusts the model /embed reports over the one /health reports, which a multi-
 
     $tester = run_repair_embeddings_command(['model' => EmbeddableTestModel::class]);
 
-    expect($tester->getStatusCode())->toBe(RepairMissingEmbeddingsCommand::SUCCESS);
-    Queue::assertPushed(GenerateEmbeddingsJob::class, 1);
+    expect($tester->getStatusCode())->toBe(RepairMissingEmbeddingsCommand::FAILURE)
+        ->and($tester->getDisplay())->toContain('/info reports model "some-default-model"');
+    Queue::assertNothingPushed();
 });
 
 it('accepts the same model named without its organisation prefix', function (): void {

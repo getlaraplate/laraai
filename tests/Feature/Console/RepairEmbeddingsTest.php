@@ -72,30 +72,31 @@ function runRepairEmbeddingsCommand(array $parameters): array
 }
 
 /**
- * Fakes the /health preflight to report the currently active profile's
+ * Fakes the /info preflight to report the currently active profile's
  * service_model, i.e. no mismatch. Http::fake() registrations are additive
  * (first URL match wins) rather than replacing, so each test registers its
- * own /health stub instead of sharing one from beforeEach.
+ * own /info stub instead of sharing one from beforeEach.
  */
 function fakeHealthyEmbeddingService(): void
 {
     $active_service_model = app(EmbeddingModelRegistry::class)->active()->serviceModel;
 
     Http::fake([
-        '*/health' => Http::response(['model' => $active_service_model]),
-        '*/embed' => repairProbeAnswer(),
+        '*/info' => Http::response(['model_id' => $active_service_model]),
+        '*/v1/embeddings' => repairProbeAnswer(),
     ]);
 }
 
 /**
- * The /embed answer to the command's preflight probe: one vector of the active profile's dimensions.
+ * The /v1/embeddings answer to the command's preflight probe: one vector of the active profile's dimensions.
  */
 function repairProbeAnswer(): GuzzleHttp\Promise\PromiseInterface
 {
-    return Http::response(['embeddings' => [array_fill(0, app(EmbeddingModelRegistry::class)->active()->dimensions, 0.1)]]);
+    return Http::response(['data' => [['index' => 0, 'embedding' => ai_test_unit_vector(app(EmbeddingModelRegistry::class)->active()->dimensions)]]]);
 }
 
 beforeEach(function (): void {
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
     Config::set('core.search.vector.enabled', true);
 
@@ -308,10 +309,10 @@ it('--stale converges: a record kept by another configured profile is regenerate
     expect($keys)->toBe([$other_key, $active_key]);
 });
 
-it('refuses to repair when the embedding service /health reports a different model than the active profile', function (): void {
+it('refuses to repair when the embedding server /info reports a different model than the active profile', function (): void {
     Http::fake([
-        '*/health' => Http::response(['model' => 'some-other-model']),
-        '*/embed' => repairProbeAnswer(),
+        '*/info' => Http::response(['model_id' => 'some-other-model']),
+        '*/v1/embeddings' => repairProbeAnswer(),
     ]);
 
     $model = new EmbeddableTestModel(['title' => 'Gamma']);
@@ -334,10 +335,10 @@ it('refuses to repair when the embedding service /health reports a different mod
         ->and($model->embeddings()->count())->toBe(0);
 });
 
-it('warns but still succeeds when the embedding service /health cannot be reached', function (): void {
+it('succeeds without a warning when the embedding server /info cannot be reached, the probe answer being enough', function (): void {
     Http::fake([
-        '*/health' => Http::response(null, 500),
-        '*/embed' => repairProbeAnswer(),
+        '*/info' => Http::response(null, 500),
+        '*/v1/embeddings' => repairProbeAnswer(),
     ]);
 
     $model = new EmbeddableTestModel(['title' => 'Delta']);
@@ -353,7 +354,7 @@ it('warns but still succeeds when the embedding service /health cannot be reache
     ]);
 
     expect($exit_code)->toBe(RepairMissingEmbeddingsCommand::SUCCESS)
-        ->and($output)->toContain('Could not verify embedding service health');
+        ->and($output)->not->toContain('Could not verify');
 });
 
 it('is scheduled hourly for every embeddable model, once at a time and only when idle', function (): void {

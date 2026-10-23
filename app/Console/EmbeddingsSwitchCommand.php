@@ -11,7 +11,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingDimensionMismatch;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionProbe;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
-use Modules\AI\Ai\Embeddings\EmbeddingServiceIdentity;
+use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchState;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
 use Modules\AI\Ai\Providers\Models\ProviderConfiguration;
@@ -60,7 +60,7 @@ final class EmbeddingsSwitchCommand extends Command
         ProviderConfiguration $providers,
         EmbeddingSwitchStore $store,
         EmbeddingDimensionProbe $probe,
-        EmbeddingServiceIdentity $identity,
+        EmbeddingServerIdentity $identity,
     ): int {
         $resume = (bool) $this->option('resume');
         $abandon = (bool) $this->option('abandon');
@@ -217,7 +217,7 @@ final class EmbeddingsSwitchCommand extends Command
      * its rows still exist, so only records missing one are embedded, the indexes are rebuilt for its
      * dimensions, verified, and it is activated again.
      */
-    private function abandon(EmbeddingSwitchStore $store, EmbeddingModelRegistry $registry, EmbeddingServiceIdentity $identity): int
+    private function abandon(EmbeddingSwitchStore $store, EmbeddingModelRegistry $registry, EmbeddingServerIdentity $identity): int
     {
         $release = $store->lock();
 
@@ -287,7 +287,7 @@ final class EmbeddingsSwitchCommand extends Command
      * longer declared, or the embeddings server does not run its model (the same identity
      * check as the start's preflight).
      */
-    private function returnRefusal(EmbeddingModelRegistry $registry, EmbeddingServiceIdentity $identity, string $previous): ?string
+    private function returnRefusal(EmbeddingModelRegistry $registry, EmbeddingServerIdentity $identity, string $previous): ?string
     {
         try {
             $profile = $registry->get($previous);
@@ -299,7 +299,7 @@ final class EmbeddingsSwitchCommand extends Command
             return null;
         }
 
-        return $this->serviceRunsModel($profile, $identity);
+        return $identity->refusal($profile);
     }
 
     /**
@@ -345,7 +345,7 @@ final class EmbeddingsSwitchCommand extends Command
     /**
      * The reason the target cannot be switched to, or null when it can.
      */
-    private function preflight(EmbeddingModelProfile $profile, EmbeddingDimensionProbe $probe, EmbeddingServiceIdentity $identity): ?string
+    private function preflight(EmbeddingModelProfile $profile, EmbeddingDimensionProbe $probe, EmbeddingServerIdentity $identity): ?string
     {
         try {
             $probe->verify($profile);
@@ -359,43 +359,7 @@ final class EmbeddingsSwitchCommand extends Command
             return null;
         }
 
-        return $this->serviceRunsModel($profile, $identity);
-    }
-
-    /**
-     * The embeddings server of the profile must answer and must run the profile's model, as
-     * `ai:embeddings:repair` checks it: the probe answer names the model, `/health` is the fallback.
-     * Unlike the repair, a service that cannot be identified stops the switch.
-     */
-    private function serviceRunsModel(EmbeddingModelProfile $profile, EmbeddingServiceIdentity $identity): ?string
-    {
-        $url = $identity->url();
-
-        try {
-            $healthModel = $identity->healthModel();
-        } catch (Throwable $exception) {
-            return "the embedding service does not answer {$url}/health: {$exception->getMessage()}";
-        }
-
-        try {
-            $probeModel = $identity->probeModel($profile);
-        } catch (EmbeddingDimensionMismatch $mismatch) {
-            return $mismatch->getMessage();
-        } catch (Throwable $exception) {
-            return "the embedding service probe failed at {$url}/embed: {$exception->getMessage()}";
-        }
-
-        $reported = EmbeddingServiceIdentity::reported($probeModel, $healthModel);
-
-        if ($reported === null) {
-            return "the embedding service at {$url} does not report which model it runs, so it cannot be checked against \"{$profile->serviceModel}\"";
-        }
-
-        if (! EmbeddingModelProfile::sameServiceModel($reported['model'], $profile->serviceModel)) {
-            return "the embedding service {$reported['source']} reports model \"{$reported['model']}\" but the profile expects \"{$profile->serviceModel}\"";
-        }
-
-        return null;
+        return $identity->refusal($profile);
     }
 
     private function persistStart(EmbeddingSwitchStore $store, EmbeddingModelProfile $profile, string $active): void

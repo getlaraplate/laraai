@@ -11,9 +11,11 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Laravel\Scout\Searchable;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionMismatch;
+use Modules\AI\Ai\Embeddings\EmbeddingInspection;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
-use Modules\AI\Ai\Embeddings\EmbeddingServiceIdentity;
+use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
+use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\AI\Jobs\GenerateEmbeddingsJob;
 use Modules\AI\Services\EmbeddingsGate;
@@ -35,13 +37,11 @@ use Throwable;
  * which performs a full per-locale regenerate (all locales, stamping the
  * active model_key) — this command does not stamp model_key itself.
  *
- * Before it scans, two preflight checks on the embedding service. A GET
- * {sentence_transformers.url}/health cross-checks the service's reported model
- * against the active profile's service_model and warns on mismatch or when it
- * cannot be reached: /health only echoes what the service was configured with.
- * The gate is a POST to /embed with a probe text, the payload the jobs send: if
- * it does not answer with a vector of the profile's dimensions, the run aborts
- * before dispatching anything. Records the search index would not hold
+ * Before it scans, it probes the embeddings server of the active profile: a POST to /v1/embeddings
+ * with a probe text must answer with a vector of the profile's dimensions (and of norm 1 when the profile
+ * normalises), or the run aborts before dispatching anything. The model the answer names, and the one
+ * GET /info names where the server has that route, must be the active profile's service_model, or it aborts
+ * too; a server that names none is a warning. Records the search index would not hold
  * (shouldBeSearchable() false, e.g. media drafts) are skipped.
  */
 final class RepairMissingEmbeddingsCommand extends Command
@@ -206,34 +206,40 @@ final class RepairMissingEmbeddingsCommand extends Command
     }
 
     /**
-     * The two preflight checks, before anything is dispatched. The service must embed (see
-     * {@see self::probeEmbedding()}) and must run the model the active profile stamps on the
-     * vectors: embeddings of another model stored under the profile's key look right, are invisible
-     * to --stale, and quietly degrade the semantic search. The model the answer to the probe names
-     * is authoritative, because a multi-model service answers for the model the request asked for;
-     * /health is the fallback, and it only echoes what the service was started with. A service that
-     * names no model cannot be checked: a warning, not an abort.
+     * The preflight checks, before anything is dispatched. The server must embed (see
+     * {@see self::inspectServer()}), must run the model the active profile stamps on the vectors and must return
+     * vectors of the scale the profile declares: embeddings of another model stored under the profile's key
+     * look right, are invisible to --stale, and quietly degrade the semantic search. The model the answer to the
+     * probe names is authoritative, because a multi-model server answers for the model the request asked for;
+     * `/info`, where the server has it, must agree. A server that names no model cannot be checked: a
+     * warning, not an abort.
      */
     private function verifyService(EmbeddingModelProfile $active): bool
     {
-        $identity = app(EmbeddingServiceIdentity::class);
-        $health_model = $this->reportedByHealth($identity);
-        $probe = $this->probeEmbedding($identity, $active);
+        $inspection = $this->inspectServer(app(EmbeddingServerIdentity::class), $active);
 
-        if ($probe === null) {
+        if (! $inspection instanceof EmbeddingInspection) {
             return false;
         }
 
-        $reported = EmbeddingServiceIdentity::reported($probe['model'], $health_model);
-
-        if ($reported === null) {
-            $this->warn("The embedding service does not report which model it runs, so its vectors cannot be checked against the active profile \"{$active->key}\" ({$active->serviceModel}).");
+        if ($inspection->reportedModel() === null) {
+            $this->warn("The embedding server does not report which model it runs, so its vectors cannot be checked against the active profile \"{$active->key}\" ({$active->serviceModel}).");
 
             return true;
         }
 
-        if (! EmbeddingModelProfile::sameServiceModel($reported['model'], $active->serviceModel)) {
-            $this->error("Embedding service {$reported['source']} reports model \"{$reported['model']}\" but the active profile \"{$active->key}\" expects \"{$active->serviceModel}\": its vectors would be stored under the wrong model. Nothing was dispatched.");
+        $conflict = $inspection->modelConflict($active);
+
+        if ($conflict !== null) {
+            $this->error(Str::ucfirst($conflict) . ': its vectors would be stored under the wrong model. Nothing was dispatched.');
+
+            return false;
+        }
+
+        $norm = $inspection->normProblem($active);
+
+        if ($norm !== null) {
+            $this->error(Str::ucfirst($norm) . '. Nothing was dispatched.');
 
             return false;
         }
@@ -242,46 +248,30 @@ final class RepairMissingEmbeddingsCommand extends Command
     }
 
     /**
-     * The model /health reports, or null when it names none or cannot be reached (a warning).
-     */
-    private function reportedByHealth(EmbeddingServiceIdentity $identity): ?string
-    {
-        try {
-            return $identity->healthModel();
-        } catch (Throwable $exception) {
-            $this->warn("Could not verify embedding service health at {$identity->url()}/health: " . $exception->getMessage());
-
-            return null;
-        }
-    }
-
-    /**
-     * Embeds a probe text the way the jobs do, so a service that answers /health but cannot embed
-     * (a model that failed to load, a request it rejects) stops the run instead of silently losing
-     * every job. The answer must carry a vector of the active profile's dimensions.
+     * Embeds a probe text the way the jobs do, so a server that is up but cannot embed (a model that failed to
+     * load, a request it rejects) stops the run instead of silently losing every job. The answer must carry a
+     * vector of the active profile's dimensions.
      *
-     * @return array{model: string|null}|null the model the answer names, or null when the probe failed (the reason is printed)
+     * @return EmbeddingInspection|null null when the probe failed (the reason is printed)
      */
-    private function probeEmbedding(EmbeddingServiceIdentity $identity, EmbeddingModelProfile $active): ?array
+    private function inspectServer(EmbeddingServerIdentity $identity, EmbeddingModelProfile $active): ?EmbeddingInspection
     {
-        $url = $identity->url();
+        $endpoint = ServiceRequestId::endpointOf($identity->server($active)->url . '/v1/embeddings');
 
         try {
-            $model = $identity->probeModel($active);
+            return $identity->inspect($active);
         } catch (EmbeddingDimensionMismatch $mismatch) {
-            return $this->probeFailed($url, $mismatch->measured === null
+            return $this->probeFailed($endpoint, $mismatch->measured === null
                 ? 'the answer carries no embedding'
                 : "it returned {$mismatch->measured} dimensions, the active profile \"{$active->key}\" expects {$active->dimensions}");
         } catch (Throwable $exception) {
-            return $this->probeFailed($url, Str::limit($exception->getMessage(), 200));
+            return $this->probeFailed($endpoint, Str::limit($exception->getMessage(), 200));
         }
-
-        return ['model' => $model];
     }
 
-    private function probeFailed(string $url, string $reason): null
+    private function probeFailed(string $endpoint, string $reason): null
     {
-        $this->error("Embedding service probe failed at {$url}/embed: {$reason}. Nothing was dispatched.");
+        $this->error("Embedding server probe failed at {$endpoint}: {$reason}. Nothing was dispatched.");
 
         return null;
     }

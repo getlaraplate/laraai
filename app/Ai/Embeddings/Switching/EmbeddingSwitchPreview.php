@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings\Switching;
 
-use function ai_config_int;
-
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
-use Modules\AI\Ai\Embeddings\EmbeddingServiceIdentity;
+use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
+use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Throwable;
@@ -33,12 +32,11 @@ final readonly class EmbeddingSwitchPreview
 
     private const int FAILED_LATENCY_CACHE_SECONDS = 30;
 
-    private const int DEFAULT_BATCH_SIZE = 32;
-
     public function __construct(
         private EmbeddingModelRegistry $registry,
         private IEmbeddableModels $embeddableModels,
-        private EmbeddingServiceIdentity $identity = new EmbeddingServiceIdentity(),
+        private EmbeddingServerIdentity $identity = new EmbeddingServerIdentity(),
+        private AiServers $servers = new AiServers(),
     ) {}
 
     public function for(EmbeddingModelProfile $target): SwitchPreview
@@ -111,7 +109,7 @@ final readonly class EmbeddingSwitchPreview
             return null;
         }
 
-        $batchSize = max(1, ai_config_int('ai.providers.sentence_transformers.batch_size', self::DEFAULT_BATCH_SIZE));
+        $batchSize = $this->servers->forProfile($target)->batchSize;
 
         return (int) ceil($latency * (int) ceil($records / $batchSize));
     }
@@ -140,7 +138,7 @@ final readonly class EmbeddingSwitchPreview
         $started = hrtime(true);
 
         try {
-            $this->identity->probeModel($target, self::LATENCY_TIMEOUT_SECONDS);
+            $this->identity->inspect($target, self::LATENCY_TIMEOUT_SECONDS, withInfo: false);
 
             $seconds = (hrtime(true) - $started) / 1e9;
         } catch (Throwable) {
