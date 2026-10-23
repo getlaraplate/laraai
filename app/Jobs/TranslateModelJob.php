@@ -14,10 +14,12 @@ use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Modules\AI\Services\Translation\TranslationService;
+use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Helpers\LocaleContext;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Search\Traits\Searchable;
+use Modules\Core\Versioning\Data\VersionSetOptions;
 use Throwable;
 
 final class TranslateModelJob implements ShouldQueue
@@ -95,24 +97,33 @@ final class TranslateModelJob implements ShouldQueue
         $locales_to_translate = array_filter($locales_to_translate, fn (string $locale): bool => $locale !== $default_locale);
 
         $failure = null;
+        $translate_locales = function () use ($model, $locales_to_translate, $default_translation, $translation_service, &$failure): void {
+            foreach ($locales_to_translate as $locale) {
+                if (! $this->force && $model->hasTranslation($locale)) {
+                    continue;
+                }
 
-        foreach ($locales_to_translate as $locale) {
-            if (! $this->force && $model->hasTranslation($locale)) {
-                continue;
+                try {
+                    $this->translateModel($model, $default_translation, $locale, $translation_service);
+                } catch (Exception $e) {
+                    Log::error('Translation failed for model', [
+                        'model_class' => $model::class,
+                        'model_id' => $model->getKey(),
+                        'locale' => $locale,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    $failure ??= $e;
+                }
             }
+        };
 
-            try {
-                $this->translateModel($model, $default_translation, $locale, $translation_service);
-            } catch (Exception $e) {
-                Log::error('Translation failed for model', [
-                    'model_class' => $model::class,
-                    'model_id' => $model->getKey(),
-                    'locale' => $locale,
-                    'error' => $e->getMessage(),
-                ]);
-
-                $failure ??= $e;
-            }
+        // The machine translation is a revision of its own, with no human author, so it never merges with the
+        // revision of whoever saved the source text (D28). A locale that fails does not undo the others.
+        if (method_exists($model, 'withinRevision')) {
+            $model->withinRevision($translate_locales, new VersionSetOptions(reason: 'ai-translation'));
+        } else {
+            $translate_locales();
         }
 
         // Indexing waits for this event. On failure it is sent by failed(), once the queue
