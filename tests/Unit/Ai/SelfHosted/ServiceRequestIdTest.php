@@ -12,6 +12,9 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\AI\Ai\SelfHosted\ServiceRequestId;
+use NeuronAI\Exceptions\HttpException;
+use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\HttpClient\HttpResponse;
 
 it('is 32 lowercase hex characters, new for every call', function (): void {
     $first = new ServiceRequestId('whisper', 'http://whisper.test/transcribe');
@@ -53,7 +56,16 @@ it('reads the status of a failed call from the exception, or none when the servi
     'a guzzle error answer' => [new ServerException('boom', new GuzzleRequest('POST', 'embed'), new GuzzleResponse(500)), 500],
     'an http client connection failure' => [new ConnectionException('refused'), null],
     'a guzzle connection failure' => [new ConnectException('refused', new GuzzleRequest('POST', 'embed')), null],
+    'a neuron error answer' => [HttpException::statusError(HttpRequest::post('http://st.test/v1/embeddings'), new HttpResponse(429, 'slow down')), 429],
+    'a neuron network failure' => [HttpException::networkError(HttpRequest::post('http://st.test/v1/embeddings'), 'refused'), null],
 ]);
+
+it('names the status of a neuron error but never its body', function (): void {
+    $request_id = new ServiceRequestId('embeddings', 'http://st.test/v1/embeddings');
+    $exception = $request_id->exception(HttpException::statusError(HttpRequest::post('http://st.test/v1/embeddings'), new HttpResponse(500, 'echo of the TEXT')));
+
+    expect($exception->getMessage())->toContain('status 500')->not->toContain('echo of the TEXT');
+});
 
 it('carries the request id in the message and the report context of the exception it builds', function (): void {
     $request_id = new ServiceRequestId('sentence_transformers', 'http://st.test/health');

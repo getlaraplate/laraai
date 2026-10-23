@@ -7,6 +7,7 @@ namespace Modules\AI\Ai\SelfHosted;
 use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
+use NeuronAI\Exceptions\HttpException;
 use Throwable;
 
 /**
@@ -54,6 +55,10 @@ final readonly class ServiceRequestId
 
         if ($exception instanceof GuzzleRequestException) {
             return $exception->getResponse()?->getStatusCode();
+        }
+
+        if ($exception instanceof HttpException) {
+            return $exception->response?->statusCode;
         }
 
         return null;
@@ -126,8 +131,13 @@ final readonly class ServiceRequestId
         $status = self::statusOf($previous);
         $outcome = $status === null ? 'failed' : "failed with status {$status}";
 
+        // Neuron's error answer carries the body of the response, which a server may fill with what it was sent.
+        $detail = $previous instanceof HttpException && $previous->response instanceof \NeuronAI\HttpClient\HttpResponse
+            ? '.'
+            : ': ' . self::withoutUrlSecrets($previous->getMessage());
+
         return new SelfHostedServiceException(
-            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}: " . self::withoutUrlSecrets($previous->getMessage()),
+            "[request_id {$this->value}] {$this->service} call to {$this->endpoint} {$outcome}{$detail}",
             $this->context($status),
             $previous,
         );
