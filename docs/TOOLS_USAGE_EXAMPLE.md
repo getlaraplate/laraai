@@ -13,13 +13,22 @@ cannot carry "yes, apply it" from one message to the next, and a "yes" read insi
 text the model retrieved. The assistant only **proposes**; the person **confirms through the application**,
 an action the model cannot perform.
 
-```
-person ── message ─────────────▶ assistant (model calls crud_update_core_role)
-                                      │  stores a proposal, changes nothing
-person ◀── message + metadata.writes ─┘
-   │  sees: what would change, as whom, whether it then goes to a vote
-   ├── POST /app/crud/update/ai/assistant-writes/{id}/confirm ──▶ applied | pending_approval | failed
-   └── POST /app/crud/update/ai/assistant-writes/{id}/reject  ──▶ rejected
+```mermaid
+sequenceDiagram
+    participant P as Person
+    participant A as Assistant
+    participant S as Application
+    P->>A: message
+    Note over A: model calls crud_update_core_role, stores a proposal, changes nothing
+    A-->>P: message + metadata.writes
+    Note over P: sees what would change, as whom, whether it then goes to a vote
+    alt confirm
+        P->>S: POST /app/crud/update/ai/assistant-writes/{id}/confirm
+        S-->>P: applied, pending_approval or failed
+    else reject
+        P->>S: POST /app/crud/update/ai/assistant-writes/{id}/reject
+        S-->>P: rejected
+    end
 ```
 
 ## What the client receives
