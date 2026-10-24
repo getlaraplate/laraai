@@ -8,19 +8,26 @@ This document describes the internals and extension points of the documentation 
 
 The harness scores retrieval only. It routes through the **real** `InAppDocumentationRetrieval::retrieve()` via that class's injectable `$search` seam, so production audience/permission/tenant/locale filtering and the safe-field projection all run; only the Elasticsearch vector store is replaced by a deterministic in-memory fixture.
 
-```
-dataset (JSON) ──► DocumentationEvaluationDataset ──► DocumentationEvaluationService
-                                                            │  per case:
-                                                            ▼
-        DocumentationEvaluationCase::accessContext()  ──►  retrieval callable
-                                                            │
-             InAppDocumentationRetrieval::retrieve(question, access)
-                 ├─ StubDocumentationEmbeddingService (embedText → [crc32])
-                 ├─ injected $search closure (fixture vector store + filtering)
-                 └─ safeDocuments()  (real audience/permission/tenant projection)
-                                                            │
-                                                            ▼
-                        metrics + slices report (aggregate floats only)
+```mermaid
+flowchart TD
+    dataset["dataset (JSON)"]
+    loader["DocumentationEvaluationDataset"]
+    service["DocumentationEvaluationService"]
+    context["DocumentationEvaluationCase::accessContext()"]
+    callable["retrieval callable"]
+    retrieve["InAppDocumentationRetrieval::retrieve(question, access)"]
+    embed["StubDocumentationEmbeddingService (embedText → [crc32])"]
+    search["injected $search closure (fixture vector store + filtering)"]
+    safe["safeDocuments() (real audience/permission/tenant projection)"]
+    report["metrics + slices report (aggregate floats only)"]
+    dataset --> loader --> service
+    service -->|per case| context --> callable --> retrieve
+    retrieve --> embed
+    retrieve --> search
+    retrieve --> safe
+    embed --> report
+    search --> report
+    safe --> report
 ```
 
 Grading identity is `Document::$sourceName` (the safe source label), the only stable per-document identity that survives the safe projection.
