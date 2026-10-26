@@ -21,26 +21,12 @@ orchestration*; this file points there rather than repeating it.
 
 ## Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Controllers                              │
-│  ChatController, AgentController, CapabilitiesController,       │
-│  AssistantWriteController, SuggestionController                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         Services                                │
-│  InAppAssistanceService, ChatService, WriteProposalService,     │
-│  DocumentationService, EmbeddingService, ModerationService, ... │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Neuron AI framework                          │
-│  ChatAgent (one door to the model: forFeature, ask, structured),│
-│  DocumentationAgent (RAG), providers built by ProviderFactory   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    controllers["Controllers<br/>ChatController, AgentController, CapabilitiesController,<br/>AssistantWriteController, SuggestionController"]
+    services["Services<br/>InAppAssistanceService, ChatService, WriteProposalService,<br/>DocumentationService, EmbeddingService, ModerationService, ..."]
+    neuron["Neuron AI framework<br/>ChatAgent: one door to the model (forFeature, ask, structured)<br/>DocumentationAgent (RAG), providers built by ProviderFactory"]
+    controllers --> services --> neuron
 ```
 
 Each AI feature takes its provider and model from its own setting (`features.*.model`); see
@@ -75,19 +61,17 @@ streamed: `POST /app/ai/agent` streams lifecycle events and one validated messag
 `POST .../messages` answers the same message as JSON. The stream route `POST .../stream/...` answers 422
 (`in_app_streaming_unavailable`).
 
-```
-POST /app/crud/insert/ai/conversations/{id}/messages   (or POST /app/ai/agent)
-       │
-       ▼
-ChatController::insertMessage()  /  AgentController::run()
-       │
-       ▼
-InAppAssistanceService::respond()
-       ├─► policy and input guardrails (AssistanceGuardrailPipeline)
-       ├─► scope, documentation retrieval (DocumentationService::retrieveForInApp)
-       ├─► ChatAgent with the tools the policy allows (reads inline, writes as proposals)
-       ├─► output guardrails, citations
-       └─► conversation.addMessage('assistant', answer, metadata: citations, writes, ...)
+```mermaid
+flowchart TD
+    request(["POST /app/crud/insert/ai/conversations/{id}/messages<br/>or POST /app/ai/agent"])
+    controller["ChatController::insertMessage() / AgentController::run()"]
+    respond["InAppAssistanceService::respond()"]
+    input["policy and input guardrails (AssistanceGuardrailPipeline)"]
+    retrieval["scope, documentation retrieval (DocumentationService::retrieveForInApp)"]
+    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals)"]
+    output["output guardrails, citations"]
+    store["conversation.addMessage('assistant', answer, metadata: citations, writes, ...)"]
+    request --> controller --> respond --> input --> retrieval --> agent --> output --> store
 ```
 
 ---
@@ -96,20 +80,23 @@ InAppAssistanceService::respond()
 
 The assistant never changes data by itself. A write tool (`crud_create_*`, `crud_update_*`, `crud_delete_*`, `crud_bulk_update_*`, `crud_bulk_delete_*`) only stores a **write proposal** (`ai_write_proposals`) and tells the model that nothing has changed. The person confirms or rejects the proposal through an authenticated action the model cannot perform, and only then is the stored payload applied, as that person, through `CrudService`. Whether the write is also sent for a vote is decided by Core approvals at the model (`HasApprovals`), not by the assistant.
 
-```
-model calls crud_update_core_role         person (UI)                         server
-        │                                      │
-        ▼                                      │
-  proposal stored (status proposed)            │
-  tool result: "nothing has changed"           │
-        │                                      │
-        ▼                                      │
-  assistant message, metadata.writes ─────────▶│ shows what would change, as whom
-                                               │
-                                               ├── POST .../assistant-writes/{id}/confirm ─▶ apply the stored payload
-                                               │                                             as the signed-in user:
-                                               │                                             applied | pending_approval | failed
-                                               └── POST .../assistant-writes/{id}/reject  ─▶ rejected
+```mermaid
+sequenceDiagram
+    participant M as Model
+    participant S as Server
+    participant P as Person (UI)
+    M->>S: calls crud_update_core_role
+    S->>S: proposal stored (status proposed)
+    S-->>M: tool result: nothing has changed
+    S->>P: assistant message, metadata.writes
+    Note over P: shows what would change, as whom
+    alt confirm
+        P->>S: POST .../assistant-writes/{id}/confirm
+        S-->>P: stored payload applied as the signed-in user: applied, pending_approval or failed
+    else reject
+        P->>S: POST .../assistant-writes/{id}/reject
+        S-->>P: rejected
+    end
 ```
 
 Read tools (`crud_list_*`, `crud_detail_*`, ...) run inline, under the permissions and row-level ACL of the person. Which tools exist for a person is the intersection of three things: the operator's opt-in (`ai.features.tools.crud.entities`, plus `unmoderated_writes` for entities without approvals), the person's permissions, and the policy capabilities `crud_reads` and `governed_writes` of the in-app profile. `approve` and `disapprove` are never offered: a decision on a pending change is made by a person in the panel. A read result whose text reads like an instruction is withheld from the model (`ToolResultGuard`).
@@ -139,17 +126,15 @@ sequenceDiagram
 
 ### RAG (Documentation Search) Flow
 
-```
-php artisan ai:index-rag-docs [--profile=developer|user|all] [--full]
-        │
-        ▼
-DocumentationService::indexDocuments()
-        │
-        ├─► Read files from the documentation roots
-        ├─► Split into chunks
-        ├─► Embed them as passages (PrefixingEmbeddingsProvider)
-        └─► Store in the vector store of the setting features.faq.vector_store
-            (elasticsearch or filesystem; memory in tests)
+```mermaid
+flowchart TD
+    command(["php artisan ai:index-rag-docs [--profile=developer|user|all] [--full]"])
+    index["DocumentationService::indexDocuments()"]
+    read["read files from the documentation roots"]
+    split["split into chunks"]
+    embed["embed them as passages (PrefixingEmbeddingsProvider)"]
+    store["store in the vector store of the setting features.faq.vector_store<br/>(elasticsearch or filesystem, memory in tests)"]
+    command --> index --> read --> split --> embed --> store
 ```
 
 Questions are answered from it in two places: the in-app assistant retrieves the user corpus through
@@ -216,25 +201,17 @@ Proactive AI suggestions based on user's current UI context (page, action, data)
 
 ### Flow
 
-```
-Frontend sends context
-        │
-        ▼
-POST /app/crud/insert/ai/suggestions
-        │
-        ▼
-SuggestionController::generateSuggestion()
-        │
-        ▼
-ContextualSuggestionService::generateSuggestion()
-        │
-        ├─► Check rate limit (cooldown per user)
-        │
-        ├─► Check cache (same context = same suggestion)
-        │
-        ├─► Generate suggestion via LLM
-        │
-        └─► Store ContextualSuggestion record
+```mermaid
+flowchart TD
+    frontend(["Frontend sends context"])
+    route["POST /app/crud/insert/ai/suggestions"]
+    controller["SuggestionController::generateSuggestion()"]
+    service["ContextualSuggestionService::generateSuggestion()"]
+    limit["check rate limit (cooldown per user)"]
+    cache["check cache (same context = same suggestion)"]
+    generate["generate suggestion via LLM"]
+    store["store ContextualSuggestion record"]
+    frontend --> route --> controller --> service --> limit --> cache --> generate --> store
 ```
 
 ---
