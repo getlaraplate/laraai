@@ -76,7 +76,7 @@ php artisan module:install AI
 
 The AI module configuration is automatically mapped as `ai.*` when the module is active. Configuration file: `Modules/AI/config/config.php`.
 
-Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
+Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off), `features.search_orchestration.enabled` and `features.search_orchestration.timeout` (seeded on and 10 seconds; see *Search modes and the AI overlay*), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
 
 ```env
 # AI Features
@@ -334,10 +334,10 @@ answered by a cheaper one and `meta.search.degraded_reason` says why.
 | `balanced` | the same, plus the query embedding (`SearchEmbedder`) | the embedding service |
 | `deep` | `SearchOrchestratorAgent`, `LlmQueryIntentParser`, `CrossEncoderService`, embedding | an LLM provider (for example `OLLAMA_API_URL`) |
 
-| Variable | Default | Effect |
-|----------|---------|--------|
-| `AI_SEARCH_ORCHESTRATION_ENABLED` | `true` | when false, `balanced` and `deep` are served as `fast` (`search_orchestration_disabled`) |
-| `AI_SEARCH_LLM_TIMEOUT` | `10` | seconds one LLM call of a `deep` search may take before it falls back to rules |
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `features.search_orchestration.enabled` | `true` | when false, `balanced` and `deep` are served as `fast` (`search_orchestration_disabled`) |
+| `features.search_orchestration.timeout` | `10` | seconds one LLM call of a `deep` search may take before it falls back to rules; `0` means no limit |
 
 Vector retrieval needs **both** `core.search.vector.enabled` = true in Core and the AI module providing the
 embedder. Pipeline details: `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`.

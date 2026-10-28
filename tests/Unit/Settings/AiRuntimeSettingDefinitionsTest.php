@@ -36,4 +36,6 @@ it('defines the switches and tuning values that were env variables, with the def
     'documentation query log switch' => ['features.faq.query_logging.enabled', false, SettingTypeEnum::Boolean, null],
     'documentation query log text' => ['features.faq.query_logging.query_text_mode', 'raw', SettingTypeEnum::String, ['raw', 'off']],
     'documentation query log retention' => ['features.faq.query_logging.retention_days', 30, SettingTypeEnum::Integer, null],
+    'search orchestration switch' => ['features.search_orchestration.enabled', true, SettingTypeEnum::Boolean, null],
+    'search orchestration timeout' => ['features.search_orchestration.timeout', 10.0, SettingTypeEnum::Float, null],
 ]);
