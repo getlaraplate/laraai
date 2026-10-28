@@ -78,3 +78,9 @@ it('hands a stored zero to the agent unchanged, because curl reads it as no limi
 
     expect(ai_search_agent_timeout())->toBe(0.0);
 });
+
+it('reads a stored negative timeout as no limit, so curl never rejects the option', function (): void {
+    ai_store_setting('features.search_orchestration.timeout', -5);
+
+    expect(ai_search_agent_timeout())->toBe(0.0);
+});

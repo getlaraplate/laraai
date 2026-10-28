@@ -337,7 +337,7 @@ answered by a cheaper one and `meta.search.degraded_reason` says why.
 | Setting | Default | Effect |
 |---------|---------|--------|
 | `features.search_orchestration.enabled` | `true` | when false, `balanced` and `deep` are served as `fast` (`search_orchestration_disabled`) |
-| `features.search_orchestration.timeout` | `10` | seconds one LLM call of a `deep` search may take before it falls back to rules; `0` means no limit |
+| `features.search_orchestration.timeout` | `10` | seconds one LLM call of a `deep` search may take before it falls back to rules; `0` means no limit, negative values read as `0` |
 
 Vector retrieval needs **both** `core.search.vector.enabled` = true in Core and the AI module providing the
 embedder. Pipeline details: `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`.
