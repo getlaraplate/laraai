@@ -115,7 +115,7 @@ class LlmSearchService
             ? ChatAgent::make($this->provider, $system_prompt)
             : ChatAgent::forFeature(AiModelFeature::SearchOrchestration, $system_prompt);
 
-        return $agent->withTimeout((float) config('ai.features.search_orchestration.timeout', 10));
+        return $agent->withTimeout(max(0.0, (float) config('ai.features.search_orchestration.timeout', 10)));
     }
 
     private function getSearchPlanSystemPrompt(): string
