@@ -56,6 +56,8 @@ class AIDatabaseSeeder extends Seeder
             self::setting('features.faq.query_logging.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Log answered in-app documentation questions for analytics (create the index first: ai:create-rag-query-index)'),
             self::setting('features.faq.query_logging.query_text_mode', 'raw', SettingTypeEnum::String, 'ai', 'Whether the question is logged as typed (raw) or not at all (off)', ['raw', 'off']),
             self::setting('features.faq.query_logging.retention_days', 30, SettingTypeEnum::Integer, 'ai', 'Days a logged documentation question is kept before it is deleted'),
+            self::setting('features.search_orchestration.enabled', true, SettingTypeEnum::Boolean, 'ai', 'Let deep and balanced searches use the AI overlay (when off they are served as fast)'),
+            self::setting('features.search_orchestration.timeout', 10.0, SettingTypeEnum::Float, 'ai', 'Seconds one LLM call of a deep search may take before the search falls back to rules (0 = no limit)'),
         ];
     }
 

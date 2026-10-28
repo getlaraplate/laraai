@@ -214,12 +214,13 @@ return [
             'in_app_max_output_length' => 8000,
         ],
         'search_orchestration' => [
-            // Whether `deep` and `balanced` searches may use the AI overlay at all. Read per request by
-            // AiSearchStrategyResolver; when false they are served as `fast`.
-            'enabled' => env('AI_SEARCH_ORCHESTRATION_ENABLED', true),
-            // Seconds one LLM call of a `deep` search may take (intent parsing, planning) before the
-            // search falls back to its rule-based answer. Neuron's own default is 60.
-            'timeout' => (float) env('AI_SEARCH_LLM_TIMEOUT', 10),
+            // The settings `features.search_orchestration.enabled` and `.timeout`; these are the defaults
+            // until they are seeded. `enabled` is whether `deep` and `balanced` searches may use the AI
+            // overlay at all (read per request by AiSearchStrategyResolver; when false they are served as
+            // `fast`). `timeout` is the seconds one LLM call of a `deep` search may take (intent parsing,
+            // planning) before the search falls back to its rule-based answer; 0 means no limit.
+            'enabled' => true,
+            'timeout' => 10.0,
         ],
         'moderation' => [
             // The setting `features.moderation.queue`, read when the job is dispatched.
