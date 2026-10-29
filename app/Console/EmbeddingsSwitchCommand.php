@@ -46,7 +46,7 @@ final class EmbeddingsSwitchCommand extends Command
 {
     #[Override]
     protected $signature = 'ai:embeddings:switch
-                            {profile? : Target embedding model profile key, e.g. openai_compatible:all-MiniLM-L6-v2}
+                            {profile? : Target embedding model profile key, e.g. openai_compatible:intfloat/multilingual-e5-small}
                             {--resume : Continue a failed switch, or a running one that stopped making progress, from its stored phase}
                             {--abandon : Give up the switch and return to the active model (a refused start is just cleared)}
                             {--report-failure : Internal (the settings confirmation): record a refused start as a failed switch, so the settings page shows why}';

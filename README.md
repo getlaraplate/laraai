@@ -106,8 +106,6 @@ AI_EMBEDDINGS_URL=                   # Root URL of the default embeddings server
 AI_EMBEDDINGS_API_KEY=               # Bearer key of that server (unset = no auth)
 AI_EMBEDDINGS_TIMEOUT=30             # Per-request HTTP timeout in seconds (raise for slow CPU-bound servers)
 AI_EMBEDDINGS_BATCH_SIZE=32          # Documents per request (a TEI refuses more than its --max-client-batch-size, 32 by default)
-AI_EMBEDDINGS_MINILM_URL=            # Server of the profile openai_compatible:all-MiniLM-L6-v2 when it is another process (one TEI process per model); unset = the default server
-AI_EMBEDDINGS_MINILM_API_KEY=        # Its key
 AI_RERANK_URL=                       # Reranker server (no built-in address; unset = no reranking)
 AI_RERANK_API_KEY=                   # Its key
 AI_RERANK_DIALECT=tei                # tei (POST /rerank {query, texts}) or cohere (Infinity, vLLM)
