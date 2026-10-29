@@ -20,7 +20,7 @@ final class EmbeddingsProbeCommand extends Command
 {
     #[Override]
     protected $signature = 'ai:embeddings:probe
-                            {profile : Embedding model profile key, e.g. openai_compatible:all-MiniLM-L6-v2}';
+                            {profile : Embedding model profile key, e.g. openai_compatible:intfloat/multilingual-e5-small}';
 
     #[Override]
     protected $description = 'Measure the vector length an embedding profile really produces and compare it with its declared dimensions <fg=magenta>(✨ Modules\AI)</fg=magenta>';

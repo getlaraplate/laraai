@@ -20,7 +20,7 @@ final class EmbeddingsPruneCommand extends Command
 {
     #[Override]
     protected $signature = 'ai:embeddings:prune
-                            {--model-key= : The model key whose embedding rows are deleted, e.g. openai_compatible:all-MiniLM-L6-v2}';
+                            {--model-key= : The model key whose embedding rows are deleted, e.g. openai_compatible:intfloat/multilingual-e5-small}';
 
     #[Override]
     protected $description = 'Delete the stored embeddings of a model key nobody uses; refuses the active model and a running switch <fg=magenta>(✨ Modules\AI)</fg=magenta>';

@@ -364,10 +364,9 @@ Profiles live in `ai.features.embeddings.models` (`Modules/AI/config/config.php`
 | `similarity` | optional, default `cosine`; copied into Core's `search.vector.similarity` at activation |
 | `query_prefix` / `passage_prefix` | text prepended to queries and documents (e5 models need `query: ` / `passage: `). `EmbeddingsProviderFactory::make()` wraps the provider of the profile in `PrefixingEmbeddingsProvider`, so every caller hands over the raw text: `embedText()` adds the query prefix, `embedDocument()` and `embedDocuments()` embed a prefixed copy and keep the vector, never touching `Document::$content` |
 | `normalize` | whether the server normalizes the vectors; the probe of `ai:servers:check`, of the switch and of the repair then refuses a server whose vector norm is not 1 |
-| `server` | optional: the name of the server of `ai.servers` that runs the model (`embeddings_minilm`); without it the default `embeddings` server. A named server without a URL falls back to the default one |
+| `server` | optional: the name of the server of `ai.servers` that runs the model (for example `embeddings_other`); without it the default `embeddings` server. A named server without a URL falls back to the default one |
 
-The two shipped profiles, `openai_compatible:intfloat/multilingual-e5-small` and
-`openai_compatible:all-MiniLM-L6-v2` (which names the server `embeddings_minilm`), both declare 384. A profile is offered only when its
+The one shipped profile, `openai_compatible:intfloat/multilingual-e5-small`, declares 384 dimensions. A profile is offered only when its
 provider is configured (`EmbeddingModelRegistry::configuredKeys()`: its API key or URL is set; an
 `openai_compatible` profile needs the URL of the server it names, or of the default one, `AI_EMBEDDINGS_URL`). There is no environment variable for
 the provider or the model: `AI_EMBEDDINGS_MODEL` and `AI_EMBEDDINGS_PROVIDER` were removed, and the

@@ -14,7 +14,6 @@ Laraplate does not run models inside PHP. The AI module calls **standard HTTP se
 
 ```text
 [Laravel + Horizon] --POST /v1/embeddings--> [TEI :8080, model e5]      (AI_EMBEDDINGS_URL)
-                    --POST /v1/embeddings--> [TEI :8082, model MiniLM]  (AI_EMBEDDINGS_MINILM_URL)
                     --POST /rerank---------> [TEI :8081, reranker]      (AI_RERANK_URL)
                     --POST /v1/audio/transcriptions--> [speaches]       (AI_TRANSCRIPTION_URL)
 ```
@@ -31,14 +30,13 @@ URLs, keys and timeouts are environment variables read by `config/ai.php` (`ai.s
 | `AI_EMBEDDINGS_API_KEY` | unset | Bearer key of that server |
 | `AI_EMBEDDINGS_TIMEOUT` | `30` | Seconds an embeddings request may take; a CPU-bound server is slow |
 | `AI_EMBEDDINGS_BATCH_SIZE` | `32` | Documents per request; the client halves it when a request fails or is slow. TEI refuses more than its `--max-client-batch-size` (32 by default) |
-| `AI_EMBEDDINGS_MINILM_URL`, `AI_EMBEDDINGS_MINILM_API_KEY` | unset | The server of the profile `openai_compatible:all-MiniLM-L6-v2`; unset means the default server |
 | `AI_RERANK_URL`, `AI_RERANK_API_KEY` | unset | Reranker. Unset: no reranking |
 | `AI_RERANK_DIALECT` | `tei` | `tei` or `cohere` |
 | `AI_RERANK_MODEL` | unset | Model to rank with; required for `cohere` |
 | `AI_TRANSCRIPTION_URL`, `AI_TRANSCRIPTION_API_KEY` | unset | Transcription server. Unset: media index without a transcript |
 | `AI_TRANSCRIPTION_TIMEOUT` | `120` | Seconds a transcription request may take |
 
-A profile of `ai.features.embeddings.models` may name a server (`'server' => 'embeddings_minilm'`); a named server without a URL falls back to the default one. TEI serves **one model per process**, so a deployment that uses two embedding models runs two TEI processes and sets two URLs; Infinity, Ollama and LocalAI serve many models from one process and need only `AI_EMBEDDINGS_URL`. The profile (`openai_compatible:<model>`) names the model the server must run; the module sends it in every request and refuses an answer from another model.
+The module ships one embedding profile, `openai_compatible:intfloat/multilingual-e5-small`, served by the default server. A profile of `ai.features.embeddings.models` may name another server of `ai.servers` (`'server' => 'embeddings_other'`, an entry with its own `url` and `api_key`); a named server without a URL falls back to the default one. TEI serves **one model per process**, so a deployment that adds a second embedding model runs a second TEI process and declares its server and profile in configuration; Infinity, Ollama and LocalAI serve many models from one process and need only `AI_EMBEDDINGS_URL`. The profile (`openai_compatible:<model>`) names the model the server must run; the module sends it in every request and refuses an answer from another model.
 
 The transcription models the dropdown offers are the list `ai.features.media_analysis.transcription.models` (default `Systran/faster-whisper-base`); add the ones your server serves, as it names them.
 
@@ -102,7 +100,7 @@ A failed call logs `Self-hosted AI service call failed` with `service` (`embeddi
 
 ## Switching the embedding model
 
-`ai:embeddings:switch <profile>` checks that the server of the target profile answers, runs the profile's model, returns vectors of its dimensions and norm, then re-embeds and reindexes in the background. With TEI the target model needs its own process first: start it, set the URL of the profile's server (for example `AI_EMBEDDINGS_MINILM_URL`), run `php artisan ai:servers:check`, then switch. The same model served by another server gives the same vectors (up to numeric noise), so moving from the former service to TEI with the same model does not need re-embedding; the profile key changed from `sentence_transformers:` to `openai_compatible:`, so a development database is reseeded or switched with `ai:embeddings:switch`.
+`ai:embeddings:switch <profile>` checks that the server of the target profile answers, runs the profile's model, returns vectors of its dimensions and norm, then re-embeds and reindexes in the background. With TEI the target model needs its own process first: start it, set the URL of the profile's server, run `php artisan ai:servers:check`, then switch. The same model served by another server gives the same vectors (up to numeric noise), so moving from the former service to TEI with the same model does not need re-embedding; the profile key changed from `sentence_transformers:` to `openai_compatible:`, so a development database is reseeded or switched with `ai:embeddings:switch`.
 
 ## From the former services
 

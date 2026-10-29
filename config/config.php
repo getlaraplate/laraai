@@ -66,13 +66,6 @@ return [
                     'passage_prefix' => 'passage: ',
                     'normalize' => true,
                 ],
-                'openai_compatible:all-MiniLM-L6-v2' => [
-                    'server' => 'embeddings_minilm',
-                    'dimensions' => 384,
-                    'query_prefix' => '',
-                    'passage_prefix' => '',
-                    'normalize' => true,
-                ],
             ],
         ],
         // Seconds a search of the application content may take for one answer of the assistant,
@@ -243,11 +236,6 @@ return [
             // --max-client-batch-size (32 by default).
             'timeout' => (int) env('AI_EMBEDDINGS_TIMEOUT', 30),
             'batch_size' => (int) env('AI_EMBEDDINGS_BATCH_SIZE', 32),
-        ],
-        // The server of the profiles that name it, when it is another process than the default one.
-        'embeddings_minilm' => [
-            'url' => env('AI_EMBEDDINGS_MINILM_URL'),
-            'api_key' => env('AI_EMBEDDINGS_MINILM_API_KEY'),
         ],
         // Dialect `tei` (POST /rerank {query, texts}) or `cohere` (POST /rerank {model, query, documents}, Infinity, vLLM).
         // `model` is required for the `cohere` dialect.

@@ -23,5 +23,18 @@ abstract class TestCase extends \Tests\TestCase
         // The assistant is off until an operator turns it on; the suite runs with it on, and a test about
         // the switch sets it itself.
         config(['ai.features.chat.enabled' => true]);
+
+        // The module ships one embedding profile. The suite needs a second one, served by its own process,
+        // to switch to, prune and probe: it is a fixture of the tests, not a profile an installation has.
+        config([
+            'ai.servers.embeddings_minilm' => ['url' => null, 'api_key' => null],
+            'ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2' => [
+                'server' => 'embeddings_minilm',
+                'dimensions' => 384,
+                'query_prefix' => '',
+                'passage_prefix' => '',
+                'normalize' => true,
+            ],
+        ]);
     }
 }
