@@ -1,6 +1,6 @@
 # Servers for embeddings, reranking and transcription
 
-> **Status: written from the servers' own documentation, not yet run on the reference host.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. The hands-on verification (build time of TEI on the LXC, vector equality with the previous service, rerank speed, behaviour of speaches on a large file) is an open step of `docs/superpowers/plans/2026-10-22-ai-standard-servers.md` in the application repository; this guide changes when it is done.
+> **Status: Infinity and the TEI Docker image were run (2026-10-23 and 2026-10-29); the rest is written from the servers' own documentation.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. What is still open (TEI as a reranker, a successful TEI build from source, speaches, behaviour on a large file) is recorded in the Verification section of `docs/superpowers/specs/2026-10-22-ai-standard-servers-design.md` in the application repository; this guide changes when it is done.
 
 Laraplate does not run models inside PHP. The AI module calls **standard HTTP servers** on separate hosts (VM, LXC, bare metal), speaking OpenAI-style APIs. Any server that speaks the same API works; this guide documents the ones the module is tested against. It replaces the guides of the former `sentence-transformers-api` and `whisper-api` services, which are archived.
 
@@ -42,7 +42,18 @@ The transcription models the dropdown offers are the list `ai.features.media_ana
 
 ## Text Embeddings Inference (embeddings and reranking)
 
-TEI has no pip package and no binary on its releases; without Docker it is built once from source (`libssl-dev` and `gcc` needed):
+TEI has no pip package and no binary on its releases. **Use the Docker image**: it carries Intel MKL and needs no build. One container per model, with a memory cap so that it cannot starve the other services of the host:
+
+```bash
+docker run -d --name tei-e5 --restart unless-stopped --memory 1500m --memory-swap 1500m \
+  -p 8080:80 -v /opt/tei-data:/data \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4 \
+  --model-id intfloat/multilingual-e5-small --api-key "$KEY" --max-client-batch-size 32
+```
+
+`cpu-1.9.4` is the CPU image of the documented release. The container listens on port 80, the first start downloads the model (about 500 MB), and the e5 container used 858 MiB after its first request on a 4 GB host.
+
+Without Docker TEI is built once from source (`libssl-dev` and `gcc` needed), and the build **needs a recent Intel oneMKL**: `-F mkl` links `libmkl_*`, and the package of Ubuntu 22.04 (`intel-mkl` 2020.4) is too old, the link fails with `undefined symbol: hgemm_`. Install a newer oneMKL and point `MKLROOT` at it before building (the build script of `intel-mkl-src` reads that variable); the minimum version was not measured, and a source build with the distribution's MKL was tried and does not link.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -50,7 +61,7 @@ git clone --branch v1.9.4 https://github.com/huggingface/text-embeddings-inferen
 cd text-embeddings-inference && cargo install --path router -F mkl
 ```
 
-One process per model, for example under systemd (`ExecStart=`):
+One process per model. With a binary built from source, for example under systemd (`ExecStart=`); the Docker image takes the same arguments after its name:
 
 ```bash
 text-embeddings-router --model-id intfloat/multilingual-e5-small --port 8080 --api-key "$KEY" --max-client-batch-size 32
@@ -59,7 +70,7 @@ text-embeddings-router --model-id cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 --p
 
 - **Do not pass `--default-prompt`.** Laraplate adds the `query: ` and `passage: ` prefixes itself (`PrefixingEmbeddingsProvider`); a server that adds them too embeds `query: query: ...`. The probe cannot detect it.
 - `--max-client-batch-size` must be at least the embeddings batch size (32) and, for the reranker, 64, the most pairs one rerank call carries; `ai:servers:check` reads it from `GET /info` and says when it is lower.
-- `GET /health` and `/metrics` stay public; every other route needs the key. The model must be one TEI supports: whether the two default models load and score correctly is part of the open verification.
+- `GET /health` and `/metrics` stay public; every other route needs the key. The model must be one TEI supports: `intfloat/multilingual-e5-small` loads and passes `ai:servers:check` (Docker image, 2026-10-29); the reranker model was not run on TEI.
 - Rerank scores come back in [0, 1] (TEI applies a sigmoid unless `raw_scores`); the module never asks for raw scores.
 
 ## Infinity (no Docker, alternative)
