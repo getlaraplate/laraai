@@ -92,6 +92,7 @@ class AIDatabaseSeeder extends Seeder
     public function run(): void
     {
         $reconciler = app(SeedReconciler::class);
+        $this->logOperation(Setting::class);
 
         $runtime = $reconciler->reconcile(
             self::internalSettingsDefinition('AI', [
@@ -103,12 +104,11 @@ class AIDatabaseSeeder extends Seeder
             self::commandManagedChoicesSettingsDefinition('AI', self::modelSettingDefinitions()),
         );
 
-        $this->command?->line(sprintf(
-            '    - created %d, realigned %d, unchanged %d',
+        $this->logOutcome(
             count($runtime->created) + count($models->created),
-            count($runtime->realigned) + count($models->realigned),
+            count($runtime->realigned) + count($runtime->restored) + count($models->realigned) + count($models->restored),
             $runtime->unchanged + $models->unchanged,
-        ));
+        );
     }
 
     /**
