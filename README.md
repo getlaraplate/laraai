@@ -373,11 +373,7 @@ composer refactor           # Run Rector refactoring
 
 ### Version Management
 
-Releases are run from the application, not from the module. From the `laraplate` root:
-
-```bash
-composer run version:minor AI   # or version:major / version:patch, see docs/releasing.md
-```
+Releases are cut by the maintainers with private tooling; do not bump versions or edit `CHANGELOG.md` by hand.
 
 ## Contributing
 
