@@ -1,6 +1,6 @@
 # Servers for embeddings, reranking and transcription
 
-> **Status: Infinity and the TEI Docker image were run (2026-10-23 and 2026-10-29); the rest is written from the servers' own documentation.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. What is still open (TEI as a reranker, a successful TEI build from source, speaches, behaviour on a large file) is recorded in the Verification section of `docs/superpowers/specs/2026-10-22-ai-standard-servers-design.md` in the application repository; this guide changes when it is done.
+> **Status: Infinity and the TEI Docker image were run (2026-10-23 and 2026-10-29); the rest is written from the servers' own documentation.** Read on 2026-10-23: Text Embeddings Inference (TEI) v1.9.4, Infinity 0.0.78, speaches v0.9.0-rc.3; their OpenAPI documents are kept in `tests/Fixtures/StandardServers` and the clients are tested against them. What is still open (TEI under load, a successful TEI build from source, speaches, behaviour on a large file) is recorded in the Verification section of `docs/superpowers/specs/2026-10-22-ai-standard-servers-design.md` in the application repository; this guide changes when it is done.
 
 Laraplate does not run models inside PHP. The AI module calls **standard HTTP servers** on separate hosts (VM, LXC, bare metal), speaking OpenAI-style APIs. Any server that speaks the same API works; this guide documents the ones the module is tested against. It replaces the guides of the former `sentence-transformers-api` and `whisper-api` services, which are archived.
 
@@ -68,9 +68,30 @@ text-embeddings-router --model-id intfloat/multilingual-e5-small --port 8080 --a
 text-embeddings-router --model-id cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 --port 8081 --api-key "$KEY" --max-client-batch-size 64
 ```
 
+The reranker is a second container with the same memory cap, another port and a cross-encoder model (the embeddings container cannot rerank: TEI loads one model per process). `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` loads and scores on TEI v1.9.4 (2026-10-29), and the container used about 970 MiB at rest, so on a 4 GB host shared with other services the reranker costs about 1 GB more; it is optional and off by default.
+
+```bash
+docker run -d --name tei-rerank --restart unless-stopped --memory 1500m --memory-swap 1500m \
+  -p 8081:80 -v /opt/tei-data:/data \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4 \
+  --model-id cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 --api-key "$KEY" --max-client-batch-size 64
+```
+
+To expose a single port, put nginx in front and give each server a path prefix. The module appends `/v1/embeddings`, `/info` and `/rerank` to the URL, so the trailing slash of `proxy_pass` must strip the prefix and the URLs carry no slash at the end (`AI_EMBEDDINGS_URL=http://host/embed`, `AI_RERANK_URL=http://host/rank`). Publish the containers on `127.0.0.1` (`-p 127.0.0.1:8080:80`) once nginx works, so only nginx is reachable:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    location /embed/ { proxy_pass http://127.0.0.1:8080/; proxy_read_timeout 120s; }
+    location /rank/  { proxy_pass http://127.0.0.1:8081/; proxy_read_timeout 120s; }
+}
+```
+
 - **Do not pass `--default-prompt`.** Laraplate adds the `query: ` and `passage: ` prefixes itself (`PrefixingEmbeddingsProvider`); a server that adds them too embeds `query: query: ...`. The probe cannot detect it.
 - `--max-client-batch-size` must be at least the embeddings batch size (32) and, for the reranker, 64, the most pairs one rerank call carries; `ai:servers:check` reads it from `GET /info` and says when it is lower.
-- `GET /health` and `/metrics` stay public; every other route needs the key. The model must be one TEI supports: `intfloat/multilingual-e5-small` loads and passes `ai:servers:check` (Docker image, 2026-10-29); the reranker model was not run on TEI.
+- `GET /health` and `/metrics` stay public; every other route needs the key. The model must be one TEI supports: `intfloat/multilingual-e5-small` loads and passes `ai:servers:check` (Docker image, 2026-10-29); the reranker model `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` loads and scores too (2026-10-29).
 - Rerank scores come back in [0, 1] (TEI applies a sigmoid unless `raw_scores`); the module never asks for raw scores.
 
 ## Infinity (no Docker, alternative)
