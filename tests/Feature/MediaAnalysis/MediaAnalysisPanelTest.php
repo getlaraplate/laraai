@@ -58,7 +58,7 @@ function claimedMediaWithAnalysis(string $hash = 'panel-hash'): Media
 }
 
 beforeEach(function (): void {
-    config()->set('core.search.vector.enabled', false);
+    config()->set('ai.features.embeddings.enabled', false);
     Filament::setCurrentPanel('admin');
 });
 

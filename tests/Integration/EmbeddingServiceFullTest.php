@@ -41,7 +41,7 @@ it('embedText returns embeddings from mocked provider', function (): void {
 
 it('getEmbeddingsProvider returns EmbeddingsProviderInterface', function (): void {
     config()->set('ai.features.embeddings.models', ['openai:text-embedding-3-small' => ['dimensions' => 1536]]);
-    config()->set('core.search.vector.model', 'openai:text-embedding-3-small');
+    config()->set('ai.features.embeddings.serving_model', 'openai:text-embedding-3-small');
     config()->set('ai.providers.openai.api_key', 'fake-key');
     config()->set('ai.providers.openai.model', 'text-embedding-3-small');
 
@@ -53,7 +53,7 @@ it('getEmbeddingsProvider returns EmbeddingsProviderInterface', function (): voi
 
 it('embedDocument cleans and processes text', function (): void {
     config()->set('ai.features.embeddings.models', ['ollama:nomic-embed-text' => ['dimensions' => 768]]);
-    config()->set('core.search.vector.model', 'ollama:nomic-embed-text');
+    config()->set('ai.features.embeddings.serving_model', 'ollama:nomic-embed-text');
     config()->set('ai.providers.ollama.api_url', 'http://localhost:11434');
     config()->set('ai.providers.ollama.model', 'nomic-embed-text');
 
@@ -69,7 +69,7 @@ it('embedDocument cleans and processes text', function (): void {
 
 it('embedText returns float array', function (): void {
     config()->set('ai.features.embeddings.models', ['ollama:nomic-embed-text' => ['dimensions' => 768]]);
-    config()->set('core.search.vector.model', 'ollama:nomic-embed-text');
+    config()->set('ai.features.embeddings.serving_model', 'ollama:nomic-embed-text');
     config()->set('ai.providers.ollama.api_url', 'http://localhost:11434');
     config()->set('ai.providers.ollama.model', 'nomic-embed-text');
 

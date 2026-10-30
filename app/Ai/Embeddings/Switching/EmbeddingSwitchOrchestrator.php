@@ -14,6 +14,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Jobs\GenerateEmbeddingsJob;
 use Modules\AI\Jobs\IndexDocumentsChunkJob;
+use Modules\Core\Search\Support\VectorProfileContext;
 use Throwable;
 
 /**
@@ -39,9 +40,14 @@ use Throwable;
  * writing `updatedAt`, so {@see EmbeddingSwitchState::isInterrupted()} still means that the switch
  * job itself is lost; the stall is a failure of the phase, which `--resume` and `--abandon` accept.
  *
+ * Every phase runs with the target's vector profile pinned ({@see VectorProfileContext::using()}),
+ * so the embeddable models are discovered, counted and indexed for the target whether or not the
+ * embeddings feature is on: a model is embeddable only while a vector profile is in force.
+ *
  * A check that does not hold fails the switch in its phase ({@see EmbeddingSwitchPhaseFailed}).
  * Any other error propagates, so the job retries it and records it once its tries are spent.
- * `active`, the suspension of vector search and the previous model's rows are left as they are.
+ * The serving model and the previous model's rows are left as they are, and vector search stays
+ * suspended while the state is `failed` ({@see EmbeddingSwitchStore::isSwitching()}).
  */
 final readonly class EmbeddingSwitchOrchestrator
 {
@@ -90,16 +96,18 @@ final readonly class EmbeddingSwitchOrchestrator
         }
 
         try {
+            $target = $this->target($state);
+
             if ($state->phase === 'activate') {
-                return $this->activation->activate($this->target($state));
+                return $this->activation->activate($target);
             }
 
-            $next = match ($state->phase) {
+            $next = VectorProfileContext::using($target->vectorProfile(), fn (): EmbeddingSwitchState => match ($state->phase) {
                 'preflight' => $this->completePreflight($state),
                 'embeddings' => $this->embed($state),
                 'indexes' => $this->rebuildIndexes($state),
                 'verify' => $this->verify($state),
-            };
+            });
         } catch (EmbeddingSwitchPhaseFailed $failure) {
             return $this->fail($failure->getMessage());
         }
@@ -124,8 +132,8 @@ final readonly class EmbeddingSwitchOrchestrator
     }
 
     /**
-     * Marks the switch failed in its current phase. `active` and the suspended vector search are
-     * left as they are: the serving model is intact and the indexes may be half rebuilt.
+     * Marks the switch failed in its current phase. The serving model is left as it is and vector
+     * search stays suspended: the serving model is intact and the indexes may be half rebuilt.
      */
     public function fail(string $error): EmbeddingSwitchState
     {

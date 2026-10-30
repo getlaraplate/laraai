@@ -168,7 +168,7 @@ it('dispatches the pending chunks again for a bounded number of rounds, then fai
         ->and($state->error)->toContain('1 of 3 index chunk(s) of the indexes phase were not written after 3 rounds')
         ->and($state->error)->toContain('EmbeddableTestModel [' . $refused->getKey() . ', ' . $this->records[2]->getKey() . ')')
         ->and($state->error)->toContain('ai:embeddings:switch --resume')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::ACTIVE);
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::ACTIVE);
 });
 
 it('resumes a failed index build by dispatching only the chunks still pending, without preparing the indexes again', function (): void {

@@ -45,7 +45,7 @@ it('keeps the order of the documents it embeds', function (): void {
 
 it('is the provider of a profile that has prefixes, for the factory and for the documentation agent', function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
-    config()->set('core.search.vector.model', E5_MODEL);
+    config()->set('ai.features.embeddings.serving_model', E5_MODEL);
 
     $agent = DocumentationAgent::make();
     $embeddings = new ReflectionMethod($agent, 'embeddings');
@@ -56,10 +56,10 @@ it('is the provider of a profile that has prefixes, for the factory and for the 
 
 it('is not added for a profile without prefixes or for a provider that is not the profile\'s', function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
-    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:all-MiniLM-L6-v2');
     expect(EmbeddingsProviderFactory::make())->not->toBeInstanceOf(PrefixingEmbeddingsProvider::class);
 
-    config()->set('core.search.vector.model', E5_MODEL);
+    config()->set('ai.features.embeddings.serving_model', E5_MODEL);
     config()->set('ai.providers.mistral.api_key', 'not-a-key');
     expect(EmbeddingsProviderFactory::make('mistral'))->not->toBeInstanceOf(PrefixingEmbeddingsProvider::class);
 });

@@ -23,6 +23,7 @@ use Modules\AI\Tests\Stubs\EmbeddableTestModel;
 use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Models\Setting;
+use Modules\Core\Search\Contracts\IVectorSearchAvailability;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
@@ -33,19 +34,8 @@ beforeEach(function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     $this->seed(AIDatabaseSeeder::class);
 
-    $suspended = Setting::factory()->persistedWithoutApprovalCapture()->create([
-        'name' => 'search.vector.suspended_reason',
-        'module' => 'Core',
-        'type' => 'string',
-        'value' => 'unset',
-        'choices' => null,
-        'group_name' => 'search',
-    ]);
-    // Seeded as the seeder does it: a JSON null, since core_settings.value is NOT NULL.
-    Setting::query()->withoutGlobalScopes()->whereKey($suspended->getKey())->toBase()->update(['value' => 'null', 'managed' => true]);
-
-    config()->set('core.search.vector.model', SWITCH_ACTIVE);
-    config()->set('core.search.vector.suspended_reason', null);
+    config()->set('ai.features.embeddings.serving_model', SWITCH_ACTIVE);
+    config()->set('ai.features.embeddings.switch', null);
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();
@@ -83,15 +73,31 @@ function switch_service_reports(string $model, int $dimensions = 384): void
     ]);
 }
 
-function switch_suspended_reason(): mixed
+/**
+ * Whether vector search is suspended by the switch, as the search guard sees it.
+ */
+function switch_suspends_vector_search(): bool
 {
-    return Setting::query()->withoutGlobalScopes()->where('name', 'search.vector.suspended_reason')->value('value');
+    return app(IVectorSearchAvailability::class)->check(new EmbeddableTestModel)->reason === 'suspended';
+}
+
+/**
+ * A queue connection whose every push answers with `$push`, which may throw.
+ */
+function switch_queue_pushing(Closure $push): void
+{
+    $queue = Mockery::mock(QueueConnection::class);
+    $queue->shouldReceive('push', 'pushOn', 'later', 'laterOn')->andReturnUsing($push);
+    $queues = Mockery::mock(QueueFactory::class);
+    $queues->shouldReceive('connection')->andReturn($queue);
+    app()->instance(QueueFactory::class, $queues);
 }
 
 function switch_expect_nothing_changed(): void
 {
     expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('idle')
-        ->and(switch_suspended_reason())->toBeNull();
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeFalse()
+        ->and(switch_suspends_vector_search())->toBeFalse();
 
     Queue::assertNothingPushed();
 }
@@ -110,8 +116,9 @@ it('starts a switch: records the state, suspends vector search and dispatches th
         ->and($state->target)->toBe(SWITCH_TARGET)
         ->and($state->previous)->toBe(SWITCH_ACTIVE)
         ->and($state->startedAt)->not->toBeNull()
-        ->and(switch_suspended_reason())->toBe('switching')
-        ->and(config('core.search.vector.suspended_reason'))->toBe('switching');
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeTrue()
+        ->and(switch_suspends_vector_search())->toBeTrue()
+        ->and(Setting::query()->withoutGlobalScopes()->where('name', 'like', 'search.vector.%')->exists())->toBeFalse();
 
     Queue::assertPushed(SwitchEmbeddingModelJob::class, 1);
     Queue::assertPushedOn(SwitchEmbeddingModelJob::QUEUE, SwitchEmbeddingModelJob::class);
@@ -244,7 +251,7 @@ it('refuses to start while a switch is running or failed', function (string $sta
         ->assertFailed();
 
     expect(app(EmbeddingSwitchStore::class)->get())->toEqual($existing)
-        ->and(switch_suspended_reason())->toBeNull();
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeTrue();
     Queue::assertNothingPushed();
 })->with(['running', 'failed']);
 
@@ -264,7 +271,8 @@ it('records a refused start as a failed preflight when asked to report it', func
         ->and($state->target)->toBe(SWITCH_TARGET)
         ->and($state->previous)->toBe(SWITCH_ACTIVE)
         ->and($state->error)->toContain('declares 384')
-        ->and(switch_suspended_reason())->toBeNull();
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeFalse()
+        ->and(switch_suspends_vector_search())->toBeFalse();
     Queue::assertNothingPushed();
 });
 
@@ -299,7 +307,7 @@ it('records nothing for a start that finds the lock held, even when asked to rep
     }
 
     expect($store->get())->toEqual($before)
-        ->and(switch_suspended_reason())->toBeNull();
+        ->and($store->isSwitching())->toBe($holderState === 'running');
     Queue::assertNothingPushed();
 })->with(['holder in its preflight' => [null], 'holder already started' => ['running']]);
 
@@ -328,7 +336,8 @@ it('records an unconfigured provider, decided under the lock, as a failed prefli
         ->and($state->phase)->toBe('preflight')
         ->and($state->target)->toBe('voyageai:voyage-3-lite')
         ->and($state->error)->toContain('not configured')
-        ->and(switch_suspended_reason())->toBeNull();
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeFalse()
+        ->and(switch_suspends_vector_search())->toBeFalse();
     Queue::assertNothingPushed();
 });
 
@@ -348,39 +357,49 @@ it('never replaces a running switch with a reported refusal', function (): void 
 it('rolls the start back when the job cannot be queued', function (): void {
     switch_probe_measures(384);
     switch_service_reports('all-MiniLM-L6-v2');
-    $queue = Mockery::mock(QueueConnection::class);
-    $queue->shouldReceive('push', 'pushOn', 'later', 'laterOn')->andThrow(new RuntimeException('queue down'));
-    $queues = Mockery::mock(QueueFactory::class);
-    $queues->shouldReceive('connection')->andReturn($queue);
-    app()->instance(QueueFactory::class, $queues);
+    switch_queue_pushing(static fn (): never => throw new RuntimeException('queue down'));
 
     $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])
         ->expectsOutputToContain('could not queue the switch; nothing was changed (queue down)')
         ->assertFailed();
 
     expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('idle')
-        ->and(switch_suspended_reason())->toBeNull()
-        ->and(config('core.search.vector.suspended_reason'))->toBeNull();
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeFalse()
+        ->and(switch_suspends_vector_search())->toBeFalse();
 });
 
-it('rolls the start back to idle even when the suspended reason row has gone', function (): void {
+it('rolls the start back to idle, lifting the suspension the stored start had already put in force', function (): void {
     switch_probe_measures(384);
     switch_service_reports('all-MiniLM-L6-v2');
-    $queue = Mockery::mock(QueueConnection::class);
-    $queue->shouldReceive('push', 'pushOn', 'later', 'laterOn')->andReturnUsing(static function (): never {
-        Setting::query()->withoutGlobalScopes()->where('name', 'search.vector.suspended_reason')->toBase()->delete();
+    $suspendedWhilePushing = null;
+    switch_queue_pushing(static function () use (&$suspendedWhilePushing): never {
+        $suspendedWhilePushing = switch_suspends_vector_search();
 
         throw new RuntimeException('queue down');
     });
-    $queues = Mockery::mock(QueueFactory::class);
-    $queues->shouldReceive('connection')->andReturn($queue);
-    app()->instance(QueueFactory::class, $queues);
 
     $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])
         ->expectsOutputToContain('could not queue the switch; nothing was changed (queue down)')
         ->assertFailed();
 
-    expect(app(EmbeddingSwitchStore::class)->get()->status)->toBe('idle');
+    expect($suspendedWhilePushing)->toBeTrue()
+        ->and(app(EmbeddingSwitchStore::class)->get()->status)->toBe('idle')
+        ->and(switch_suspends_vector_search())->toBeFalse();
+});
+
+it('stores the running state before it queues the job, so vector search is suspended before any work can run', function (): void {
+    switch_probe_measures(384);
+    switch_service_reports('all-MiniLM-L6-v2');
+    $seenWhilePushing = null;
+    switch_queue_pushing(static function () use (&$seenWhilePushing): string {
+        $seenWhilePushing = [app(EmbeddingSwitchStore::class)->get()->status, switch_suspends_vector_search()];
+
+        return 'job-id';
+    });
+
+    $this->artisan('ai:embeddings:switch', ['profile' => SWITCH_TARGET])->assertSuccessful();
+
+    expect($seenWhilePushing)->toBe(['running', true]);
 });
 
 it('completes the preflight, moves to the embeddings phase and only queues its own next run', function (): void {

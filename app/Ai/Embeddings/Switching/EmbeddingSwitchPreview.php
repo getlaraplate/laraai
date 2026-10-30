@@ -13,6 +13,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\Core\Models\Concerns\HasTranslations;
+use Modules\Core\Search\Support\VectorProfileContext;
 use Throwable;
 
 /**
@@ -49,7 +50,7 @@ final readonly class EmbeddingSwitchPreview
             $currentDimensions = null;
         }
 
-        $records = $this->recordsToEmbed();
+        $records = VectorProfileContext::using($target->vectorProfile(), fn (): int => $this->recordsToEmbed());
 
         return new SwitchPreview(
             currentModel: $currentKey,
@@ -66,6 +67,8 @@ final readonly class EmbeddingSwitchPreview
      * The texts a full re-embed produces: for each embeddable model, its searchable records times
      * their translations (the translation rows of those records; one per record when the model is
      * not translated). Records the index would skip one by one (`shouldBeSearchable()`) are counted.
+     * A model is embeddable only while a vector profile is in force: {@see self::for()} pins the
+     * target's, the switch job pins it around every phase.
      */
     public function recordsToEmbed(): int
     {

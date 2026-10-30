@@ -23,7 +23,8 @@ use Throwable;
  * Starts a switch of the embedding model. The preflight runs here, synchronously, before anything
  * changes: the profile exists, is not the active one, its provider is configured, the probe measures
  * its declared dimensions and the service runs its model. Only then is the state stored as
- * `running`/`preflight`, vector search suspended and `SwitchEmbeddingModelJob` dispatched.
+ * `running`/`preflight`, which suspends vector search ({@see EmbeddingSwitchStore::isSwitching()}),
+ * and `SwitchEmbeddingModelJob` dispatched, in that order.
  *
  * The atomic lock covers only the start (state still idle, then persisted as running); for the rest
  * of the switch the persisted `running` or `failed` state is what refuses another start.
@@ -31,8 +32,9 @@ use Throwable;
  * A refusal changes nothing. With `--report-failure`, the option the settings confirmation queues
  * the command with, a refusal decided under the start lock (provider not configured, preflight
  * failed) is also stored as a `failed` switch in phase `preflight`, so the settings page shows it;
- * vector search is not suspended. A held lock, an already active profile or a switch already
- * running or failed records nothing. A start whose job cannot be queued is rolled back.
+ * a switch failed at its preflight does not suspend vector search. A held lock, an already active
+ * profile or a switch already running or failed records nothing. A start whose job cannot be
+ * queued is rolled back.
  *
  * `--resume` continues a failed switch, or a running one that stopped making progress
  * ({@see EmbeddingSwitchState::isInterrupted()}), from its stored phase (a failed index build or
@@ -234,11 +236,9 @@ final class EmbeddingsSwitchCommand extends Command
             $active = $registry->activeKey();
 
             if ($state->status === 'failed' && $state->phase === 'preflight') {
-                // The job may have failed its preflight after the start suspended vector search.
                 new Setting()->getConnection()->transaction(static function () use ($store, $active): void {
                     $store->update(static fn (): EmbeddingSwitchState => EmbeddingSwitchState::idle()->with(updatedAt: now()->toIso8601String()));
                     $store->recordTarget($active);
-                    $store->clearSuspension();
                 });
 
                 $this->info("The refused switch to \"{$state->target}\" was cleared: the embedding model stays \"{$active}\".");
@@ -262,10 +262,10 @@ final class EmbeddingsSwitchCommand extends Command
                 updatedAt: now()->toIso8601String(),
             );
 
+            // Stored as running before the job is queued: vector search stays suspended throughout.
             new Setting()->getConnection()->transaction(static function () use ($store, $return, $previous): void {
                 $store->update(static fn (): EmbeddingSwitchState => $return);
                 $store->recordTarget($previous);
-                $store->suspend();
             });
         } finally {
             $release();
@@ -360,30 +360,27 @@ final class EmbeddingsSwitchCommand extends Command
         return $identity->refusal($profile);
     }
 
+    /**
+     * Stores the start as `running`, which suspends vector search before the job can run.
+     */
     private function persistStart(EmbeddingSwitchStore $store, EmbeddingModelProfile $profile, string $active): void
     {
-        new Setting()->getConnection()->transaction(static function () use ($store, $profile, $active): void {
-            $store->put(new EmbeddingSwitchState(
-                status: 'running',
-                phase: 'preflight',
-                target: $profile->key,
-                previous: $active,
-                startedAt: now()->toIso8601String(),
-            ));
-            $store->suspend();
-        });
+        $store->put(new EmbeddingSwitchState(
+            status: 'running',
+            phase: 'preflight',
+            target: $profile->key,
+            previous: $active,
+            startedAt: now()->toIso8601String(),
+        ));
     }
 
     /**
-     * Undoes a stored start whose job could not be queued: the state is idle again and vector search
+     * Undoes a stored start whose job could not be queued: the state is idle again, so vector search
      * is no longer suspended.
      */
     private function rollBackStart(EmbeddingSwitchStore $store): void
     {
-        new Setting()->getConnection()->transaction(static function () use ($store): void {
-            $store->put(EmbeddingSwitchState::idle());
-            $store->clearSuspension();
-        });
+        $store->put(EmbeddingSwitchState::idle());
     }
 
     /**
@@ -401,7 +398,8 @@ final class EmbeddingsSwitchCommand extends Command
      * Prints why the start was refused by its own checks, while this command still holds the start
      * lock and the state is idle. With `--report-failure` (the settings confirmation, whose queued
      * output nobody reads) the refusal is also stored as a failed switch in its preflight, so the
-     * settings page locks the field and shows the reason. Vector search stays available.
+     * settings page locks the field and shows the reason. Vector search stays available: a switch
+     * failed at its preflight does not suspend it.
      */
     private function refuseUnderLock(EmbeddingSwitchStore $store, EmbeddingModelProfile $profile, string $active, string $message): int
     {

@@ -52,8 +52,8 @@ function repair_fake_embedding_service(): void
 
 beforeEach(function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
-    Config::set('core.search.vector.enabled', true);
     Config::set('ai.features.embeddings.enabled', true);
+    Config::set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();
@@ -68,7 +68,7 @@ it('returns invalid, as the scout commands do, when the model class does not exi
 });
 
 it('returns failure when vector search is disabled', function (): void {
-    Config::set('core.search.vector.enabled', false);
+    Config::set('ai.features.embeddings.enabled', false);
 
     $tester = run_repair_embeddings_command(['model' => EmbeddableTestModel::class]);
 

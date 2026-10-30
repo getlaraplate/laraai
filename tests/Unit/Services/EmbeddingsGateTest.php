@@ -6,11 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Modules\AI\Services\EmbeddingsGate;
 use Modules\AI\Tests\Unit\SearchableModelStub;
 use Modules\Core\Models\Setting;
+use Modules\Core\Search\DTOs\VectorProfile;
+use Modules\Core\Search\Support\VectorProfileContext;
 
 beforeEach(function (): void {
     config()->set('ai.features.embeddings.enabled', true);
     config()->set('ai.features.embeddings.modules', []);
-    config()->set('core.search.vector.enabled', true);
 });
 
 it('allows an embeddable model while the switch is on', function (): void {
@@ -39,20 +40,25 @@ it('wants a searchable and embeddable model unless the caller says it does not n
         ->and($gate->allows(new Setting, requireEmbeddable: false))->toBeTrue()
         ->and($gate->allows(Mockery::mock(Model::class)->makePartial()))->toBeFalse();
 
-    config()->set('core.search.vector.enabled', false);
+    config()->set('ai.features.embeddings.serving_model', 'nope:missing');
 
     expect($gate->allows(new SearchableModelStub))->toBeFalse();
 });
 
-it('handles an embeddable model of an admitted module whatever the switch says', function (): void {
+it('handles an embeddable model of an admitted module while a vector profile is in force, whatever the switch says', function (): void {
     config()->set('ai.features.embeddings.enabled', false);
 
     $gate = new EmbeddingsGate;
-
-    expect($gate->handles(new SearchableModelStub))->toBeTrue()
-        ->and($gate->handles(new Setting))->toBeFalse();
-
-    config()->set('ai.features.embeddings.modules', ['cms']);
+    $profile = new VectorProfile('openai_compatible:intfloat/multilingual-e5-small', 384, 'cosine');
 
     expect($gate->handles(new SearchableModelStub))->toBeFalse();
+
+    VectorProfileContext::using($profile, function () use ($gate): void {
+        expect($gate->handles(new SearchableModelStub))->toBeTrue()
+            ->and($gate->handles(new Setting))->toBeFalse();
+
+        config()->set('ai.features.embeddings.modules', ['cms']);
+
+        expect($gate->handles(new SearchableModelStub))->toBeFalse();
+    });
 });

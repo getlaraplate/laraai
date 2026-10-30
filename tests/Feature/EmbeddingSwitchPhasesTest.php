@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -13,6 +14,7 @@ use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
 use Modules\AI\Contracts\IEmbeddingService;
 use Modules\AI\Database\Seeders\AIDatabaseSeeder;
 use Modules\AI\Jobs\GenerateEmbeddingsJob;
+use Modules\AI\Jobs\IndexDocumentsChunkJob;
 use Modules\AI\Jobs\SwitchEmbeddingModelJob;
 use Modules\AI\Services\ModelEmbeddingSynchronizer;
 use Modules\AI\Tests\Stubs\EmbeddableTestModel;
@@ -20,6 +22,8 @@ use Modules\AI\Tests\Stubs\EmbeddingSwitchHarness as Harness;
 use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Search\Contracts\IVectorSearchAvailability;
+use Modules\Core\Search\DTOs\VectorProfile;
+use Modules\Core\Search\Support\VectorProfileContext;
 
 beforeEach(function (): void {
     Event::fake([ModelPreProcessingCompleted::class]);
@@ -42,12 +46,13 @@ it('switches between models of equal dimensions: re-embeds everything, keeps the
         ->and(Harness::storedModelKeys())->toBe([Harness::TARGET])
         ->and(Harness::rowsOf(Harness::TARGET))->toBe(3)
         ->and(Harness::settingExists('features.embeddings.active'))->toBeFalse()
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::TARGET)
-        ->and(Harness::setting('search.vector.dimensions'))->toBe(384)
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBeNull()
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET)
+        ->and(Harness::setting('features.embeddings.model'))->toBe(Harness::TARGET)
+        ->and(Harness::settingNamesLike('search.vector.%'))->toBe([])
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeFalse()
         ->and(app(EmbeddingModelRegistry::class)->activeKey())->toBe(Harness::TARGET)
-        ->and(config('core.search.vector.model'))->toBe(Harness::TARGET)
-        ->and(config('core.search.vector.suspended_reason'))->toBeNull()
+        ->and(config('ai.features.embeddings.serving_model'))->toBe(Harness::TARGET)
+        ->and(VectorProfileContext::get())->toEqual(new VectorProfile(Harness::TARGET, 384, 'cosine'))
         ->and(Harness::$ragRebuilds)->toBe([['target' => Harness::TARGET, 'dimensions' => 384]])
         ->and($this->engine->vectorQueries)->toHaveCount(1);
 
@@ -65,7 +70,9 @@ it('recreates the index with the new dimensions when they differ, and activates 
         'dimensions' => 768,
         'model_key' => Harness::WIDE,
     ]])
-        ->and(config('core.search.vector.dimensions'))->toBe(384);
+        ->and(VectorProfileContext::get()?->modelKey)->toBe(Harness::ACTIVE)
+        ->and(VectorProfileContext::get()?->dimensions)->toBe(384)
+        ->and(config()->has('core.search.vector.dimensions'))->toBeFalse();
 
     foreach ($this->engine->documentsOf($this->index) as $document) {
         expect($document['embeddings'])->toHaveCount(1)
@@ -75,8 +82,8 @@ it('recreates the index with the new dimensions when they differ, and activates 
     $state = Harness::advanceUntil();
 
     expect($state->status)->toBe('idle')
-        ->and(config('core.search.vector.dimensions'))->toBe(768)
-        ->and(Harness::setting('search.vector.dimensions'))->toBe(768)
+        ->and(VectorProfileContext::get())->toEqual(new VectorProfile(Harness::WIDE, 768, 'cosine'))
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::WIDE)
         ->and(Harness::storedModelKeys())->toBe([Harness::WIDE])
         ->and(Harness::$ragRebuilds)->toBe([['target' => Harness::WIDE, 'dimensions' => 768]]);
 });
@@ -91,10 +98,10 @@ it('fails the verification when a record has no row of the target, leaving the p
     expect($state->status)->toBe('failed')
         ->and($state->phase)->toBe('verify')
         ->and($state->error)->toContain('#' . $this->records[1]->getKey())
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::ACTIVE)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::ACTIVE)
         ->and(app(EmbeddingModelRegistry::class)->activeKey())->toBe(Harness::ACTIVE)
         ->and(Harness::rowsOf(Harness::ACTIVE))->toBe(3)
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBe('switching')
+        ->and(app(EmbeddingSwitchStore::class)->isSwitching())->toBeTrue()
         ->and(app(IVectorSearchAvailability::class)->check(new EmbeddableTestModel)->reason)->toBe('suspended');
 });
 
@@ -168,7 +175,43 @@ it('fails the embeddings phase when a record still has no row of the target afte
     expect($state->status)->toBe('failed')
         ->and($state->phase)->toBe('embeddings')
         ->and($state->error)->toContain('#' . $this->records[1]->getKey())
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::ACTIVE);
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::ACTIVE);
+});
+
+it('has vector search suspended from the start, before the first re-embed job and every index chunk run', function (): void {
+    $seen = [];
+    Event::listen(JobProcessing::class, static function (JobProcessing $event) use (&$seen): void {
+        $seen[] = [
+            $event->job->resolveName(),
+            app(EmbeddingSwitchStore::class)->get()->status,
+            app(IVectorSearchAvailability::class)->check(new EmbeddableTestModel)->reason,
+        ];
+    });
+    Harness::start(Harness::TARGET);
+
+    expect(app(IVectorSearchAvailability::class)->check(new EmbeddableTestModel)->reason)->toBe('suspended');
+
+    Harness::advanceUntil('activate');
+
+    $names = array_column($seen, 0);
+
+    expect($names)->toContain(GenerateEmbeddingsJob::class)
+        ->and($names)->toContain(IndexDocumentsChunkJob::class)
+        ->and(array_unique(array_column($seen, 1)))->toBe(['running'])
+        ->and(array_unique(array_column($seen, 2)))->toBe(['suspended']);
+});
+
+it('pins the target profile while it discovers and counts the models, so it runs with the embeddings feature off', function (): void {
+    config()->set('ai.features.embeddings.enabled', false);
+    Harness::start(Harness::TARGET);
+
+    $state = Harness::advanceUntil();
+
+    expect($state->status)->toBe('idle')
+        ->and(Harness::storedModelKeys())->toBe([Harness::TARGET])
+        ->and($this->engine->documentsOf($this->index))->toHaveCount(3)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET)
+        ->and($this->engine->vectorQueries)->toBe([]);
 });
 
 it('re-dispatches the switch job while the switch runs, and stops once it no longer runs', function (): void {

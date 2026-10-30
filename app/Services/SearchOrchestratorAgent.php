@@ -7,6 +7,7 @@ namespace Modules\AI\Services;
 use Illuminate\Support\Facades\Cache;
 use Modules\AI\Data\Search\SearchPlanData;
 use Modules\Core\Search\Contracts\ISearchPlanner;
+use Modules\Core\Search\Contracts\IVectorProfileProvider;
 use Modules\Core\Search\Support\SearchDegradations;
 use Throwable;
 
@@ -67,8 +68,7 @@ final readonly class SearchOrchestratorAgent implements ISearchPlanner
     {
         $is_short = mb_strlen($query) < 20;
         $has_numbers = (bool) preg_match('/\d/', $query);
-        $vector_globally_enabled = (bool) config('core.search.vector.enabled', false);
-        $use_vector = $vector_globally_enabled && ! $has_numbers;
+        $use_vector = $this->hasVectorProfile() && ! $has_numbers;
 
         $use_reranker = (bool) config('core.search.reranker.enabled');
         $rerank_top_k = $this->intValue(config('core.search.reranker.top_k'), 30);
@@ -115,13 +115,13 @@ final readonly class SearchOrchestratorAgent implements ISearchPlanner
     /**
      * Clamp the plan the model returned into a safe search plan. The types are Neuron's; what is left
      * here is the domain defence: the ranges the search accepts, and the vector search that only runs
-     * when it is enabled for the whole application.
+     * while the vector profile provider answers a profile.
      *
      * @return array<string, mixed>
      */
     private function sanitizePlan(SearchPlanData $plan, string $query): array
     {
-        $use_vector = (bool) config('core.search.vector.enabled', false) && $plan->retrieval->use_vector;
+        $use_vector = $this->hasVectorProfile() && $plan->retrieval->use_vector;
 
         return [
             'strategy' => $use_vector ? $this->sanitizeStrategy($plan->strategy) : 'fulltext',
@@ -188,6 +188,14 @@ final readonly class SearchOrchestratorAgent implements ISearchPlanner
         }
 
         return 'hybrid';
+    }
+
+    /**
+     * Whether vector retrieval may run: the bound vector profile provider answers a profile.
+     */
+    private function hasVectorProfile(): bool
+    {
+        return resolve(IVectorProfileProvider::class)->current() !== null;
     }
 
     private function intValue(mixed $value, int $default): int

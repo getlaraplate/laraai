@@ -142,12 +142,12 @@ it('keys by the active embedding profile', function (): void {
         return [1.0];
     };
 
-    config(['core.search.vector.model' => $keys[0]]);
+    config(['ai.features.embeddings.serving_model' => $keys[0]]);
     $cache->remember('x', $compute);
     $cache->remember('x', $compute);
     expect($calls)->toBe(1);
 
-    config(['core.search.vector.model' => $keys[1]]);
+    config(['ai.features.embeddings.serving_model' => $keys[1]]);
     $cache->remember('x', $compute);
 
     expect($calls)->toBe(2);

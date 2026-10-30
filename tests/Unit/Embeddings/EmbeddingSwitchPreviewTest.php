@@ -13,6 +13,8 @@ use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\AI\Tests\Stubs\EmbeddableTestModel;
 use Modules\AI\Tests\Stubs\TranslatedEmbeddableTestModel;
 use Modules\AI\Tests\Stubs\TranslatedEmbeddableTestModelTranslation;
+use Modules\Core\Search\DTOs\VectorProfile;
+use Modules\Core\Search\Support\VectorProfileContext;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 
 uses(RefreshDatabase::class);
@@ -25,7 +27,7 @@ beforeEach(function (): void {
         'openai_compatible:all-MiniLM-L6-v2' => ['dimensions' => 384],
         'openai_compatible:BAAI/bge-m3' => ['dimensions' => 1024],
     ]);
-    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();
@@ -102,6 +104,23 @@ it('counts the searchable records times their translations', function (): void {
 
     expect($preview->recordsToEmbed)->toBe(5)
         ->and($preview->estimatedSeconds)->toBeInt();
+});
+
+it('discovers the models with the target profile pinned, so it counts with the embeddings feature off', function (): void {
+    config()->set('ai.features.embeddings.enabled', false);
+    $seen = 'not asked';
+    $embeddable = Mockery::mock(IEmbeddableModels::class);
+    $embeddable->shouldReceive('all')->andReturnUsing(static function () use (&$seen): array {
+        $seen = VectorProfileContext::get();
+
+        return [];
+    });
+    $target = app(EmbeddingModelRegistry::class)->get('openai_compatible:BAAI/bge-m3');
+
+    (new EmbeddingSwitchPreview(app(EmbeddingModelRegistry::class), $embeddable))->for($target);
+
+    expect($seen)->toEqual(new VectorProfile('openai_compatible:BAAI/bge-m3', 1024, $target->similarity))
+        ->and(VectorProfileContext::get())->toBeNull();
 });
 
 it('measures the latency on the server the target profile names', function (): void {

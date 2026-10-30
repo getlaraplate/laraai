@@ -14,7 +14,7 @@ use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Search\Contracts\IProfileVectorIndex;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ISearchEngine;
-use Modules\Core\Search\Support\VectorModelContext;
+use Modules\Core\Search\Support\VectorProfileContext;
 
 /**
  * The index work of an embedding model switch: every embeddable model's index is filled again with
@@ -31,11 +31,11 @@ use Modules\Core\Search\Support\VectorModelContext;
  * documents once more the same way, without touching the indexes; the documentation is not edited
  * by users, so it has no refresh.
  *
- * The model work runs inside {@see VectorModelContext::using()} with the target key, so each
- * document carries only the target's vectors. The engines size the vector mapping from
- * `core.search.vector.dimensions` (and `similarity`) when they create an index, so both are set to
- * the target's for the duration of the work, in that process only, and restored afterwards. The
- * documentation work runs with the target as the active embedding profile.
+ * The model work runs inside {@see VectorProfileContext::using()} with the target's whole vector
+ * profile (key, dimensions, similarity), so each document carries only the target's vectors and an
+ * index created meanwhile is mapped for the target, while the serving profile stays the previous
+ * one for every other reader. The documentation work runs with the target as the active embedding
+ * profile.
  */
 final readonly class EmbeddingSwitchIndexes
 {
@@ -194,30 +194,14 @@ final readonly class EmbeddingSwitchIndexes
     }
 
     /**
-     * Runs the callback with the target as the vector model of the documents and its dimensions and
-     * similarity as the ones new mappings take, restoring both settings afterwards.
+     * Runs the callback with the target's vector profile in force: the model of the documents and the
+     * dimensions and similarity new mappings take.
      *
      * @param  Closure(): void  $callback
      */
     private function asTarget(EmbeddingModelProfile $target, Closure $callback): void
     {
-        VectorModelContext::using($target->key, static function () use ($target, $callback): void {
-            $previous = [
-                'core.search.vector.dimensions' => config('core.search.vector.dimensions'),
-                'core.search.vector.similarity' => config('core.search.vector.similarity'),
-            ];
-
-            config([
-                'core.search.vector.dimensions' => $target->dimensions,
-                'core.search.vector.similarity' => $target->similarity,
-            ]);
-
-            try {
-                $callback();
-            } finally {
-                config($previous);
-            }
-        });
+        VectorProfileContext::using($target->vectorProfile(), $callback);
     }
 
     /**

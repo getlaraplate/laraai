@@ -8,17 +8,19 @@ use Illuminate\Database\Eloquent\Model;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Contracts\IEmbeddingService;
+use Modules\AI\Services\EmbeddingsGate;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ITextEmbedder;
-use Modules\Core\Search\Support\VectorModelContext;
+use Modules\Core\Search\Support\VectorProfileContext;
 use Throwable;
 
 /**
  * The `verify` phase of an embedding model switch. For each embeddable model's index: it holds one
  * document per searchable record, every record has a row of the target for each of its locales, the
  * mapping reports the target's dimensions, and a vector query of the embedded text `test` runs. The
- * first check that does not hold fails the phase with what it found. The last two checks need
- * vector search on.
+ * first check that does not hold fails the phase with what it found. The last two checks need the
+ * embeddings feature on ({@see EmbeddingsGate::enabled()}); the model checks run with the target's
+ * vector profile in force.
  */
 final readonly class EmbeddingSwitchVerifier
 {
@@ -28,6 +30,7 @@ final readonly class EmbeddingSwitchVerifier
         private EmbeddingSwitchCorpus $corpus,
         private SearchIndexInspector $inspector,
         private EmbeddingModelRegistry $registry,
+        private EmbeddingsGate $gate = new EmbeddingsGate(),
     ) {}
 
     /**
@@ -35,10 +38,10 @@ final readonly class EmbeddingSwitchVerifier
      */
     public function verify(EmbeddingModelProfile $target): void
     {
-        $vectorsOn = (bool) config('core.search.vector.enabled');
+        $vectorsOn = $this->gate->enabled();
         $smokeVector = $vectorsOn ? $this->smokeVector($target) : null;
 
-        VectorModelContext::using($target->key, function () use ($target, $vectorsOn, $smokeVector): void {
+        VectorProfileContext::using($target->vectorProfile(), function () use ($target, $vectorsOn, $smokeVector): void {
             foreach ($this->corpus->models() as $modelClass) {
                 $this->verifyModel($modelClass, $target, $vectorsOn, $smokeVector);
             }

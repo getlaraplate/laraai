@@ -318,7 +318,7 @@ it('recomputes every locale when the active embedding model changed', function (
     $model = makeBilingualEmbeddedModel();
 
     // Switch the active embedding-model profile: model_key no longer matches.
-    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:all-MiniLM-L6-v2');
     config()->set('ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.dimensions', 2);
     $new_key = app(EmbeddingModelRegistry::class)->active()->key;
 

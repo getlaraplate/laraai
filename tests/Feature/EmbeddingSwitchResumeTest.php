@@ -19,6 +19,8 @@ use Modules\AI\Tests\Stubs\EmbeddingSwitchHarness as Harness;
 use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Models\Setting;
+use Modules\Core\Search\Contracts\IVectorSearchAvailability;
+use Modules\Core\Search\Support\VectorProfileContext;
 
 beforeEach(function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
@@ -67,15 +69,15 @@ it('resumes a switch failed in its verification once the cause is fixed, and com
         ->assertSuccessful();
 
     expect(resume_store()->get()->status)->toBe('idle')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::TARGET)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET)
         ->and(Harness::storedModelKeys())->toBe([Harness::TARGET])
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBeNull();
+        ->and(resume_store()->isSwitching())->toBeFalse();
 });
 
 it('leaves an activation whose settings write throws at the activate phase, and resumes it', function (): void {
     $thrown = false;
     Setting::saving(static function (Setting $setting) use (&$thrown): void {
-        if ($setting->name === 'search.vector.dimensions' && ! $thrown) {
+        if ($setting->name === 'features.embeddings.serving_model' && ! $thrown) {
             $thrown = true;
 
             throw new RuntimeException('settings store unavailable');
@@ -97,9 +99,10 @@ it('leaves an activation whose settings write throws at the activate phase, and 
     expect($failure?->getMessage())->toBe('settings store unavailable')
         ->and($state->status)->toBe('running')
         ->and($state->phase)->toBe('activate')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::ACTIVE)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::ACTIVE)
         ->and(app(EmbeddingModelRegistry::class)->activeKey())->toBe(Harness::ACTIVE)
-        ->and(config('core.search.vector.model'))->toBe(Harness::ACTIVE)
+        ->and(config('ai.features.embeddings.serving_model'))->toBe(Harness::ACTIVE)
+        ->and(resume_store()->isSwitching())->toBeTrue()
         ->and(Harness::rowsOf(Harness::ACTIVE))->toBe(3);
 
     (new SwitchEmbeddingModelJob)->failed($failure);
@@ -108,7 +111,7 @@ it('leaves an activation whose settings write throws at the activate phase, and 
     $this->artisan('ai:embeddings:switch', ['--resume' => true])->assertSuccessful();
 
     expect(resume_store()->get()->status)->toBe('idle')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::TARGET)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET)
         ->and(Harness::storedModelKeys())->toBe([Harness::TARGET]);
 });
 
@@ -192,10 +195,10 @@ it('abandons a switch failed after it changed the index: rebuilds for the previo
     $forced = $this->engine->forcedIndexes();
 
     expect(resume_store()->get()->status)->toBe('idle')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::ACTIVE)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::ACTIVE)
         ->and(Harness::setting('features.embeddings.model'))->toBe(Harness::ACTIVE)
-        ->and(Harness::setting('search.vector.dimensions'))->toBe(384)
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBeNull()
+        ->and(VectorProfileContext::get()?->dimensions)->toBe(384)
+        ->and(resume_store()->isSwitching())->toBeFalse()
         ->and($forced)->toHaveCount(2)
         ->and(end($forced)['dimensions'])->toBe(384)
         ->and(end($forced)['model_key'])->toBe(Harness::ACTIVE)
@@ -203,18 +206,34 @@ it('abandons a switch failed after it changed the index: rebuilds for the previo
         ->and(Harness::rowsOf(Harness::ACTIVE))->toBe(3);
 });
 
-it('lifts the suspension when it abandons a switch whose job failed its preflight', function (): void {
+it('leaves vector search on when the job failed its preflight, which changed nothing, and clears it on abandon', function (): void {
     Queue::fake();
-    resume_store()->suspend();
+    resume_store()->put(new EmbeddingSwitchState('running', 'preflight', Harness::TARGET, Harness::ACTIVE));
+    expect(resume_store()->isSwitching())->toBeTrue();
+
     resume_store()->put(new EmbeddingSwitchState('failed', 'preflight', Harness::TARGET, Harness::ACTIVE, error: 'worker lost'));
-    expect(Harness::setting('search.vector.suspended_reason'))->toBe('switching');
+    expect(resume_store()->isSwitching())->toBeFalse();
 
     $this->artisan('ai:embeddings:switch', ['--abandon' => true])->assertSuccessful();
 
     expect(resume_store()->get()->status)->toBe('idle')
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBeNull()
-        ->and(config('core.search.vector.suspended_reason'))->toBeNull();
+        ->and(resume_store()->isSwitching())->toBeFalse()
+        ->and(config('ai.features.embeddings.switch'))->toBe(resume_store()->get()->toJson());
     Queue::assertNothingPushed();
+});
+
+it('keeps vector search suspended when it abandons a failed switch, for the whole switch back', function (): void {
+    Queue::fake();
+    resume_service_reports('intfloat/multilingual-e5-small');
+    resume_store()->put(new EmbeddingSwitchState('failed', 'verify', Harness::TARGET, Harness::ACTIVE, error: 'a record has no embedding of the target'));
+
+    $this->artisan('ai:embeddings:switch', ['--abandon' => true])->assertSuccessful();
+
+    expect(resume_store()->get()->status)->toBe('running')
+        ->and(resume_store()->get()->target)->toBe(Harness::ACTIVE)
+        ->and(resume_store()->isSwitching())->toBeTrue()
+        ->and(app(IVectorSearchAvailability::class)->check(new EmbeddableTestModel)->reason)->toBe('suspended');
+    Queue::assertPushed(SwitchEmbeddingModelJob::class, 1);
 });
 
 it('shows a running switch without progress as interrupted', function (): void {
@@ -244,7 +263,7 @@ it('resumes a verification failed on a leftover document by rebuilding the index
 
     expect(resume_store()->get()->status)->toBe('idle')
         ->and($this->engine->documentsOf($this->index))->not->toHaveKey('999')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::TARGET);
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET);
 });
 
 it('resumes a switch failed in its indexes or verification from the embeddings, so a record edited meanwhile is embedded again', function (string $phase): void {
@@ -260,7 +279,7 @@ it('resumes a switch failed in its indexes or verification from the embeddings, 
         ->assertSuccessful();
 
     expect(resume_store()->get()->status)->toBe('idle')
-        ->and(Harness::setting('search.vector.model'))->toBe(Harness::TARGET)
+        ->and(Harness::setting('features.embeddings.serving_model'))->toBe(Harness::TARGET)
         ->and(ModelEmbedding::query()->forModel($edited)->where('model_key', Harness::TARGET)->value('content_hash'))
         ->toBe(ModelEmbeddingSynchronizer::contentHash('Two, edited while the switch was failed'));
 })->with(['indexes', 'verify']);
@@ -276,6 +295,6 @@ it('refuses to abandon, changing nothing, when the service does not run the prev
         ->assertFailed();
 
     expect(resume_store()->get())->toEqual($failed)
-        ->and(Harness::setting('search.vector.suspended_reason'))->toBeNull();
+        ->and(resume_store()->isSwitching())->toBeTrue();
     Queue::assertNothingPushed();
 });

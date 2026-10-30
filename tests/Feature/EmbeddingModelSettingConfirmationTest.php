@@ -35,7 +35,7 @@ beforeEach(function (): void {
         CONFIRM_OTHER_DIMENSIONS => ['dimensions' => 1024],
     ]);
     $this->seed(AIDatabaseSeeder::class);
-    config()->set('core.search.vector.model', CONFIRM_ACTIVE);
+    config()->set('ai.features.embeddings.serving_model', CONFIRM_ACTIVE);
 
     $provider = Mockery::mock(EmbeddingsProviderInterface::class);
     $provider->shouldReceive('embedText')->andReturn(array_fill(0, 1024, 0.1));

@@ -15,10 +15,13 @@ use Modules\AI\Contracts\IEmbeddingService;
 use Modules\AI\Tests\Stubs\Embeddings\RecordingEmbeddingsProvider;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 
-it('reaches the target provider on every run, whatever the query cache holds', function (): void {
-    Cache::flush();
-    config(['core.search.vector.enabled' => true]);
-
+/**
+ * A verifier over an empty corpus whose target provider records the texts it is sent.
+ *
+ * @return array{EmbeddingSwitchVerifier, RecordingEmbeddingsProvider, EmbeddingModelProfile}
+ */
+function verifierRecordingTheTarget(): array
+{
     $registry = app(EmbeddingModelRegistry::class);
     $configured = $registry->get($registry->keys()[0]);
     $target = new EmbeddingModelProfile(
@@ -47,10 +50,27 @@ it('reaches the target provider on every run, whatever the query cache holds', f
     $corpus = new EmbeddingSwitchCorpus(Mockery::mock(IEmbeddableModels::class, static function (MockInterface $mock): void {
         $mock->shouldReceive('all')->andReturn([]);
     }));
-    $verifier = new EmbeddingSwitchVerifier($corpus, new SearchIndexInspector, $registry);
+
+    return [new EmbeddingSwitchVerifier($corpus, new SearchIndexInspector, $registry), $provider, $target];
+}
+
+it('reaches the target provider on every run, whatever the query cache holds', function (): void {
+    Cache::flush();
+    config(['ai.features.embeddings.enabled' => true]);
+    [$verifier, $provider, $target] = verifierRecordingTheTarget();
 
     $verifier->verify($target);
     $verifier->verify($target);
 
     expect($provider->textsSent)->toBe(['test', 'test']);
+});
+
+it('runs no smoke vector while the embeddings feature is off', function (): void {
+    Cache::flush();
+    config(['ai.features.embeddings.enabled' => false]);
+    [$verifier, $provider, $target] = verifierRecordingTheTarget();
+
+    $verifier->verify($target);
+
+    expect($provider->textsSent)->toBe([]);
 });

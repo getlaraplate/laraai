@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings;
 
+use Modules\Core\Search\DTOs\VectorProfile;
+
 /**
  * Immutable description of a single embedding model's attributes: which
  * provider serves it, its output dimensionality and similarity metric, and
@@ -37,5 +39,13 @@ final readonly class EmbeddingModelProfile
         $first = $normalize($first);
 
         return $first !== '' && $first === $normalize($second);
+    }
+
+    /**
+     * The vector profile Core indexes and queries this model's vectors with.
+     */
+    public function vectorProfile(): VectorProfile
+    {
+        return new VectorProfile($this->key, $this->dimensions, $this->similarity);
     }
 }
