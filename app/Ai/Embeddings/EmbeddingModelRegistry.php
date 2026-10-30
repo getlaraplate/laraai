@@ -45,13 +45,13 @@ final class EmbeddingModelRegistry
     }
 
     /**
-     * The active key: the model that serves search, Core's managed setting `search.vector.model`
-     * (read as `core.search.vector.model`), else the first configured profile, else the first
-     * declared one.
+     * The active key: the model that serves search, the managed setting
+     * `features.embeddings.serving_model` (read as `ai.features.embeddings.serving_model`), else the
+     * first configured profile, else the first declared one.
      */
     public function activeKey(): string
     {
-        $configured = config('core.search.vector.model');
+        $configured = config('ai.features.embeddings.serving_model');
 
         if (is_string($configured) && $configured !== '') {
             return $configured;

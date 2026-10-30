@@ -8,6 +8,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Modules\AI\Ai\Embeddings\ActiveEmbeddingProfileProvider;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingModelSettingConfirmation;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
@@ -66,6 +67,7 @@ use Modules\Core\Models\User;
 use Modules\Core\Overrides\ModuleServiceProvider;
 use Modules\Core\Search\Contracts\ISearchStrategyResolver;
 use Modules\Core\Search\Contracts\ITextEmbedder;
+use Modules\Core\Search\Contracts\IVectorProfileProvider;
 use Modules\Core\Search\Contracts\IVectorSearchAvailability;
 use Modules\Core\Search\SearchableContributorRegistry;
 use Modules\Core\Search\Services\VectorSearchAvailability;
@@ -91,6 +93,7 @@ class AIServiceProvider extends ModuleServiceProvider
         $this->app->singleton(IEmbeddableModels::class, EmbeddableModels::class);
         $this->app->bind(IRagIndexRebuilder::class, RagIndexRebuilder::class);
         $this->app->singleton(EmbeddingModelRegistry::class);
+        $this->app->singleton(IVectorProfileProvider::class, ActiveEmbeddingProfileProvider::class);
         $this->app->singleton(
             IVectorSearchAvailability::class,
             static fn ($app): IVectorSearchAvailability => new EmbeddingVectorSearchAvailability(

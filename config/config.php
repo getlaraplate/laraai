@@ -55,10 +55,11 @@ return [
             'retry_until_minutes' => 1440,
 
             // The model choice is the setting `features.embeddings.model` (overlaid as
-            // `ai.features.embeddings.model`); the model that serves search is Core's managed
-            // `search.vector.model`. EmbeddingModelRegistry falls back to the first configured profile below.
-            // Profiles are keyed `provider:service_model`, split at the first colon. Each
-            // declares the dimensions of its vectors; Core's `core.search.vector.*` follows.
+            // `ai.features.embeddings.model`); the model that serves search is the managed setting
+            // `features.embeddings.serving_model`. EmbeddingModelRegistry falls back to the first
+            // configured profile below. Profiles are keyed `provider:service_model`, split at the
+            // first colon. Each declares the dimensions and the similarity of its vectors, which
+            // ActiveEmbeddingProfileProvider hands to Core as the vector profile.
             'models' => [
                 'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,

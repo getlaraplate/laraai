@@ -15,7 +15,6 @@ use Modules\Core\Events\ModelRequiresIndexing;
 
 beforeEach(function (): void {
     Config::set('ai.features.embeddings.enabled', true);
-    Config::set('core.search.vector.enabled', true);
     Queue::fake();
 });
 
@@ -165,6 +164,31 @@ it('dispatches when the embeddings module allowlist includes the model module', 
 
 it('does nothing while the embeddings setting is not there at all, like the seeded default which is off', function (): void {
     config()->set('ai.features.embeddings', []);
+
+    $model = new SearchableModelStub;
+    $model->id = 1;
+
+    app(HandleModelIndexingListener::class)->handle(new ModelRequiresIndexing($model, false));
+
+    Queue::assertNothingPushed();
+});
+
+it('dispatches for an embeddable model with only the embeddings switch on and a profile configured', function (): void {
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('core.search.vector', []);
+
+    $model = new SearchableModelStub;
+    $model->id = 1;
+
+    $event = new ModelRequiresIndexing($model, false);
+    app(HandleModelIndexingListener::class)->handle($event);
+
+    Queue::assertPushed(GenerateEmbeddingsJob::class);
+    expect($event->required_pre_processing)->toContain('embeddings');
+});
+
+it('does nothing while the active profile is not configured', function (): void {
+    config()->set('ai.features.embeddings.serving_model', 'nope:missing');
 
     $model = new SearchableModelStub;
     $model->id = 1;

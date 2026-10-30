@@ -112,11 +112,12 @@ class AIDatabaseSeeder extends Seeder
     }
 
     /**
-     * The embedding model choice and the switch progress. The model that serves search is Core's
-     * managed `search.vector.model`, not an AI setting. The choice defaults to that serving model,
-     * so a fresh installation starts with the dropdown on the model Core seeded; without a stored
-     * value it is the registry's active key. The choices are the configured profiles, and the
-     * serving model is always among them.
+     * The embedding model choice, the model that serves search and the switch progress. The serving
+     * model is managed (the embedding model switch writes it when it finishes) and defaults to the
+     * value already stored, else the registry's active key: the first configured profile. The choice
+     * defaults to the serving model, so a fresh installation starts with the dropdown on the model
+     * that serves search. The choices are the configured profiles, and the serving model is always
+     * among them.
      *
      * @return list<array<string, mixed>>
      */
@@ -131,19 +132,20 @@ class AIDatabaseSeeder extends Seeder
         }
 
         return [
+            [...self::setting('features.embeddings.serving_model', $default, SettingTypeEnum::String, 'ai', 'Embedding model that serves search, as provider:model (set by the embedding model switch)'), 'managed' => true],
             self::setting('features.embeddings.model', $default, SettingTypeEnum::String, 'ai', 'Embedding model, as provider:model (changing it starts a model switch)', $choices),
             [...self::setting('features.embeddings.switch', EmbeddingSwitchState::idle()->toJson(), SettingTypeEnum::String, 'ai', 'Embedding model switch progress, as JSON (set by the embedding model switch)'), 'managed' => true],
         ];
     }
 
     /**
-     * The stored `search.vector.model`, written by the Core seeder that runs first. It is read from
-     * the table because the seed reconciler upserts without model events, so on a fresh
-     * installation the runtime config does not hold the Core value yet.
+     * The stored `features.embeddings.serving_model`, so a re-seed keeps the model that serves search.
+     * It is read from the table because the seed reconciler upserts without model events, so the
+     * runtime config does not hold the value yet.
      */
     private static function storedServingModel(): ?string
     {
-        $stored = Setting::query()->withoutGlobalScopes()->where('name', 'search.vector.model')->first()?->value;
+        $stored = Setting::query()->withoutGlobalScopes()->where('name', 'features.embeddings.serving_model')->first()?->value;
 
         return is_string($stored) && $stored !== '' ? $stored : null;
     }

@@ -143,8 +143,8 @@ it('resolves a dotted profile key when the whole models array is replaced', func
         ->and($profile->dimensions)->toBe(768);
 });
 
-it('serves the model named by Core search.vector.model', function (): void {
-    config()->set('core.search.vector.model', 'voyageai:voyage-3-lite');
+it('serves the model named by ai.features.embeddings.serving_model', function (): void {
+    config()->set('ai.features.embeddings.serving_model', 'voyageai:voyage-3-lite');
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('ai.features.embeddings.models', [
         'openai_compatible:intfloat/multilingual-e5-small' => ['dimensions' => 384],
@@ -157,8 +157,8 @@ it('serves the model named by Core search.vector.model', function (): void {
         ->and($registry->active()->dimensions)->toBe(512);
 });
 
-it('defaults the active profile to the first configured one when Core names no model', function (?string $model): void {
-    config()->set('core.search.vector.model', $model);
+it('defaults the active profile to the first configured one when no model is being served', function (?string $model): void {
+    config()->set('ai.features.embeddings.serving_model', $model);
     config()->set('ai.servers.embeddings.url', '');
     config()->set('ai.providers.voyageai.api_key', 'k');
     config()->set('ai.features.embeddings.models', [
@@ -168,6 +168,14 @@ it('defaults the active profile to the first configured one when Core names no m
 
     expect(app(EmbeddingModelRegistry::class)->active()->key)->toBe('voyageai:voyage-3-lite');
 })->with(['null' => [null], 'empty' => ['']]);
+
+it('ignores the Core search.vector.model key', function (): void {
+    config()->set('core.search.vector.model', 'openai_compatible:all-MiniLM-L6-v2');
+    config()->set('ai.features.embeddings.serving_model', null);
+    config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
+
+    expect(app(EmbeddingModelRegistry::class)->activeKey())->toBe('openai_compatible:intfloat/multilingual-e5-small');
+});
 
 it('knows voyageai and openai_compatible configuration', function (): void {
     $providers = new Modules\AI\Ai\Providers\Models\ProviderConfiguration;

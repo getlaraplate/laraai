@@ -12,8 +12,10 @@ use Modules\Core\Search\Traits\Searchable;
 /**
  * Whether the embeddings pipeline may work on a model: the master switch (the seeded setting
  * `features.embeddings.enabled`, off), the per-module allowlist and, for a model that is to be
- * embedded, the `Searchable` trait and the model's own `isEmbeddable()`. Every listener, the repair
- * command and the discovery of embeddable models ask here, so they cover the same models.
+ * embedded, the `Searchable` trait and the model's own `isEmbeddable()`, which holds while the vector
+ * profile provider ({@see \Modules\AI\Ai\Embeddings\ActiveEmbeddingProfileProvider}) answers a
+ * profile, that is while the master switch is on and the active profile is configured. Every listener,
+ * the repair command and the discovery of embeddable models ask here, so they cover the same models.
  */
 final readonly class EmbeddingsGate
 {
@@ -34,8 +36,9 @@ final readonly class EmbeddingsGate
     }
 
     /**
-     * Whether the model is one the pipeline embeds, whatever the switch says: the allowlist admits it
-     * and it is searchable and embeddable. What a repair or a model switch has to cover.
+     * Whether the model is one the pipeline embeds, whatever the switch says about the feature: the
+     * allowlist admits it and it is searchable and embeddable, which needs a vector profile in force
+     * (the active one, or the one a model switch pins). What a repair or a model switch has to cover.
      */
     public function handles(Model $model): bool
     {
