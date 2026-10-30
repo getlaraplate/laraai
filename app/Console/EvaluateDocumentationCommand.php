@@ -21,7 +21,7 @@ final class EvaluateDocumentationCommand extends Command
     use WritesJsonReport;
 
     #[Override]
-    protected $signature = 'ai:evaluate-documentation
+    protected $signature = 'test:ai:evaluate-documentation
                             {--module= : Module that owns the dataset}
                             {--index=user : Documentation index profile (user|developer)}
                             {--dataset= : Path to an evaluation dataset}

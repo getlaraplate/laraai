@@ -36,7 +36,7 @@ final class TuneRetrievalCommand extends Command
     use WritesJsonReport;
 
     #[Override]
-    protected $signature = 'ai:tune-retrieval
+    protected $signature = 'test:ai:tune-retrieval
                             {--source= : Registered application content source}
                             {--dataset= : Path to a generated evaluation dataset}
                             {--grid=default : Built-in grid name, or a JSON file with a list of parameter sets}
@@ -150,7 +150,7 @@ final class TuneRetrievalCommand extends Command
             $this->writeReport($files, $output_path, $report);
 
             $this->info(sprintf('Ranked %d candidates by %s.', count($grid), $metric));
-            $this->line('// ai:tune-retrieval report: ' . $output_path);
+            $this->line('// test:ai:tune-retrieval report: ' . $output_path);
             $this->line($this->validationSummary($report));
             $this->line($this->noiseSummary($report));
 

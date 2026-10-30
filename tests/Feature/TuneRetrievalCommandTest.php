@@ -103,7 +103,7 @@ function tuneCommandCleanup(string $directory): void
 it('fails before tuning for an unregistered source', function (): void {
     app()->instance(ApplicationContentRetrievalProviderRegistryInterface::class, new ApplicationContentRetrievalProviderRegistry);
 
-    $this->artisan('ai:tune-retrieval', [
+    $this->artisan('test:ai:tune-retrieval', [
         '--dataset' => '/missing/dataset.json',
         '--source' => 'missing.records',
         '--output' => '/tmp/missing-tuning-report.json',
@@ -114,7 +114,7 @@ it('fails for an unknown metric or grid without writing a report', function (arr
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -138,7 +138,7 @@ it('writes only its report, prints a profile block and refuses to overwrite with
     try {
         // The noise check is off here: this test is about what the command writes, and a one-case
         // dataset cannot clear any noise margin (see the noise tests below).
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -160,7 +160,7 @@ it('writes only its report, prints a profile block and refuses to overwrite with
             ->and(array_map(basename(...), glob($fixture['directory'] . '/*') ?: []))->toBe(['dataset.json', 'report.json'])
             ->and(hash_file('sha256', $profile_path))->toBe($profile_hash);
 
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -174,7 +174,7 @@ it('refuses safeguards outside their range before tuning anything', function (ar
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -199,7 +199,7 @@ it('applies the recommended safeguards by default and records them in the report
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -220,7 +220,7 @@ it('turns the held-out validation off with a zero share, and says the profile wa
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -246,7 +246,7 @@ it('declares no winner for a dataset too small to clear the automatic noise marg
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -270,7 +270,7 @@ it('records a fixed noise margin given on the command line', function (): void {
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -290,7 +290,7 @@ it('retrieves every case in the locale the case declares', function (): void {
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -308,7 +308,7 @@ it('records the context a profile was measured in: the embedding model, the corp
     $fixture = tuneCommandFixture();
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -337,7 +337,7 @@ it('warns when the reranker did not run, and records it in the report', function
     $fixture = tuneCommandFixture(rerankerRan: false);
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],
@@ -358,7 +358,7 @@ it('says nothing about the reranker when it ran', function (): void {
     $fixture = tuneCommandFixture(rerankerRan: true);
 
     try {
-        $this->artisan('ai:tune-retrieval', [
+        $this->artisan('test:ai:tune-retrieval', [
             '--dataset' => $fixture['dataset'],
             '--source' => 'cms.strategy_records',
             '--output' => $fixture['output'],

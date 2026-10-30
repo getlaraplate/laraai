@@ -28,7 +28,7 @@ final class EvaluateApplicationContentRetrievalStrategiesCommand extends Command
     use WritesJsonReport;
 
     #[Override]
-    protected $signature = 'ai:evaluate-retrieval-strategies
+    protected $signature = 'test:ai:evaluate-retrieval-strategies
                             {--dataset= : Path to a generated evaluation dataset}
                             {--source= : Registered application content source}
                             {--output= : New JSON report path}

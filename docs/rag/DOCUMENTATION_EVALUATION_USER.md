@@ -20,7 +20,7 @@ Level-2 (grading the written answer with a live model) is specified but opt-in a
 ### Run an evaluation
 
 ```bash
-php artisan ai:evaluate-documentation \
+php artisan test:ai:evaluate-documentation \
   --module=core --index=user \
   --dataset=Modules/Core/docs/rag/evaluations/2026-08-documentation-user.json \
   --output=storage/app/doc-eval-core-user.json
@@ -111,7 +111,7 @@ Evaluation runs the real retrieval path, including audience, permission, tenant,
 
 ## FAQPrompts
 
-- "How do I add an evaluation for my module?" → author a dataset JSON under `Modules/{Module}/docs/rag/evaluations/` and run `ai:evaluate-documentation`.
+- "How do I add an evaluation for my module?" → author a dataset JSON under `Modules/{Module}/docs/rag/evaluations/` and run `test:ai:evaluate-documentation`.
 - "What does a hit mean?" → a retrieved page whose safe source label matches an `expected_source_labels` entry.
 - "Why is my score zero?" → likely no live index bound, or dataset labels don't match the retriever's labels.
 

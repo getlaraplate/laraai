@@ -24,7 +24,7 @@ it('keeps the Core developer documentation harness aligned with its committed da
     // Plumbing/alignment gate over a deterministic fixture whose labels match the
     // dataset. Real-Elasticsearch vector-only quality is the committed report
     // 2026-09-17-developer-core-vector-baseline.json (lower on keyword/near-dup),
-    // and is measured by running `ai:evaluate-documentation --index=developer`.
+    // and is measured by running `test:ai:evaluate-documentation --index=developer`.
     expect($report['metrics']['source_hit_at_k'])->toBeGreaterThanOrEqual(1.0)
         ->and($report['metrics']['mean_reciprocal_rank'])->toBeGreaterThanOrEqual(1.0)
         ->and($report['metrics']['citation_precision'])->toBeGreaterThanOrEqual(1.0)

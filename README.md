@@ -236,14 +236,14 @@ The AI Module includes built-in features such as:
         - `php artisan ai:index-rag-docs` — build or update a profile corpus (`--profile=developer|user|all`, `--path=`, `--full`)
         - `php artisan ai:create-rag-es-index` — create Elasticsearch index when the setting `features.faq.vector_store` is `elasticsearch`
         - `php artisan ai:help` — developer documentation assistant in the terminal
-        - `php artisan ai:evaluate-application-content --dataset=... --source=... --output=...` — provider retrieval evaluation without chat generation
+        - `php artisan test:ai:evaluate-application-content --dataset=... --source=... --output=...` — provider retrieval evaluation without chat generation
     - **Vector store options** (the setting `features.faq.vector_store`): `elasticsearch` (default, recommended for multi-instance), `filesystem`; `memory` is for tests only. See [docs/rag/DEPLOYMENT.md](docs/rag/DEPLOYMENT.md).
     - **Corpus authoring:** [docs/rag/README.md](../../docs/rag/README.md) (what to index, structure, conventions). **Implementation detail:** [docs/rag/MODULE.md](docs/rag/MODULE.md).
 
 -   **Assistant tools:**
     - Authenticated in-app read-only Core Graph tools with request permission and ACL enforcement
     - Authenticated `application_content_search` with explicit module providers, server-side routing, safe citations, and evidence-free abstention
-        - `php artisan ai:evaluate-application-content --dataset=... --source=... --output=...` — provider retrieval evaluation without chat generation
+        - `php artisan test:ai:evaluate-application-content --dataset=... --source=... --output=...` — provider retrieval evaluation without chat generation
     - **Vector store options** (the setting `features.faq.vector_store`): `elasticsearch` (default, recommended for multi-instance), `filesystem`; `memory` is for tests only. See [docs/rag/DEPLOYMENT.md](docs/rag/DEPLOYMENT.md).
     - **Corpus authoring:** [docs/rag/README.md](../../docs/rag/README.md) (what to index, structure, conventions). **Implementation detail:** [docs/rag/MODULE.md](docs/rag/MODULE.md).
 

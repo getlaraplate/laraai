@@ -39,7 +39,7 @@ it('writes a payload-free provider evaluation report and refuses accidental over
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $this->artisan('ai:evaluate-application-content', [
+        $this->artisan('test:ai:evaluate-application-content', [
             '--dataset' => $dataset_path,
             '--source' => 'cms.evaluation_records',
             '--output' => $output_path,
@@ -56,7 +56,7 @@ it('writes a payload-free provider evaluation report and refuses accidental over
             ->and(json_encode($report))->not->toContain('private evaluation query')
             ->and(json_encode($report))->not->toContain('evaluation.contents.select');
 
-        $this->artisan('ai:evaluate-application-content', [
+        $this->artisan('test:ai:evaluate-application-content', [
             '--dataset' => $dataset_path,
             '--source' => 'cms.evaluation_records',
             '--output' => $output_path,
@@ -72,7 +72,7 @@ it('fails before evaluation for an unknown source', function (): void {
     $registry = new ApplicationContentRetrievalProviderRegistry;
     app()->instance(ApplicationContentRetrievalProviderRegistryInterface::class, $registry);
 
-    $this->artisan('ai:evaluate-application-content', [
+    $this->artisan('test:ai:evaluate-application-content', [
         '--dataset' => '/missing/dataset.json',
         '--source' => 'missing.records',
         '--output' => '/tmp/missing-report.json',

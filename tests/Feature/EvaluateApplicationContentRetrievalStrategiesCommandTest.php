@@ -67,7 +67,7 @@ it('fails before evaluation for an unregistered source', function (): void {
     $registry = new ApplicationContentRetrievalProviderRegistry;
     app()->instance(ApplicationContentRetrievalProviderRegistryInterface::class, $registry);
 
-    $this->artisan('ai:evaluate-retrieval-strategies', [
+    $this->artisan('test:ai:evaluate-retrieval-strategies', [
         '--dataset' => '/missing/dataset.json',
         '--source' => 'missing.records',
         '--output' => '/tmp/missing-strategy-report.json',
@@ -127,7 +127,7 @@ it('writes a per-strategy report using a fake engine retriever, with no Elastics
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $this->artisan('ai:evaluate-retrieval-strategies', [
+        $this->artisan('test:ai:evaluate-retrieval-strategies', [
             '--dataset' => $dataset_path,
             '--source' => 'cms.strategy_records',
             '--output' => $output_path,
@@ -223,7 +223,7 @@ function strategyCommandRerankerRun(bool $rerankerRan): array
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $exit = Artisan::call('ai:evaluate-retrieval-strategies', [
+        $exit = Artisan::call('test:ai:evaluate-retrieval-strategies', [
             '--dataset' => $dataset_path,
             '--source' => 'cms.strategy_records',
             '--output' => $output_path,
