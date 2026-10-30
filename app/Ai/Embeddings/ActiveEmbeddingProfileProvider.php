@@ -44,6 +44,6 @@ final class ActiveEmbeddingProfileProvider implements IVectorProfileProvider
             return null;
         }
 
-        return new VectorProfile($profile->key, $profile->dimensions, $profile->similarity);
+        return $profile->vectorProfile();
     }
 }

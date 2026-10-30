@@ -98,7 +98,8 @@ function repairProbeAnswer(): GuzzleHttp\Promise\PromiseInterface
 beforeEach(function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
     config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.dimensions', 2);
-    Config::set('core.search.vector.enabled', true);
+    Config::set('ai.features.embeddings.enabled', true);
+    Config::set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();

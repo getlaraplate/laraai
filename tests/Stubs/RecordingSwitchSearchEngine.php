@@ -11,12 +11,13 @@ use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ISearchEngine;
-use Modules\Core\Search\Support\VectorModelContext;
+use Modules\Core\Search\Support\VectorProfileContext;
 use RuntimeException;
 
 /**
  * An in-memory search engine for the embedding switch tests: it keeps the documents it is given,
- * records every index creation with the dimensions and vector model in force at that moment, and
+ * records every index creation with the dimensions and vector model of the profile in force at
+ * that moment, and
  * reports the dimensions of the index it last created. Nothing reaches a real search service.
  */
 final class RecordingSwitchSearchEngine extends Engine implements IReportsVectorDimensions, ISearchEngine
@@ -136,13 +137,14 @@ final class RecordingSwitchSearchEngine extends Engine implements IReportsVector
     public function createIndex($name, array $options = [], bool $force = false): void
     {
         $index = $name instanceof Model ? $name->searchableAs() : (string) $name;
-        $dimensions = (int) config('core.search.vector.dimensions');
+        $profile = VectorProfileContext::get();
+        $dimensions = $profile?->dimensions ?? 0;
 
         $this->createdIndexes[] = [
             'index' => $index,
             'force' => $force,
             'dimensions' => $dimensions,
-            'model_key' => VectorModelContext::get(),
+            'model_key' => $profile?->modelKey,
         ];
 
         if ($force || ! isset($this->dimensions[$index])) {

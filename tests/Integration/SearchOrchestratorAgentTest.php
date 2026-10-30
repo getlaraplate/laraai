@@ -7,6 +7,7 @@ use Illuminate\Container\Container;
 use Modules\AI\Services\LlmSearchService;
 use Modules\AI\Services\SearchOrchestratorAgent;
 use Modules\Core\Search\Contracts\ISearchPlanner;
+use Modules\Core\Tests\Support\FakeVectorProfile;
 
 beforeEach(function (): void {
     $container = Container::getInstance();
@@ -17,7 +18,6 @@ beforeEach(function (): void {
                 'search' => [
                     'features' => ['reranker' => true],
                     'reranker' => ['top_k' => 30],
-                    'vector' => ['enabled' => false],
                 ],
             ],
         ]));
@@ -30,7 +30,7 @@ it('implements ISearchPlanner contract', function (): void {
 });
 
 it('fallbackPlan returns valid structure', function (): void {
-    config()->set('core.search.vector.enabled', true);
+    FakeVectorProfile::use();
 
     $llm = Mockery::mock(LlmSearchService::class);
     $agent = new SearchOrchestratorAgent($llm);
@@ -41,8 +41,8 @@ it('fallbackPlan returns valid structure', function (): void {
     expect($plan['meta']['source'])->toBe('fallback_rules');
 });
 
-it('disables vector when globally disabled', function (): void {
-    config()->set('core.search.vector.enabled', false);
+it('disables vector when the profile provider answers no profile', function (): void {
+    FakeVectorProfile::none();
 
     $llm = Mockery::mock(LlmSearchService::class);
     $agent = new SearchOrchestratorAgent($llm);
@@ -51,6 +51,17 @@ it('disables vector when globally disabled', function (): void {
     expect($plan['retrieval']['use_vector'])->toBeFalse();
     expect($plan['vector']['enabled'])->toBeFalse();
     expect($plan['strategy'])->toBe('fulltext');
+});
+
+it('plans vector search when the profile provider answers a profile, without reading the Core vector config', function (): void {
+    FakeVectorProfile::use();
+    config()->set('core.search.vector.enabled', false);
+    Illuminate\Support\Facades\Cache::flush();
+
+    $plan = orchestratorAnswering('{"strategy":"hybrid","retrieval":{"use_vector":true}}')->plan('a query with vectors');
+
+    expect($plan['retrieval']['use_vector'])->toBeTrue()
+        ->and((new SearchOrchestratorAgent(Mockery::mock(LlmSearchService::class)))->fallbackPlan('words only')['retrieval']['use_vector'])->toBeTrue();
 });
 
 it('safePlan falls back on LLM exception', function (): void {
@@ -77,7 +88,7 @@ function orchestratorAnswering(?string $reply): SearchOrchestratorAgent
 }
 
 it('clamps the plan of the model to the ranges the search accepts', function (): void {
-    config()->set('core.search.vector.enabled', true);
+    FakeVectorProfile::use();
     Illuminate\Support\Facades\Cache::flush();
 
     $plan = orchestratorAnswering(json_encode([
@@ -98,8 +109,8 @@ it('clamps the plan of the model to the ranges the search accepts', function ():
         ->and($plan['meta']['source'])->toBe('llm+guardrails');
 });
 
-it('runs no vector search when it is disabled for the application, whatever the model plans', function (): void {
-    config()->set('core.search.vector.enabled', false);
+it('runs no vector search when the profile provider answers no profile, whatever the model plans', function (): void {
+    FakeVectorProfile::none();
     Illuminate\Support\Facades\Cache::flush();
 
     $plan = orchestratorAnswering('{"strategy":"vector","retrieval":{"use_vector":true},"ensemble":{"vector_weight":0.9,"hybrid_weight":0.9}}')->plan('a query without vectors');

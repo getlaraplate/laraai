@@ -15,21 +15,23 @@ use Throwable;
 
 /**
  * The `activate` phase of an embedding model switch, in one step: the target becomes the model
- * that serves search, vector search is resumed, the switch is idle again, and the rows of every
- * other model are deleted. Repeating it after a failure halfway is harmless: the settings are
- * written in one transaction with the same values, and the later steps are idempotent. The state
- * stays `running` until the settings are written, so jobs that run meanwhile still embed with the
- * target.
+ * that serves search (`features.embeddings.serving_model`, and the chosen model
+ * `features.embeddings.model`), the switch is idle again, which resumes vector search, and the rows
+ * of every other model are deleted. Nothing is written under Core's settings: the vector profile is
+ * the serving model's. Repeating it after a failure halfway is harmless: the settings are written in
+ * one transaction with the same values, and the later steps are idempotent. The state stays
+ * `running` until the settings are written, so jobs that run meanwhile still embed with the target
+ * and vector search stays suspended.
  */
 final readonly class EmbeddingSwitchActivation
 {
+    private const string SERVING_MODEL_SETTING = 'features.embeddings.serving_model';
+
     /**
-     * The settings written together, managed by the switch.
+     * The settings written together.
      */
     private const array SETTINGS = [
-        'search.vector.dimensions',
-        'search.vector.similarity',
-        'search.vector.model',
+        self::SERVING_MODEL_SETTING,
         'features.embeddings.model',
     ];
 
@@ -38,8 +40,6 @@ final readonly class EmbeddingSwitchActivation
     public function activate(EmbeddingModelProfile $target): EmbeddingSwitchState
     {
         $this->writeSettings($target);
-
-        $this->store->clearSuspension();
 
         $idle = EmbeddingSwitchState::idle()->with(updatedAt: now()->toIso8601String());
         $this->store->put($idle);
@@ -95,9 +95,7 @@ final readonly class EmbeddingSwitchActivation
 
         try {
             $connection->transaction(function () use ($target): void {
-                Setting::writeManaged('search.vector.dimensions', $target->dimensions);
-                Setting::writeManaged('search.vector.similarity', $target->similarity);
-                Setting::writeManaged('search.vector.model', $target->key);
+                Setting::writeManaged(self::SERVING_MODEL_SETTING, $target->key);
                 $this->store->recordTarget($target->key);
                 $this->store->flushAfterCommit(self::SETTINGS);
             });

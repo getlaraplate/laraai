@@ -83,7 +83,8 @@ final class EmbeddingSwitchHarness
     public static array $refusedRagChunks = [];
 
     /**
-     * Configures the profiles, the Core vector settings, the corpus table and every fake; returns the engine.
+     * Configures the profiles, the embeddings feature serving {@see self::ACTIVE}, the corpus table
+     * and every fake; returns the engine. Expects the AI settings seeded.
      */
     public static function boot(): RecordingSwitchSearchEngine
     {
@@ -95,13 +96,8 @@ final class EmbeddingSwitchHarness
         self::$refusedRagChunks = [];
 
         config()->set('ai.features.embeddings.models.' . self::WIDE, ['dimensions' => 768]);
-        config()->set('core.search.vector.enabled', true);
-        config()->set('core.search.vector.dimensions', 384);
-        config()->set('core.search.vector.similarity', 'cosine');
-        config()->set('core.search.vector.model', self::ACTIVE);
-        config()->set('core.search.vector.suspended_reason', null);
 
-        self::seedVectorSettings();
+        self::serveActiveModel();
 
         Schema::create('embeddable_test_models', static function ($table): void {
             $table->id();
@@ -172,7 +168,6 @@ final class EmbeddingSwitchHarness
     {
         $store = app(EmbeddingSwitchStore::class);
         $store->put(new EmbeddingSwitchState('running', 'preflight', $target, self::ACTIVE, startedAt: now()->toIso8601String()));
-        $store->suspend();
     }
 
     /**
@@ -215,6 +210,14 @@ final class EmbeddingSwitchHarness
     }
 
     /**
+     * @return list<string>
+     */
+    public static function settingNamesLike(string $pattern): array
+    {
+        return Setting::query()->withoutGlobalScopes()->where('name', 'like', $pattern)->orderBy('name')->pluck('name')->all();
+    }
+
+    /**
      * @return list<string|null>
      */
     public static function storedModelKeys(): array
@@ -247,33 +250,28 @@ final class EmbeddingSwitchHarness
     }
 
     /**
-     * The Core settings the activation writes, seeded as the Core seeder does (managed; the
-     * suspended reason as a JSON null, since `core_settings.value` is NOT NULL).
+     * Turns the embeddings feature on with {@see self::ACTIVE} serving search and chosen, in the
+     * seeded AI settings and in the runtime config, as a switch finds them; the switch is idle.
      */
-    private static function seedVectorSettings(): void
+    private static function serveActiveModel(): void
     {
         $settings = [
-            'search.vector.dimensions' => ['integer', 384],
-            'search.vector.similarity' => ['string', 'cosine'],
-            'search.vector.model' => ['string', self::ACTIVE],
-            'search.vector.suspended_reason' => ['string', null],
+            'features.embeddings.enabled' => true,
+            'features.embeddings.serving_model' => self::ACTIVE,
+            'features.embeddings.model' => self::ACTIVE,
+            'features.embeddings.switch' => EmbeddingSwitchState::idle()->toJson(),
         ];
 
-        foreach ($settings as $name => [$type, $value]) {
-            $setting = Setting::factory()->persistedWithoutApprovalCapture()->create([
-                'name' => $name,
-                'module' => 'Core',
-                'type' => $type,
-                'value' => 'seed',
-                'choices' => null,
-                'group_name' => 'search',
-            ]);
+        foreach ($settings as $name => $value) {
+            $updated = Setting::query()->withoutGlobalScopes()->where('name', $name)->toBase()
+                ->update(['value' => json_encode($value, JSON_THROW_ON_ERROR)]);
 
-            Setting::query()->withoutGlobalScopes()->whereKey($setting->getKey())->toBase()
-                ->update(['value' => json_encode($value, JSON_THROW_ON_ERROR), 'managed' => true]);
+            if ($updated !== 1) {
+                throw new RuntimeException("The AI setting {$name} is not seeded: seed AIDatabaseSeeder before booting the harness.");
+            }
         }
 
-        // The factory's save pushed its placeholder into the runtime config.
+        // The seeder upserts without model events, so the runtime config does not hold the rows yet.
         app(EmbeddingSwitchStore::class)->resync(array_keys($settings));
     }
 

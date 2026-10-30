@@ -15,7 +15,7 @@ const PRUNE_OTHER = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
     $this->seed(AIDatabaseSeeder::class);
-    config()->set('core.search.vector.model', PRUNE_ACTIVE);
+    config()->set('ai.features.embeddings.serving_model', PRUNE_ACTIVE);
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();

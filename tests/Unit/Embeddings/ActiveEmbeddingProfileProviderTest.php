@@ -14,7 +14,7 @@ beforeEach(function (): void {
     config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 });
 
-function activeProfileProvider(): ActiveEmbeddingProfileProvider
+function servingProfileProvider(): ActiveEmbeddingProfileProvider
 {
     return new ActiveEmbeddingProfileProvider(new EmbeddingModelRegistry);
 }
@@ -22,14 +22,14 @@ function activeProfileProvider(): ActiveEmbeddingProfileProvider
 it('answers null while features.embeddings.enabled is off', function (): void {
     config()->set('ai.features.embeddings.enabled', false);
 
-    expect(activeProfileProvider()->current())->toBeNull();
+    expect(servingProfileProvider()->current())->toBeNull();
 });
 
 it('answers null and logs one warning when the active key is not in config', function (): void {
     config()->set('ai.features.embeddings.serving_model', 'nope:missing');
     Log::spy();
 
-    $provider = activeProfileProvider();
+    $provider = servingProfileProvider();
 
     expect($provider->current())->toBeNull()
         ->and($provider->current())->toBeNull();
@@ -40,7 +40,7 @@ it('answers null and logs one warning when the active key is not in config', fun
 it('answers the key, dimensions and similarity of the active profile when on', function (): void {
     config()->set('ai.features.embeddings.models.openai_compatible:intfloat/multilingual-e5-small.similarity', 'dot_product');
 
-    $profile = activeProfileProvider()->current();
+    $profile = servingProfileProvider()->current();
 
     expect($profile)->toEqual(new VectorProfile('openai_compatible:intfloat/multilingual-e5-small', 384, 'dot_product'));
 });
@@ -48,7 +48,7 @@ it('answers the key, dimensions and similarity of the active profile when on', f
 it('follows the serving model setting', function (): void {
     config()->set('ai.features.embeddings.serving_model', 'openai_compatible:all-MiniLM-L6-v2');
 
-    expect(activeProfileProvider()->current()?->modelKey)->toBe('openai_compatible:all-MiniLM-L6-v2');
+    expect(servingProfileProvider()->current()?->modelKey)->toBe('openai_compatible:all-MiniLM-L6-v2');
 });
 
 it('runs no database query', function (): void {
@@ -57,7 +57,7 @@ it('runs no database query', function (): void {
         $queries[] = $query->sql;
     });
 
-    activeProfileProvider()->current();
+    servingProfileProvider()->current();
 
     expect($queries)->toBe([]);
 });

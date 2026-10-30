@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Modules\AI\Ai\Embeddings\ActiveEmbeddingProfileProvider;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingModelSettingConfirmation;
+use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaVisionAnalyzer;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisGate;
@@ -99,6 +100,7 @@ class AIServiceProvider extends ModuleServiceProvider
             static fn ($app): IVectorSearchAvailability => new EmbeddingVectorSearchAvailability(
                 $app->make(VectorSearchAvailability::class),
                 $app->make(EmbeddingModelRegistry::class),
+                $app->make(EmbeddingSwitchStore::class),
             ),
         );
 

@@ -15,7 +15,7 @@ const RAG_WIDE = 'openai_compatible:wide-768';
 
 beforeEach(function (): void {
     config()->set('ai.features.embeddings.models.' . RAG_WIDE, ['dimensions' => 768]);
-    config()->set('core.search.vector.model', RAG_ACTIVE);
+    config()->set('ai.features.embeddings.serving_model', RAG_ACTIVE);
     config()->set('ai.features.faq.enabled', true);
     config()->set('ai.features.faq.vector_store', 'elasticsearch');
 });

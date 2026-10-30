@@ -13,7 +13,7 @@ use Modules\Core\Events\ModelsRequireIndexing;
 
 beforeEach(function (): void {
     Config::set('ai.features.embeddings.enabled', true);
-    Config::set('core.search.vector.enabled', true);
+    Config::set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 });
 
 function bulk_listener_stub(int $id): SearchableModelStub
@@ -53,7 +53,8 @@ it('does nothing when the embeddings feature is disabled', function (): void {
 });
 
 it('does nothing when no model in the chunk is embeddable', function (): void {
-    Config::set('core.search.vector.enabled', false);
+    // The switch is on but the serving profile is not configured, so no vector profile is in force.
+    Config::set('ai.features.embeddings.serving_model', 'nope:missing');
 
     $synchronizer = Mockery::mock(ModelEmbeddingSynchronizer::class);
     $synchronizer->shouldNotReceive('sync');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchState;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
 use Modules\AI\Database\Seeders\AIDatabaseSeeder;
@@ -53,61 +54,63 @@ it('lets the start lock expire after two minutes', function (): void {
     $again();
 });
 
-/**
- * Creates `search.vector.suspended_reason` as the seeder does: managed, with a JSON null (core_settings.value is NOT NULL).
- */
-function switch_store_seed_suspended_reason(): Setting
-{
-    $row = Setting::factory()->persistedWithoutApprovalCapture()->create([
-        'name' => 'search.vector.suspended_reason',
-        'module' => 'Core',
-        'type' => 'string',
-        'value' => 'unset',
-        'choices' => null,
-        'group_name' => 'search',
-    ]);
-    Setting::query()->withoutGlobalScopes()->whereKey($row->getKey())->toBase()->update(['value' => 'null', 'managed' => true]);
-    config()->set('core.search.vector.suspended_reason', null);
+it('has no suspension of its own: no suspended reason, nothing written under search.vector', function (): void {
+    expect(method_exists(EmbeddingSwitchStore::class, 'suspend'))->toBeFalse()
+        ->and(method_exists(EmbeddingSwitchStore::class, 'clearSuspension'))->toBeFalse()
+        ->and(defined(EmbeddingSwitchStore::class . '::SUSPENDED_REASON'))->toBeFalse();
 
-    return $row;
-}
+    $this->seed(AIDatabaseSeeder::class);
+    (new EmbeddingSwitchStore)->put(new EmbeddingSwitchState('running', 'preflight', 'a:b', 'c:d'));
 
-it('suspends vector search and clears the suspension through the real settings row', function (): void {
-    $row = switch_store_seed_suspended_reason();
-    $store = new EmbeddingSwitchStore;
-    $stored = static fn (): Setting => Setting::query()->withoutGlobalScopes()->whereKey($row->getKey())->sole();
-
-    $store->suspend();
-
-    expect($stored()->value)->toBe(EmbeddingSwitchStore::SUSPENDED_REASON)
-        ->and(config('core.search.vector.suspended_reason'))->toBe('switching');
-
-    $store->clearSuspension();
-
-    expect($stored()->value)->toBeNull()
-        ->and($stored()->getRawOriginal('value'))->toBe('null')
-        ->and(config('core.search.vector.suspended_reason'))->toBeNull();
+    expect(Setting::query()->withoutGlobalScopes()->where('name', 'like', 'search.vector.%')->exists())->toBeFalse();
 });
 
-it('flushes the cleared suspension only once the surrounding transaction commits', function (): void {
-    switch_store_seed_suspended_reason();
+it('is switching while the state is running or failed after its preflight, read from the runtime config', function (EmbeddingSwitchState $state, bool $switching): void {
+    $this->seed(AIDatabaseSeeder::class);
     $store = new EmbeddingSwitchStore;
-    $store->suspend();
-    $insideTransaction = null;
+    $store->put($state);
 
-    new Setting()->getConnection()->transaction(static function () use ($store, &$insideTransaction): void {
-        $store->clearSuspension();
-        $insideTransaction = config('core.search.vector.suspended_reason');
+    expect(config('ai.features.embeddings.switch'))->toBe($state->toJson())
+        ->and($store->isSwitching())->toBe($switching);
+})->with([
+    'idle' => [EmbeddingSwitchState::idle(), false],
+    'running preflight' => [new EmbeddingSwitchState('running', 'preflight', 'a:b', 'c:d'), true],
+    'running embeddings' => [new EmbeddingSwitchState('running', 'embeddings', 'a:b', 'c:d'), true],
+    'running activate' => [new EmbeddingSwitchState('running', 'activate', 'a:b', 'c:d'), true],
+    'failed indexes' => [new EmbeddingSwitchState('failed', 'indexes', 'a:b', 'c:d', error: 'x'), true],
+    'failed verify' => [new EmbeddingSwitchState('failed', 'verify', 'a:b', 'c:d', error: 'x'), true],
+    'refused at its preflight' => [new EmbeddingSwitchState('failed', 'preflight', 'a:b', 'c:d', error: 'x'), false],
+]);
+
+it('answers isSwitching without a database query', function (): void {
+    config()->set('ai.features.embeddings.switch', (new EmbeddingSwitchState('running', 'indexes', 'a:b', 'c:d'))->toJson());
+    $store = new EmbeddingSwitchStore;
+    $queries = 0;
+    DB::listen(static function () use (&$queries): void {
+        $queries++;
     });
 
-    expect($insideTransaction)->toBe('switching')
-        ->and(config('core.search.vector.suspended_reason'))->toBeNull();
+    expect($store->isSwitching())->toBeTrue()
+        ->and($queries)->toBe(0);
 });
 
-it('treats a missing suspended reason row as nothing to clear', function (): void {
-    (new EmbeddingSwitchStore)->clearSuspension();
+it('is not switching when the runtime config holds no state, or one it cannot read', function (mixed $value): void {
+    config()->set('ai.features.embeddings.switch', $value);
 
-    expect(Setting::query()->withoutGlobalScopes()->where('name', 'search.vector.suspended_reason')->exists())->toBeFalse();
+    expect((new EmbeddingSwitchStore)->isSwitching())->toBeFalse();
+})->with(['unset' => [null], 'empty' => [''], 'not json' => ['{oops'], 'not a state' => [['status' => 'running']]]);
+
+it('flushes the stored state again once the surrounding transaction commits', function (): void {
+    $this->seed(AIDatabaseSeeder::class);
+    $store = new EmbeddingSwitchStore;
+
+    new Setting()->getConnection()->transaction(static function () use ($store): void {
+        $store->put(new EmbeddingSwitchState('running', 'preflight', 'a:b', 'c:d'));
+        // Another writer of the runtime config inside the transaction, e.g. a stale cache read.
+        config()->set('ai.features.embeddings.switch', EmbeddingSwitchState::idle()->toJson());
+    });
+
+    expect($store->isSwitching())->toBeTrue();
 });
 
 it('updates the state it reads under the state lock, and writes nothing when the change keeps it', function (): void {

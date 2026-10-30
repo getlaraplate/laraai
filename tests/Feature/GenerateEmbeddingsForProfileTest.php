@@ -19,7 +19,7 @@ const PROFILE_OTHER = 'openai_compatible:all-MiniLM-L6-v2';
 
 beforeEach(function (): void {
     Event::fake([ModelPreProcessingCompleted::class]);
-    config()->set('core.search.vector.model', PROFILE_ACTIVE);
+    config()->set('ai.features.embeddings.serving_model', PROFILE_ACTIVE);
 
     Schema::create('embeddable_test_models', function ($table): void {
         $table->id();

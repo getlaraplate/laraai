@@ -12,7 +12,7 @@ use Modules\Core\Services\SettingsCacheCoordinator;
 
 /**
  * Persists the {@see EmbeddingSwitchState} in the managed setting `features.embeddings.switch`,
- * suspends and resumes vector search through `search.vector.suspended_reason`, and serialises
+ * tells whether a switch keeps vector search suspended ({@see self::isSwitching()}), and serialises
  * switch starts with an atomic lock. While a switch runs, the switch job and the chunk jobs write
  * the state through {@see self::update()}, which re-reads and writes it under its own lock, so a
  * chunk completion is never overwritten by a write computed from an older state.
@@ -23,8 +23,6 @@ use Modules\Core\Services\SettingsCacheCoordinator;
  */
 final class EmbeddingSwitchStore
 {
-    public const string SUSPENDED_REASON = 'switching';
-
     public const string STATE_LOCK = 'embeddings:switch:state';
 
     /**
@@ -37,7 +35,10 @@ final class EmbeddingSwitchStore
 
     private const string SETTING = 'features.embeddings.switch';
 
-    private const string SUSPENDED_REASON_SETTING = 'search.vector.suspended_reason';
+    /**
+     * The runtime config copy of {@see self::SETTING}, kept in sync by the settings observer.
+     */
+    private const string SETTING_CONFIG = 'ai.features.embeddings.switch';
 
     private const string TARGET_SETTING = 'features.embeddings.model';
 
@@ -63,9 +64,31 @@ final class EmbeddingSwitchStore
         return EmbeddingSwitchState::fromJson(is_string($value) ? $value : null);
     }
 
+    /**
+     * Stores the state. The settings observer pushes it into the runtime config at once; the settings
+     * cache and the runtime config are flushed again once the surrounding transaction commits (at
+     * once outside one), so a read made before the commit cannot keep the old state cached.
+     */
     public function put(EmbeddingSwitchState $state): void
     {
         Setting::writeManaged(self::SETTING, $state->toJson());
+
+        $this->flushAfterCommit([self::SETTING]);
+    }
+
+    /**
+     * Whether a switch keeps vector search suspended: the state is `running`, or `failed` after its
+     * preflight (the indexes may be half rebuilt). A start refused at its preflight changed nothing,
+     * so it suspends nothing. Read from the runtime config copy of the state, without a query: the
+     * search guard asks on every search.
+     */
+    public function isSwitching(): bool
+    {
+        $value = config(self::SETTING_CONFIG);
+        $state = EmbeddingSwitchState::fromJson(is_string($value) ? $value : null);
+
+        return $state->status === 'running'
+            || ($state->status === 'failed' && $state->phase !== 'preflight');
     }
 
     /**
@@ -107,38 +130,9 @@ final class EmbeddingSwitchStore
     }
 
     /**
-     * Suspends vector search for the switch (`search.vector.suspended_reason` = `switching`). The
-     * settings cache is flushed again once the surrounding transaction commits, so a read made
-     * before the commit cannot keep the old value cached.
-     */
-    public function suspend(): void
-    {
-        Setting::writeManaged(self::SUSPENDED_REASON_SETTING, self::SUSPENDED_REASON);
-
-        $this->flushAfterCommit([self::SUSPENDED_REASON_SETTING]);
-    }
-
-    /**
-     * Lifts the suspension: the setting is unset again, stored as the seeder stores it, a JSON
-     * `null`. `core_settings.value` is NOT NULL and `SettingObserver` turns an empty string into
-     * null, so neither `null` nor `''` can go through `Setting::writeManaged()`. The settings cache
-     * and the runtime config are flushed once the surrounding transaction commits (at once outside
-     * one). A missing row means there is nothing to clear.
-     */
-    public function clearSuspension(): void
-    {
-        Setting::query()->withoutGlobalScopes()
-            ->where('name', self::SUSPENDED_REASON_SETTING)
-            ->toBase()
-            ->update(['value' => 'null']);
-
-        $this->flushAfterCommit([self::SUSPENDED_REASON_SETTING]);
-    }
-
-    /**
      * Records `$key` as the model the operator chose (`features.embeddings.model`, the dropdown),
      * so the settings page names the model the switch ended on. The setting is not managed, and a
-     * plain save would go through approval; it is written directly and flushed like the suspension.
+     * plain save would go through approval; it is written directly, and flushed after the commit.
      */
     public function recordTarget(string $key): void
     {

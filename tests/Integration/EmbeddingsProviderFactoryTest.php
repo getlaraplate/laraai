@@ -100,7 +100,7 @@ it('no longer knows the sentence_transformers provider, with or without a hyphen
 
 it('refuses an OpenAI-compatible provider that is not the active profile and has no model to send', function (): void {
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
-    config()->set('core.search.vector.model', 'voyageai:voyage-3-lite');
+    config()->set('ai.features.embeddings.serving_model', 'voyageai:voyage-3-lite');
     config()->set('ai.features.embeddings.models.voyageai:voyage-3-lite', ['dimensions' => 512]);
 
     EmbeddingsProviderFactory::make('openai_compatible');
@@ -108,7 +108,7 @@ it('refuses an OpenAI-compatible provider that is not the active profile and has
 
 it('throws when no embeddings server is configured for the profile', function (): void {
     config()->set('ai.servers.embeddings.url', '');
-    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
 
     EmbeddingsProviderFactory::make();
 })->throws(Modules\Core\Exceptions\ConfigurationException::class, 'embeddings server');
@@ -134,7 +134,7 @@ it('throws exception for unsupported embeddings provider', function (): void {
 })->throws(Exception::class, 'Unsupported embeddings provider: non-existent');
 
 it('uses default provider from config when none specified', function (): void {
-    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
     config()->set('ai.servers.embeddings.url', 'http://localhost:8000');
 
     $provider = EmbeddingsProviderFactory::make();

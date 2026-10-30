@@ -12,7 +12,7 @@ beforeEach(function (): void {
         'rerank' => ['url' => '', 'api_key' => null, 'dialect' => 'tei', 'model' => null],
         'transcription' => ['url' => '', 'api_key' => null, 'timeout' => 120],
     ]);
-    config()->set('core.search.vector.model', 'openai_compatible:intfloat/multilingual-e5-small');
+    config()->set('ai.features.embeddings.serving_model', 'openai_compatible:intfloat/multilingual-e5-small');
     config()->set('ai.features.embeddings.models', [
         'openai_compatible:intfloat/multilingual-e5-small' => ['dimensions' => 384, 'normalize' => true],
     ]);
