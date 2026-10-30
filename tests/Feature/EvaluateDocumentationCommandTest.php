@@ -35,7 +35,7 @@ it('writes a payload-free documentation evaluation report and refuses overwrite'
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $this->artisan('ai:evaluate-documentation', [
+        $this->artisan('test:ai:evaluate-documentation', [
             '--module' => 'core', '--index' => 'user',
             '--dataset' => $dataset_path, '--output' => $output_path,
         ])->assertSuccessful();
@@ -46,7 +46,7 @@ it('writes a payload-free documentation evaluation report and refuses overwrite'
             ->and($report['module'])->toBe('core')
             ->and(json_encode($report))->not->toContain('how do I export a grid?');
 
-        $this->artisan('ai:evaluate-documentation', [
+        $this->artisan('test:ai:evaluate-documentation', [
             '--module' => 'core', '--index' => 'user',
             '--dataset' => $dataset_path, '--output' => $output_path,
         ])->assertFailed();
@@ -81,7 +81,7 @@ it('evaluates the developer documentation index', function (): void {
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $this->artisan('ai:evaluate-documentation', [
+        $this->artisan('test:ai:evaluate-documentation', [
             '--module' => 'core', '--index' => 'developer',
             '--dataset' => $dataset_path, '--output' => $output_path,
         ])->assertSuccessful();
@@ -117,7 +117,7 @@ it('fails when the dataset module does not match --module', function (): void {
     ], JSON_THROW_ON_ERROR));
 
     try {
-        $this->artisan('ai:evaluate-documentation', [
+        $this->artisan('test:ai:evaluate-documentation', [
             '--module' => 'erp', '--index' => 'user',
             '--dataset' => $dataset_path, '--output' => $output_path,
         ])->assertFailed();

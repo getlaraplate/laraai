@@ -76,7 +76,7 @@ class DocumentationAgent extends RAG
     }
 
     /**
-     * The same threshold as the retrieval that `ai:evaluate-documentation` measures, then the recorder.
+     * The same threshold as the retrieval that `test:ai:evaluate-documentation` measures, then the recorder.
      *
      * @return list<PostProcessorInterface>
      */

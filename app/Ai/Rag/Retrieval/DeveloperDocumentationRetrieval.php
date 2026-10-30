@@ -22,7 +22,7 @@ use Throwable;
  * Unlike {@see InAppDocumentationRetrieval}, this path serves the trusted
  * developer corpus: no per-user ACL filter, no audience gate, no safe
  * projection. It exists so the developer index can be measured by
- * `ai:evaluate-documentation` without weakening the user-facing in-app path.
+ * `test:ai:evaluate-documentation` without weakening the user-facing in-app path.
  */
 final readonly class DeveloperDocumentationRetrieval
 {

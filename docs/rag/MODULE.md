@@ -155,7 +155,7 @@ The required baseline is curated **vector documentation RAG**. Elasticsearch kNN
 
 Retrieval evolves only through measured stages: evaluation dataset, metadata/scoping, optional hybrid lexical + vector retrieval, optional reranking, and only then an evidence-gated graph spike for residual multi-hop failures. A future graph retriever must remain optional, disabled by default, preserve canonical document citations, and fall back to the non-graph path. The UI Graph Explorer is a separate product capability and is not the RAG knowledge graph.
 
-**Where the roadmap stands (2026-10-08).** Retrieval is vector-only: `InAppDocumentationRetrieval` (the user index, with the audience policy) and `DeveloperDocumentationRetrieval` (the developer index) embed the question with the active profile's `query:` prefix, search Elasticsearch kNN, and drop hits below `AI_FAQ_MIN_SIMILARITY` (off by default; on e5-small the useful band is about 0.01 wide, so it is tuned per corpus). There is no strategy setting and no retrieval factory: they were cancelled because there is only one strategy. Measured on the production model with symmetric prefixes, the developer datasets (`docs/rag/evaluations/2026-09-17-developer-core-vector-baseline.json`, `2026-09-18-developer-retrieval-report.json`) give hit@5 1.00 and 0.90, MRR 0.80. Hybrid lexical retrieval and documentation reranking are deferred: the measurement does not justify them, and they reopen if a larger corpus shows real misses. No graph spike is authorized: the gate needs at least 10 unsolved multi-hop cases and the largest dataset has 20 cases. Evaluate with `ai:evaluate-documentation --index=user|developer`.
+**Where the roadmap stands (2026-10-08).** Retrieval is vector-only: `InAppDocumentationRetrieval` (the user index, with the audience policy) and `DeveloperDocumentationRetrieval` (the developer index) embed the question with the active profile's `query:` prefix, search Elasticsearch kNN, and drop hits below `AI_FAQ_MIN_SIMILARITY` (off by default; on e5-small the useful band is about 0.01 wide, so it is tuned per corpus). There is no strategy setting and no retrieval factory: they were cancelled because there is only one strategy. Measured on the production model with symmetric prefixes, the developer datasets (`docs/rag/evaluations/2026-09-17-developer-core-vector-baseline.json`, `2026-09-18-developer-retrieval-report.json`) give hit@5 1.00 and 0.90, MRR 0.80. Hybrid lexical retrieval and documentation reranking are deferred: the measurement does not justify them, and they reopen if a larger corpus shows real misses. No graph spike is authorized: the gate needs at least 10 unsolved multi-hop cases and the largest dataset has 20 cases. Evaluate with `test:ai:evaluate-documentation --index=user|developer`.
 
 The authoritative design and implementation roadmap are:
 
@@ -310,7 +310,7 @@ Their outputs feed committed baselines (CI regression gates) and human decisions
 configuration. Nothing in the request path consumes an evaluation artifact. The retrieval pipeline
 they exercise is documented in `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`.
 
-`php artisan ai:evaluate-application-content --dataset=... --source=... --output=...` evaluates a registered provider without calling the chat model. Datasets must declare their classification (`synthetic`, or `private` and kept outside the project: see "Evaluation datasets" below), typed evaluation-only authorization filters, provider/corpus revisions, and expected safe references. Reports contain aggregate and locale/category-sliced hit@5, reciprocal rank, precision/recall/nDCG at k, citation precision, authorized-empty accuracy, supported-answer rate, abstention accuracy, unavailable rate, and latency; they omit queries, content, users, permissions, ACL expressions, and raw scores. Existing reports are not overwritten without `--force`. Ranking metrics and committed baselines: see "Application content evaluation" below.
+`php artisan test:ai:evaluate-application-content --dataset=... --source=... --output=...` evaluates a registered provider without calling the chat model. Datasets must declare their classification (`synthetic`, or `private` and kept outside the project: see "Evaluation datasets" below), typed evaluation-only authorization filters, provider/corpus revisions, and expected safe references. Reports contain aggregate and locale/category-sliced hit@5, reciprocal rank, precision/recall/nDCG at k, citation precision, authorized-empty accuracy, supported-answer rate, abstention accuracy, unavailable rate, and latency; they omit queries, content, users, permissions, ACL expressions, and raw scores. Existing reports are not overwritten without `--force`. Ranking metrics and committed baselines: see "Application content evaluation" below.
 
 Phase 1 remains authenticated and non-guest only. Laraplate may attach the configured guest account to the session guard, but that principal cannot receive `InAppAssistance` or invoke application content retrieval. Session-based guest assistance is a Phase 2 decision requiring a dedicated `GuestAssistance` profile, session-subject conversation isolation in addition to the shared guest user ID, fixed source/field allowlists, a separate threat model and dataset, abuse/rate limits, and explicit approval. The provider contract is the extension point; it is not implicit permission to expose a provider to the guest.
 
@@ -749,7 +749,7 @@ To adopt a new release of a documented server, copy its OpenAPI document and wri
 
 ## Application content evaluation
 
-`ai:evaluate-application-content` scores a registered provider (`cms.contents`,
+`test:ai:evaluate-application-content` scores a registered provider (`cms.contents`,
 `sao.tickets`) by running the real ranking pipeline — `provider->retrieve()` →
 `AdvancedSearchService` → `EnsembleSearchService` (keyword + vector + hybrid,
 RRF fusion, `IReranker`) with a DB `LIKE` lexical fallback — with no chat model.
@@ -782,7 +782,7 @@ CI gate. Design: `docs/superpowers/specs/2026-09-09-r3-retrieval-quality-baselin
 
 ### Per-strategy retrieval quality breakdown
 
-`php artisan ai:evaluate-retrieval-strategies --source=<source> --dataset=<file>
+`php artisan test:ai:evaluate-retrieval-strategies --source=<source> --dataset=<file>
 --output=<file> [--force]` scores ranking quality **per strategy**
 (`keyword`, `vector`, `hybrid`, `fused`, `reranked`) instead of one
 end-to-end ordering. For every dataset case with `expected_hit_ids` it calls
@@ -817,7 +817,7 @@ down or the reranker is disabled, `EnsembleSearchService` keeps the fused order 
 report therefore carries `reranker: {requested, ran, status, model}` (`ran` counts the cases whose result had
 `meta['reranked'] === true`; `status` is `ran`, `partial` or `not_run`; `model` is the model the
 service named in `meta['reranker_model']`, or null when none did, so a report says which model it measured), and both
-`ai:evaluate-retrieval-strategies` and `ai:tune-retrieval` print a warning when it is not `ran`. A
+`test:ai:evaluate-retrieval-strategies` and `test:ai:tune-retrieval` print a warning when it is not `ran`. A
 `reranked` block next to a `not_run` status measures nothing: start the rerank server (see
 `STANDARD_SERVERS_INSTALLATION.md`) and run again. `RerankerRun` holds the summary and the wording.
 
@@ -830,14 +830,14 @@ refuses it inside the project directory (it resolves the real path, so a link fr
 around the rule) and it is kept in a folder outside the repository. What is committed from a private run
 is the report only: metrics, parameters and counts, no query text and no ids, plus the context it was
 measured in (`embedding`, `corpus.size`, `dataset.sha256`), so whoever holds the file can check it is
-the one measured. `ai:evaluate-retrieval-strategies` and `ai:tune-retrieval` run each case in the
+the one measured. `test:ai:evaluate-retrieval-strategies` and `test:ai:tune-retrieval` run each case in the
 locale it declares (`PerStrategyEngineRetriever` sets it around the search and restores it): under
 another one a model's `LocaleScope` hides the rows with no translation in it, and the evaluation would
 never see them.
 
-### Retrieval tuning (`ai:tune-retrieval`)
+### Retrieval tuning (`test:ai:tune-retrieval`)
 
-`php artisan ai:tune-retrieval --source=<source> --dataset=<file> --output=<file>
+`php artisan test:ai:tune-retrieval --source=<source> --dataset=<file> --output=<file>
 [--grid=default|<grid.json>] [--metric=ndcg_at_5] [--holdout=0.3] [--min-class-cases=8]
 [--class-margin=0.01] [--noise-margin=auto] [--force]` produces the values of
 Core's retrieval tuning profile (`Modules/Core/config/search_tuning.php`, applied
@@ -909,9 +909,9 @@ the held-out validation above, run against a real engine.
 
 ## Documentation evaluation
 
-`ai:evaluate-documentation` scores documentation retrieval per module and index
+`test:ai:evaluate-documentation` scores documentation retrieval per module and index
 profile (Level-1, deterministic, no chat model), mirroring
-`ai:evaluate-application-content`. Datasets are owned by each module under
+`test:ai:evaluate-application-content`. Datasets are owned by each module under
 `docs/rag/evaluations/`. The deterministic regression gate lives in
 `Modules/AI/tests/Feature/DocumentationBaselineGateTest.php`. Live-generation
 (Level-2) scoring is specified but opt-in. Design:

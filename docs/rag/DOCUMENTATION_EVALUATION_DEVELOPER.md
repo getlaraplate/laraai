@@ -34,7 +34,7 @@ Grading identity is `Document::$sourceName` (the safe source label), the only st
 
 ## Index profiles (`--index=user|developer`)
 
-`ai:evaluate-documentation` evaluates one index profile per run; `--index` defaults to `user`.
+`test:ai:evaluate-documentation` evaluates one index profile per run; `--index` defaults to `user`.
 
 - **`user`** (default) routes through `InAppDocumentationRetrieval` exactly as described above: the user-facing corpus with the full audience/permission/tenant filtering and safe projection. Grading identity is `safe_source_label`.
 - **`developer`** routes through `DeveloperDocumentationRetrieval`: a plain vector search over the developer index (`DocumentationIndexProfile::Developer`) with **no** ACL, audience, or permission gate, because the developer corpus is not per-user access-controlled. Grading identity is the stored `Document::$sourceName` (e.g. `faq-module-Core/EVENT_ORCHESTRATION.md`); developer chunks carry no `safe_source_label`.
@@ -50,7 +50,7 @@ Owned by AI, mirroring `Modules/AI/app/Services/ApplicationContent/Evaluation/`:
 - `Modules\AI\Services\Documentation\Evaluation\DocumentationEvaluationService` — `evaluate(DocumentationEvaluationDataset $dataset, string $driver, callable $retrieval): array`, where `$retrieval` is `fn(string $question, AssistantAccessContext $access, DocumentationEvaluationCase $case): list<Document>`. Registered as a singleton in `AIServiceProvider`.
 - `Modules\AI\Services\Evaluation\{EvaluationStatistics, EvaluationDatasetReader, EvaluationCaseRules}` — the code that the documentation, application-content, strategy and assistant evaluations share: ratios, rounding, percentiles and the per-locale and per-category slices; the reading of a dataset file (size cap, depth cap, at most 1000 cases, exact keys, typed fields, the label that its exception messages carry); and the checks that every case class repeats (id and locale patterns, the length of the query, lists of strings and of slugs). `IrMetrics` holds the rank metrics (`firstRank()`, `reciprocalRank()`). A report must come out byte for byte as before a change to any of them: the committed reports under `evaluations/` pin the rounded values.
 - `Modules\AI\Console\Concerns\WritesJsonReport` — the option and report handling of the four evaluation and tuning commands: refuse an existing report without `--force`, refuse an unwritable directory, write the JSON to a temporary file and move it into place.
-- `Modules\AI\Console\EvaluateDocumentationCommand` — `ai:evaluate-documentation`, auto-registered by the module provider (no manual wiring, like `EvaluateApplicationContentCommand`).
+- `Modules\AI\Console\EvaluateDocumentationCommand` — `test:ai:evaluate-documentation`, auto-registered by the module provider (no manual wiring, like `EvaluateApplicationContentCommand`).
 
 Test support (namespace `Modules\AI\Tests\Stubs\Documentation\`):
 

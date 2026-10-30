@@ -21,7 +21,7 @@ final class EvaluateApplicationContentCommand extends Command
     use WritesJsonReport;
 
     #[Override]
-    protected $signature = 'ai:evaluate-application-content
+    protected $signature = 'test:ai:evaluate-application-content
                             {--dataset= : Path to a generated evaluation dataset}
                             {--source= : Registered application content source}
                             {--output= : New JSON report path}
