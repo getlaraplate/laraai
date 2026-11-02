@@ -35,7 +35,7 @@ function profileTestService(array $vector): IEmbeddingService
     $service = Mockery::mock(IEmbeddingService::class);
     $service->shouldReceive('embedDocumentsBatch')
         ->andReturnUsing(static fn (array $texts): array => array_map(static function () use ($vector): array {
-            $document = new Document('');
+            $document = new Document('chunk');
             $document->setEmbedding($vector);
 
             return [$document];

@@ -225,10 +225,9 @@ it('preserves Document metadata across all emitted chunks', function (): void {
     }
 });
 
-it('emits no chunks for an empty document', function (): void {
+it('emits no chunks for a blank document', function (): void {
     $splitter = new MarkdownAwareSplitter;
 
-    expect($splitter->splitDocument(new Document('')))->toBeArray()->toBeEmpty();
     expect($splitter->splitDocument(new Document("   \n\n  \t  ")))->toBeArray()->toBeEmpty();
 });
 

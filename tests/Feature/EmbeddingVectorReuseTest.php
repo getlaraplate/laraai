@@ -28,7 +28,7 @@ function vectorReuseService(int $expectedTexts, array $vectors): IEmbeddingServi
         ->once()
         ->withArgs(static fn (array $texts): bool => $expectedTexts === count($texts))
         ->andReturnUsing(static fn (array $texts): array => array_map(static function (int $index) use ($vectors): array {
-            $document = new Document('');
+            $document = new Document('chunk');
             $document->setEmbedding($vectors[$index]);
 
             return [$document];

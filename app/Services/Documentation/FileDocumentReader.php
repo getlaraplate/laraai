@@ -57,7 +57,7 @@ final readonly class FileDocumentReader
 
         $file = $this->getContentFromFile($this->file_path);
 
-        if ($file === false) {
+        if ($file === false || $file['content'] === '') {
             return [];
         }
 
@@ -98,7 +98,7 @@ final readonly class FileDocumentReader
 
             $file = $this->getContentFromFile($full_path);
 
-            if ($file !== false) {
+            if ($file !== false && $file['content'] !== '') {
                 $documents[] = $this->createDocument(
                     $file['content'],
                     $this->normalizeRelativeSourceName($child_relative),
