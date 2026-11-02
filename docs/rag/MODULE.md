@@ -831,7 +831,7 @@ What each change needs on an installation that already runs:
 | Splitting before whitespace collapsing | no rebuild is triggered: a text without a header keeps its old vectors until it is re-embedded (edit, header change, switch) |
 | Near-duplicate images | the `image_fingerprint` column and its index are in the create migration of `ai_media_analyses`: add them to an existing database or migrate fresh; no backfill, older analyses are never matched; GD on the queue worker |
 | Profile keys `languages`, `min_similarity`, option `drift_floor` | configuration only. Run `ai:embeddings:probe <profile> --reference=save` once to create the drift reference; re-measure `min_similarity` after every model switch |
-| Unstemmed text sub-field of the search indexes (Core) | rebuild the affected search indexes; `search:check-index` reports them stale. See `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
+| Unstemmed text sub-field of the search indexes (Core) | rebuild the affected search indexes; `scout:check-index` reports them stale. See `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
 
 The documentation indexes (`ai:index-rag-docs`) need nothing: the context header applies to application content only, and the judge reads the existing index.
 

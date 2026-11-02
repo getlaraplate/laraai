@@ -235,7 +235,7 @@ Off by default. The setting `features.media_analysis.near_duplicate_distance` (c
 | Chunking of application content (the split happens before whitespace collapsing) | nothing is hashed differently, so a text without a header keeps its old vectors until it is saved again or a model switch re-embeds the corpus |
 | Near-duplicate images | the nullable `image_fingerprint` column is part of the create migration of `ai_media_analyses`: a database created earlier needs the column and its index added, or a fresh migration |
 | `languages`, `min_similarity`, `drift_floor` | configuration only; nothing to rebuild. Save a drift reference with `ai:embeddings:probe <profile> --reference=save` |
-| Unstemmed text sub-field of the search indexes | Core: rebuild the affected search indexes (`search:check-index` reports them stale); see `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
+| Unstemmed text sub-field of the search indexes | Core: rebuild the affected search indexes (`scout:check-index` reports them stale); see `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
 
 The documentation indexes (`ai:index-rag-docs`) are not affected by any of these.
 
