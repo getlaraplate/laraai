@@ -26,7 +26,7 @@ Registration order: AI module priority **999** so AI listeners run before Core f
 
 - `config('ai.features.embeddings.enabled')` is true
 - Model uses `Searchable`
-- Model has non-empty `$embed` and `vectorSearchEnabled()` is true
+- Model has non-empty `$embed` and `isEmbeddable()` is true (it holds while a vector profile exists, that is while `features.embeddings.enabled` is on and the serving model is a valid profile)
 
 ### Flow
 
@@ -66,9 +66,9 @@ sequenceDiagram
 
 ### Configuration
 
-Embeddings use the profile chosen in the setting `features.embeddings.model` (`provider:model`), not an env var (and not `AI_PROVIDER`). The model that serves search is Core's managed setting `search.vector.model`; it changes only when `ai:embeddings:switch` activates the chosen model. Profiles, the switch, its commands and the vector length of each profile (`dimensions`, measured with `ai:embeddings:probe`): [rag/MODULE.md](rag/MODULE.md), section *Embedding model and model switch*. Servers for embeddings, reranking and transcription: [STANDARD_SERVERS_INSTALLATION.md](STANDARD_SERVERS_INSTALLATION.md).
+Embeddings use the profile chosen in the setting `features.embeddings.model` (`provider:model`), not an env var (and not `AI_PROVIDER`). The model whose vectors the indexes hold, and that serves search, is the managed setting `features.embeddings.serving_model` (read-only in the settings form); it changes only when `ai:embeddings:switch` activates the chosen model. Core has no `search.vector.*` setting: the vector length (`dimensions`) and `similarity` are properties of the serving model's profile in `ai.features.embeddings.models`, and the module answers them to Core through `ActiveEmbeddingProfileProvider`. Profiles, the switch, its commands and the vector length of each profile (`dimensions`, measured with `ai:embeddings:probe`): [rag/MODULE.md](rag/MODULE.md), section *Embedding model and model switch*. Servers for embeddings, reranking and transcription: [STANDARD_SERVERS_INSTALLATION.md](STANDARD_SERVERS_INSTALLATION.md).
 
-The switch is the setting `features.embeddings.enabled` in Filament > Settings, group `ai` (seeded off; no env variable). The server is env (root URL, without `/v1`; the profiles use the provider `openai_compatible`):
+`features.embeddings.enabled` in Filament > Settings, group `ai` (seeded off; no env variable) is the single switch of vector search: on, embeddings are generated and search is hybrid; off, nothing is embedded or repaired, no vector field is indexed and search is keyword-only. Core has no second switch. The server is env (root URL, without `/v1`; the profiles use the provider `openai_compatible`):
 
 ```env
 AI_EMBEDDINGS_URL=http://embedding-host:8080
@@ -89,7 +89,7 @@ Core / Scout (see Core README):
 SCOUT_DRIVER=elasticsearch
 ```
 
-and the `core.search.vector.enabled` runtime setting set to true (Filament > Settings).
+No Core setting is needed: turning on `features.embeddings.enabled` is enough.
 
 ---
 
@@ -172,7 +172,7 @@ stateDiagram-v2
 | Scenario | Behaviour |
 |----------|-----------|
 | AI module disabled | `IndexModelFallbackListener` indexes without embeddings |
-| Embeddings disabled in config | Same fallback |
+| `features.embeddings.enabled` off (no vector profile) | Same fallback; the document carries no vector field and search is keyword-only |
 | Model without `$embed` | AI listener returns early; fallback indexes |
 | Embedding job fails permanently | Document indexed **keyword-only** (degraded); backfill later with `ai:embeddings:repair` |
 | Pre-processing completes after cache expiry | `FinalizeModelIndexingListener` indexes the model directly (late-retry recovery) |
@@ -197,7 +197,7 @@ php artisan ai:embeddings:repair --all [--if-idle]
 - Either way, regeneration dispatches `GenerateEmbeddingsJob` per record with `locale = null` (or runs it inline with `--sync`), which performs a full per-locale regenerate — all locales, stamped with the active `model_key` — through the finalize flow. The command itself does not stamp `model_key`.
 - Queued runs are paced by the `embeddings` rate limiter (`EMBEDDINGS_QUEUE_RATE_PER_MINUTE`, default 10 jobs per minute): the jobs wait for their slot. A `--sync` run is not throttled, because a sync queue cannot release a job back, so the limiter would drop it silently. A record whose embedding fails under `--sync` is reported, the others still run, and the command exits with failure.
 - Preflight on the embeddings server of the active profile, before scanning, checks that abort the command with failure **before it dispatches anything**. The server must embed: a `POST /v1/embeddings` with a probe text (`model`, `input`, the bearer token when configured) must answer with a vector of the active profile's dimensions (and of norm 1 when the profile declares `normalize`), so a server that is up but returns 500 on `/v1/embeddings` stops the run instead of losing every job. And it must run the model of the active profile, because embeddings of another model stored under the profile's `model_key` look right, are invisible to `--stale` and quietly degrade the semantic search: the model the probe answer names is authoritative (a multi-model server answers for the model the request asked for), `GET /info` of a TEI server, when it answers, must agree, and names are compared by their last path segment, without case, so `sentence-transformers/all-MiniLM-L6-v2` is `all-MiniLM-L6-v2`. A server that names no model cannot be checked: a warning, and the run goes on. An unavailable `/info` is not a problem; the probe is what gates. The embeddings provider applies the same comparison to every `/v1/embeddings` answer that names its model (an `EmbeddingsException`, so the job fails visibly), not only in the repair.
-- Requires `core.search.vector.enabled` = true and a searchable, embeddable model (non-empty `$embed`).
+- Requires `features.embeddings.enabled` on (a vector profile in force) and a searchable, embeddable model (non-empty `$embed`). With the feature off the command does nothing, except while a model switch pins its target profile.
 
 ---
 

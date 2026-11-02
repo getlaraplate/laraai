@@ -84,7 +84,7 @@ No HTTP endpoint needed - use services directly.
 |-----------|--------|-------|
 | In-app assistant | Active | JSON answer or event stream, answer sent whole |
 | Governed writes | Active | Writes are proposals the person confirms |
-| Embedding system | Active | Powers vector search; setting `features.embeddings.enabled` |
+| Embedding system | Active | Owns vector search: the single switch is the setting `features.embeddings.enabled`, the model that serves search is the managed setting `features.embeddings.serving_model`; Core has no `search.vector.*` setting and gets the vector profile from this module |
 | Translation system | Active | Automatic translations; setting `features.translation.enabled` |
 | In-app assistant | Active | One switch, setting `features.chat.enabled` (seeded off), enforced by `EnsureAssistantEnabled` on every assistant route; apart from the documentation, so an assistant may serve its tools only |
 | RAG/FAQ | Active | Documentation answers; setting `features.faq.enabled` |

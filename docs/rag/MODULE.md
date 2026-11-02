@@ -361,7 +361,7 @@ Profiles live in `ai.features.embeddings.models` (`Modules/AI/config/config.php`
 | Key | Meaning |
 |-----|---------|
 | `dimensions` | required, at least 1: the length of the model's vectors. `EmbeddingModelRegistry::get()` throws without it |
-| `similarity` | optional, default `cosine`; copied into Core's `search.vector.similarity` at activation |
+| `similarity` | optional, default `cosine`; with `dimensions` it forms the vector profile that Core's engines, mappings and pgvector query read from the serving model. Core has no setting for either |
 | `query_prefix` / `passage_prefix` | text prepended to queries and documents (e5 models need `query: ` / `passage: `). `EmbeddingsProviderFactory::make()` wraps the provider of the profile in `PrefixingEmbeddingsProvider`, so every caller hands over the raw text: `embedText()` adds the query prefix, `embedDocument()` and `embedDocuments()` embed a prefixed copy and keep the vector, never touching `Document::$content` |
 | `normalize` | whether the server normalizes the vectors; the probe of `ai:servers:check`, of the switch and of the repair then refuses a server whose vector norm is not 1 |
 | `server` | optional: the name of the server of `ai.servers` that runs the model (for example `embeddings_other`); without it the default `embeddings` server. A named server without a URL falls back to the default one |
@@ -402,20 +402,49 @@ cannot be the target of a switch, and a vector of the wrong length is refused wh
 
 | Setting | Module | Managed | Meaning |
 |---------|--------|---------|---------|
+| `features.embeddings.enabled` | AI | no | the one switch of vector search, set by the operator. Off: no embedding is generated or repaired, no vector field is indexed and search is keyword-only. On: embeddings are generated (`GenerateEmbeddingsJob`) and vector search runs on the serving model. Core has no switch of its own |
 | `features.embeddings.model` | AI | no | the profile the operator chose (the **target**), a dropdown of the configured profile keys. Changing it asks for confirmation and starts a switch |
+| `features.embeddings.serving_model` | AI | yes | the profile whose vectors the indexes and `core_model_embeddings` hold now: the `model_key` queried and serialized into index documents. Read-only in the settings form, written only by the switch at activation. Read as `ai.features.embeddings.serving_model`. It is not `features.embeddings.enabled` and not a copy of the target |
 | `features.embeddings.switch` | AI | yes | the switch state as JSON: `status` (`idle`, `running`, `failed`), `phase`, `target`, `previous`, `total`, `done`, `error`, `startedAt`, `updatedAt` |
-| `search.vector.model` | Core | yes | the profile whose vectors serve search: the `model_key` Core queries and serializes into index documents. Written only at activation. The AI registry reads it too, as `core.search.vector.model`, falling back to the first configured profile, then the first declared one. There is no AI copy of it |
-| `search.vector.dimensions` | Core | yes | the vector length the index mappings and the pgvector query use; written at activation |
-| `search.vector.similarity` | Core | yes | the similarity of the mappings and the pgvector operator; written at activation |
-| `search.vector.suspended_reason` | Core | yes | `switching` while a switch runs or failed after its start, JSON `null` otherwise; read by the vector guard |
+
+Core keeps no `search.vector.*` setting (`enabled`, `model`, `dimensions`, `similarity` and
+`suspended_reason` do not exist). The vector profile that Core's engines, `Searchable` trait and
+availability guard read is `Modules\Core\Search\DTOs\VectorProfile` (`modelKey`, `dimensions`,
+`similarity`), answered by the contract `Modules\Core\Search\Contracts\IVectorProfileProvider`. Core
+binds `NullVectorProfileProvider` (no profile: keyword search only); this module rebinds it to
+`ActiveEmbeddingProfileProvider`, which returns `null` unless `features.embeddings.enabled` is on and
+otherwise the profile of the model named by `features.embeddings.serving_model`, with the
+`dimensions` and `similarity` of that profile's block in `ai.features.embeddings.models`. It reads the
+runtime config only (no query per call). A serving model key that is not a declared, valid profile
+logs one warning per key and yields no profile, so vector search is off. `EmbeddingModelRegistry::activeKey()`
+returns the same key: `features.embeddings.serving_model`, else the first configured profile, else the
+first declared one. `SearchOrchestratorAgent` asks the same provider and runs keyword-only
+(`use_vector` false) when it returns `null`.
+
+With no profile Core indexes no `embeddings` field, and PostgreSQL vector search throws an
+`InvalidArgumentException` naming the missing profile; Typesense needs no dimension. Consequence of
+the single switch: with `features.embeddings.enabled` off there is neither vector search nor embedding
+generation or repair; the switch preview still works because it pins the target profile.
 
 A managed setting is read-only in the settings form and written by code through
 `Setting::writeManaged()`, which skips approval (see `Modules/Core/docs/rag/SETTING_ACTIONS_DEVELOPER.md`).
-A fresh installation gets its serving model from Core, which seeds `search.vector.model` with
-`openai_compatible:intfloat/multilingual-e5-small`, 384 and `cosine`, whatever profiles are
-configured. The AI seeder runs after Core and defaults `features.embeddings.model` to that stored
-value, adding it to the choices when its provider is not configured, so the target and the serving
-model agree from the start. To serve another model, run a switch to it.
+The AI seeder seeds `features.embeddings.serving_model` with the stored value, else the first
+configured profile (`EmbeddingModelRegistry::activeKey()`), and defaults `features.embeddings.model` to
+it, adding it to the choices when its provider is not configured, so the target and the serving model
+agree from the start. Without the `serving_model` row `ai:embeddings:switch` fails in `activate`:
+seed and resume. To serve another model, run a switch to it.
+
+Upgrade of an existing database (no migration): delete the five obsolete Core rows, seed the AI module so
+`features.embeddings.serving_model` exists, then flush the settings cache. A fresh installation or
+`migrate:fresh --seed` needs nothing.
+
+```sql
+DELETE FROM core_settings WHERE name IN ('search.vector.enabled','search.vector.model','search.vector.dimensions','search.vector.similarity','search.vector.suspended_reason');
+```
+
+```bash
+php artisan db:seed --class="Modules\AI\Database\Seeders\AIDatabaseSeeder"
+```
 
 ### Changing the model from Settings
 
@@ -467,8 +496,10 @@ already active, another start holds the start lock (cache lock `embeddings:switc
 is already running or failed, the provider is not configured, the probe fails or measures other
 dimensions, or (for `openai_compatible`) the profile's server does not answer a probe of `POST /v1/embeddings`, names no model,
 names another one (the probe answer and `GET /info`, where the server has it, must both agree with the profile), or returns vectors that are not normalised for a profile that declares `normalize`. Otherwise it stores
-`running`/`preflight`, sets `search.vector.suspended_reason = switching` in the same transaction and
-dispatches `SwitchEmbeddingModelJob`; when the job cannot be queued the start is rolled back.
+`running`/`preflight` and dispatches `SwitchEmbeddingModelJob`; when the job cannot be queued the start is
+rolled back. Vector search is suspended by the stored state alone: `EmbeddingSwitchStore::isSwitching()`
+is true when `status` is `running`, or `failed` in any phase except `preflight` (a refused choice stays
+searchable). The switch writes only AI settings.
 
 `SwitchEmbeddingModelJob` carries no data. It advances one step, then dispatches itself again after
 5 seconds while the switch runs; runs never overlap (`WithoutOverlapping`). It writes no document
@@ -481,9 +512,11 @@ itself, neither search nor documentation: the `indexes` and `verify` phases hand
    `embeddings` queue is not empty and dispatches what is still missing again, up to 3 rounds, then
    fails naming the records. Rows of the previous model are kept, so a failed switch leaves the
    serving model intact. Records created or edited during the switch are embedded with the target.
-3. **indexes**: every step runs with the target as `VectorModelContext` and with the target's
-   dimensions and similarity in that process only, so every document carries only the target's
-   vectors. The first step does the once-only work: on pgvector the target's partial index is
+3. **indexes**: every step runs inside `Modules\Core\Search\Support\VectorProfileContext::using()` with
+   the target profile (model key, dimensions and similarity) in that process only, so every document
+   carries only the target's vectors. The orchestrator resolves the target profile before every phase,
+   so a profile that disappears from config after the start fails in `preflight` (clear it with
+   `--abandon`). The first step does the once-only work: on pgvector the target's partial index is
    created; for each embeddable model, an index whose vectors have other dimensions (as Elasticsearch
    reports them) is recreated, otherwise it is emptied; the Elasticsearch documentation indexes are
    recreated empty (`ai:create-rag-index --profile=all --force`) with the target in force, when FAQ
@@ -515,17 +548,16 @@ itself, neither search nor documentation: the `indexes` and `verify` phases hand
    (engines with their own index; not the database engine), every record has target rows, and with
    vector search on, the mapping reports the target's dimensions and a vector query of the embedded
    text `test` runs.
-5. **activate**: in one transaction writes `search.vector.dimensions`,
-   `search.vector.similarity`, `search.vector.model` and sets `features.embeddings.model` to the
-   target; then clears the suspension, sets the state `idle`, forgets the guard's cached dimension
+5. **activate**: in one transaction writes `features.embeddings.serving_model` (the target) and records the
+   target in `features.embeddings.model`; then sets the state `idle`, which lifts the suspension, forgets the guard's cached dimension
    checks, deletes the rows of every other model key (and rows with none) and, on pgvector, drops
    their indexes. A failed drop is logged with the `ai:embeddings:prune` command that retries it and
    does not fail the activation. This is the first moment the new model serves anything.
 
 **Failure.** A check that does not hold stores `failed` with the phase and the error. Any other error
 is retried by the job (3 tries, backoff 10 and 30 s) and recorded when they are spent, including a
-run killed by the 900-second timeout. `search.vector.model`, the previous model's rows and the suspension of vector
-search are left as they are. `--resume` continues; repeating the activation is harmless. A failed
+run killed by the 900-second timeout. `features.embeddings.serving_model` and the previous model's rows are
+left as they are, and vector search stays suspended (state `failed` after `preflight`). `--resume` continues; repeating the activation is harmless. A failed
 `indexes` or `verify` resumes at `embeddings`: a record edited while the switch was failed, or one
 whose `GenerateEmbeddingsJob` failed, is embedded again (when nothing is missing the phase moves
 straight on), so the verification cannot fail on it forever. The chunk plan survives the resume: a
@@ -536,7 +568,7 @@ again; a `verify` that failed a check, or was interrupted, empties and rebuilds 
 refusal of `--resume`/`--abandon` on a running switch show the chunks written.
 
 **Abandon.** A start refused in its preflight is cleared: state `idle`, `features.embeddings.model`
-set back to the active model, suspension lifted, nothing re-embedded. After a later failure, or when a
+set back to the serving model, nothing re-embedded. After a later failure, or when a
 running switch stopped making progress, the same procedure runs with the previous model as target:
 its rows still exist, so only missing records are embedded, the indexes are rebuilt for its
 dimensions, verified and it is activated again. Before it stores the return switch, `--abandon`
@@ -606,8 +638,11 @@ the start is not repeated.
 - Embeddings from `openai`, `ollama`, `mistral` and `voyageai` use the service model of the profile
   in force (the part after `provider:` in the key); `ai.providers.*.model` is only the fallback when a
   provider other than the profile's is asked for explicitly.
-- With the embeddings feature off, or before anything is embedded, the AI guard answers `no_vectors`
-  (Core: `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`, vector availability guard).
+- Vector availability answers: Core's `VectorSearchAvailability` gives only `disabled` (no profile, that is
+  `features.embeddings.enabled` off), `dimension_mismatch` and `yes`. The AI decorator
+  `EmbeddingVectorSearchAvailability` adds `suspended` (a switch is running, or failed after its
+  preflight) and `no_vectors` (nothing embedded with the serving model yet). See
+  `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`.
 
 ### Developer reference
 
@@ -619,6 +654,7 @@ the start is not repeated.
 | Phases | `Switching/EmbeddingSwitchOrchestrator.php`, `EmbeddingSwitchCorpus.php`, `EmbeddingSwitchIndexes.php`, `EmbeddingSwitchVerifier.php`, `EmbeddingSwitchActivation.php` |
 | Confirmation and preview | `Switching/EmbeddingModelSettingConfirmation.php`, `EmbeddingSwitchPreview.php` |
 | Job and commands | `Modules/AI/app/Jobs/SwitchEmbeddingModelJob.php`, `Modules/AI/app/Console/Embeddings{Probe,Switch,Status,Prune}Command.php` |
+| Vector profile provider (binding over Core's null provider) | `Modules/AI/app/Ai/Embeddings/ActiveEmbeddingProfileProvider.php`, `EmbeddingModelProfile::vectorProfile()` |
 | AI side of the guard | `Modules/AI/app/Services/EmbeddingVectorSearchAvailability.php` |
 | RAG rebuild (recreate, plan, write a documentation chunk) | `Modules/AI/app/Ai/Rag/RagIndexRebuilder.php`, `DocumentationService::indexSources()` |
 
