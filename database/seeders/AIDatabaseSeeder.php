@@ -27,6 +27,7 @@ class AIDatabaseSeeder extends Seeder
             ...self::embeddingModelSettings($servingModel),
             self::setting('features.translation.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable automatic translation'),
             self::setting('features.media_analysis.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable media LLM analysis (caption, OCR, transcription)'),
+            self::setting('features.media_analysis.near_duplicate_distance', 0, SettingTypeEnum::Integer, 'ai', 'Reuse the analysis of an earlier image when the new one looks like it, up to this many of the 64 bits of their fingerprints apart (0 = off, 4 = the same picture resized, 10 = similar pictures); an earlier analysis made with another media model is not reused', [0, 2, 4, 6, 8, 10]),
             self::setting('features.chat.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable the in-app assistant (conversations, messages, agent and the decisions on what it proposes)'),
             self::setting('features.chat.summary.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable chat summarization'),
             self::setting('features.faq.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable FAQ/RAG answers: the assistant reads the user documentation to answer how the application works'),

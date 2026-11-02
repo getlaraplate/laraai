@@ -112,6 +112,17 @@ return [
             // Optional per-module allowlist. Empty = every module (default).
             // Matched by FeatureModuleGate against the model's Modules\{Name}\ namespace.
             'modules' => [],
+            // Near-duplicate images. `near_duplicate_distance` is the setting
+            // `features.media_analysis.near_duplicate_distance`; this is the default until it is seeded.
+            // It is the largest Hamming distance (of 64 bits) between the perceptual fingerprints of two
+            // images for the later one to reuse the earlier one's analysis instead of calling the model:
+            // 0 = off, about 4 = the same picture resized or re-encoded, above 10 = different pictures
+            // start to match.
+            'near_duplicate_distance' => 0,
+            // The most recent analyses (newest first) one near-duplicate lookup compares against. The
+            // lookup is linear in this number, once per new image that is not an exact duplicate, in a
+            // queue job; rows past the limit are not considered, so an old duplicate may be analysed again.
+            'near_duplicate_scan_limit' => 50000,
             // The transcription models the dropdown offers for the transcription server (`ai.servers.transcription`),
             // as the server names them (a Hugging Face id for speaches); the installer adds the ones it serves.
             'transcription' => [

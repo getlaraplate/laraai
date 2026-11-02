@@ -19,6 +19,7 @@ use Override;
  *
  * @property int $id
  * @property string $content_hash
+ * @property string|null $image_fingerprint
  * @property list<string>|null $entities
  * @property string|null $idea
  * @property string|null $intent
@@ -52,6 +53,7 @@ final class MediaAnalysis extends Model
     #[Override]
     protected $fillable = [
         'content_hash',
+        'image_fingerprint',
         'entities',
         'idea',
         'intent',
