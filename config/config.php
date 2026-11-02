@@ -54,6 +54,11 @@ return [
             // GenerateEmbeddingsJob::retryUntil()). A fixed value, not a setting.
             'retry_until_minutes' => 1440,
 
+            // Lowest cosine `ai:embeddings:probe --reference=compare` accepts between the saved
+            // reference vectors and the freshly embedded sample of a profile. Config only. Lower it
+            // when a deliberate runtime change moves vectors a little; below it the probe fails.
+            'drift_floor' => 0.999,
+
             // The model choice is the setting `features.embeddings.model` (overlaid as
             // `ai.features.embeddings.model`); the model that serves search is the managed setting
             // `features.embeddings.serving_model`. EmbeddingModelRegistry falls back to the first

@@ -61,6 +61,34 @@ final readonly class EmbeddingDimensionProbe
         return self::assertDimensions($profile, $this->embed($profile));
     }
 
+    /**
+     * The vectors the profile's model returns for each text of the drift sample, in the order of
+     * {@see EmbeddingDriftReference::SAMPLE}.
+     *
+     *
+     * @throws EmbeddingDimensionMismatch when the model returns no vector for a text
+     *
+     * @return list<list<float>>
+     */
+    public function embedSample(EmbeddingModelProfile $profile): array
+    {
+        return $this->withProvider($profile, function (EmbeddingsProviderInterface $provider) use ($profile): array {
+            $vectors = [];
+
+            foreach (EmbeddingDriftReference::SAMPLE as $text) {
+                $vector = $provider->embedText($text);
+
+                if ($vector === []) {
+                    throw EmbeddingDimensionMismatch::noEmbedding($profile);
+                }
+
+                $vectors[] = array_values($vector);
+            }
+
+            return $vectors;
+        });
+    }
+
     private static function lengthOf(EmbeddingModelProfile $profile, mixed $vector): int
     {
         if (! is_array($vector) || $vector === []) {
@@ -75,12 +103,23 @@ final readonly class EmbeddingDimensionProbe
      */
     private function embed(EmbeddingModelProfile $profile): array
     {
-        return $this->registry->withActive($profile->key, function (): array {
+        return $this->withProvider($profile, static fn (EmbeddingsProviderInterface $provider): array => $provider->embedText(self::TEXT));
+    }
+
+    /**
+     * @template T
+     *
+     * @param  Closure(EmbeddingsProviderInterface): T  $callback
+     * @return T
+     */
+    private function withProvider(EmbeddingModelProfile $profile, Closure $callback): mixed
+    {
+        return $this->registry->withActive($profile->key, function () use ($callback): mixed {
             $provider = $this->providerFactory instanceof Closure
                 ? ($this->providerFactory)()
                 : EmbeddingsProviderFactory::make();
 
-            return $provider->embedText(self::TEXT);
+            return $callback($provider);
         });
     }
 }
