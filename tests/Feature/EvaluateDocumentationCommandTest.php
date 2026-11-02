@@ -2,9 +2,14 @@
 
 declare(strict_types=1);
 
+use Modules\AI\Ai\Agents\ChatAgent;
+use Modules\AI\Ai\Rag\Judge\RelevanceJudge;
+use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Ai\Rag\Retrieval\DeveloperDocumentationRetrieval;
 use Modules\AI\Ai\Rag\Retrieval\InAppDocumentationRetrieval;
 use Modules\AI\Tests\Stubs\Documentation\FakeDocumentationSearch;
+use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Testing\FakeAIProvider;
 
 beforeEach(function (): void {
     config()->set('ai.features.faq.max_documents', 5);
@@ -123,6 +128,54 @@ it('fails when the dataset module does not match --module', function (): void {
         ])->assertFailed();
 
         expect(is_file($output_path))->toBeFalse();
+    } finally {
+        @unlink($output_path);
+        @unlink($dataset_path);
+        @rmdir($directory);
+    }
+});
+
+it('measures the judged candidates of the user index while the judge is on', function (): void {
+    config()->set('ai.features.rag.judge.enabled', true);
+    config()->set('ai.features.rag.judge.min_sources', 1);
+    app()->instance(InAppDocumentationRetrieval::class, FakeDocumentationSearch::forInAppRetrieval([
+        'how do I export a grid?' => [
+            FakeDocumentationSearch::document('Core · Settings', 'en', 'Change your profile.', ['Core', 'Settings']),
+            FakeDocumentationSearch::document('Core · Grid export', 'en', 'Use export.', ['Core', 'Grid export']),
+        ],
+    ]));
+    $provider = new FakeAIProvider(new AssistantMessage('{"relevant":[2],"next_query":null}'));
+    app()->instance(RelevanceJudgeStage::class, new RelevanceJudgeStage(new RelevanceJudge(
+        static fn (string $system): ChatAgent => ChatAgent::make(systemPrompt: $system)->setAiProvider($provider),
+    )));
+
+    $directory = sys_get_temp_dir() . '/laraplate-doc-eval-' . bin2hex(random_bytes(5));
+    mkdir($directory, 0700, true);
+    $dataset_path = $directory . '/dataset.json';
+    $output_path = $directory . '/report.json';
+    file_put_contents($dataset_path, json_encode([
+        'version' => '1', 'corpus_revision' => 'core-1', 'module' => 'core',
+        'index_profile' => 'user', 'data_classification' => 'synthetic',
+        'cases' => [[
+            'id' => 'hit', 'query' => 'how do I export a grid?', 'locale' => 'en', 'top_k' => 5,
+            'expected_source_labels' => ['Core · Grid export'],
+            'expected_citation_labels' => ['Core · Grid export'],
+            'expect_authorized_empty' => false, 'expect_supported_answer' => true, 'expect_refusal' => false,
+            'slices' => ['grid'], 'tenant_scope' => 'global', 'tenant_id' => null, 'effective_permissions' => [],
+        ]],
+    ], JSON_THROW_ON_ERROR));
+
+    try {
+        $this->artisan('test:ai:evaluate-documentation', [
+            '--module' => 'core', '--index' => 'user',
+            '--dataset' => $dataset_path, '--output' => $output_path,
+        ])->assertSuccessful();
+
+        $report = json_decode((string) file_get_contents($output_path), true, flags: JSON_THROW_ON_ERROR);
+
+        expect($report['metrics']['mean_reciprocal_rank'])->toBe(1.0)
+            ->and($report['metrics']['citation_precision'])->toBe(1.0)
+            ->and($provider->getCallCount())->toBe(1);
     } finally {
         @unlink($output_path);
         @unlink($dataset_path);

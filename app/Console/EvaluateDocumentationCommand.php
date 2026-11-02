@@ -7,6 +7,7 @@ namespace Modules\AI\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
+use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Ai\Rag\Retrieval\DeveloperDocumentationRetrieval;
 use Modules\AI\Ai\Rag\Retrieval\InAppDocumentationRetrieval;
 use Modules\AI\Console\Concerns\WritesJsonReport;
@@ -29,13 +30,14 @@ final class EvaluateDocumentationCommand extends Command
                             {--force : Replace an existing report}';
 
     #[Override]
-    protected $description = 'Evaluate documentation RAG retrieval for a module without calling the chat model <fg=magenta>(✨ Modules\\AI)</fg=magenta>';
+    protected $description = 'Evaluate documentation RAG retrieval for a module without calling the chat model (the user index goes through the relevance judge when it is on) <fg=magenta>(✨ Modules\\AI)</fg=magenta>';
 
     public function handle(
         DocumentationEvaluationService $evaluation,
         InAppDocumentationRetrieval $retrieval,
         DeveloperDocumentationRetrieval $developerRetrieval,
         Filesystem $files,
+        RelevanceJudgeStage $judge,
     ): int {
         $module = $this->optionString('module');
         $index = $this->optionString('index') ?? 'user';
@@ -75,7 +77,11 @@ final class EvaluateDocumentationCommand extends Command
 
             [$driver, $retrieve] = $profile === DocumentationIndexProfile::Developer
                 ? ['developer-documentation', static fn (string $question, AssistantAccessContext $access): array => $developerRetrieval->retrieve($question)]
-                : ['in-app-documentation', static fn (string $question, AssistantAccessContext $access): array => $retrieval->retrieve($question, $access)];
+                : ['in-app-documentation', static fn (string $question, AssistantAccessContext $access): array => $judge->run(
+                    $question,
+                    $retrieval->retrieve($question, $access),
+                    static fn (string $query): array => $retrieval->retrieve($query, $access),
+                )->documents];
 
             $report = $evaluation->evaluate($dataset, $driver, $retrieve);
 

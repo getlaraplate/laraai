@@ -38,9 +38,10 @@ final class ProviderFactory
      * from the chat choice in Settings. `$maxOutputTokens` caps what the model may
      * write in one answer, with the parameter each provider names it by; `null`
      * leaves the provider's own limit. `$timeout` caps the seconds of one call to the model; `null`
-     * keeps {@see self::HTTP_TIMEOUT}.
+     * keeps {@see self::HTTP_TIMEOUT}. `$temperature` sets the sampling temperature with the
+     * parameter each provider names it by; `null` leaves the provider's own.
      */
-    public static function make(?string $provider = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null): AIProviderInterface
+    public static function make(?string $provider = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null, ?float $temperature = null): AIProviderInterface
     {
         if ($provider === null) {
             $choice = AiModelChoice::forFeature(AiModelFeature::Chat);
@@ -49,10 +50,10 @@ final class ProviderFactory
         }
 
         return match ($provider) {
-            'openai' => self::createOpenAI($model, $maxOutputTokens, $timeout),
-            'ollama' => self::createOllama($model, $maxOutputTokens, $timeout),
-            'mistral' => self::createMistral($model, $maxOutputTokens, $timeout),
-            'anthropic' => self::createAnthropic($model, $maxOutputTokens, $timeout),
+            'openai' => self::createOpenAI($model, $maxOutputTokens, $timeout, $temperature),
+            'ollama' => self::createOllama($model, $maxOutputTokens, $timeout, $temperature),
+            'mistral' => self::createMistral($model, $maxOutputTokens, $timeout, $temperature),
+            'anthropic' => self::createAnthropic($model, $maxOutputTokens, $timeout, $temperature),
             default => throw new InvalidArgumentException("Unsupported AI provider: {$provider}"),
         };
     }
@@ -76,12 +77,15 @@ final class ProviderFactory
      * With `ai.providers.openai.base_url` set, the provider talks to that OpenAI-compatible server
      * (llama.cpp, vLLM, LM Studio...), which may need no key; without it, to api.openai.com.
      */
-    private static function createOpenAI(?string $model, ?int $maxOutputTokens, ?float $timeout): OpenAI
+    private static function createOpenAI(?string $model, ?int $maxOutputTokens, ?float $timeout, ?float $temperature): OpenAI
     {
         $api_key = ai_config_string('ai.providers.openai.api_key');
         $base_url = ai_config_string('ai.providers.openai.base_url');
         $model ??= ai_config_string('ai.providers.openai.model', 'gpt-4o-mini');
-        $parameters = $maxOutputTokens === null ? [] : ['max_completion_tokens' => $maxOutputTokens];
+        $parameters = self::withTemperature(
+            $maxOutputTokens === null ? [] : ['max_completion_tokens' => $maxOutputTokens],
+            $temperature,
+        );
 
         if ($base_url !== '') {
             return new OpenAILike(
@@ -98,8 +102,10 @@ final class ProviderFactory
         return new OpenAI(key: $api_key, model: $model, parameters: $parameters, httpClient: self::httpClient($timeout));
     }
 
-    private static function createOllama(?string $model, ?int $maxOutputTokens, ?float $timeout): Ollama
+    private static function createOllama(?string $model, ?int $maxOutputTokens, ?float $timeout, ?float $temperature): Ollama
     {
+        $options = self::withTemperature($maxOutputTokens === null ? [] : ['num_predict' => $maxOutputTokens], $temperature);
+
         $url = ai_config_string('ai.providers.ollama.api_url');
         throw_if($url === '', ConfigurationException::class, 'Ollama API URL is not configured');
 
@@ -108,12 +114,12 @@ final class ProviderFactory
         return new Ollama(
             url: mb_rtrim($url, '/') . '/api',
             model: $model ?? ai_config_string('ai.providers.ollama.model', 'llama3.2:3b'),
-            parameters: $maxOutputTokens === null ? [] : ['options' => ['num_predict' => $maxOutputTokens]],
+            parameters: $options === [] ? [] : ['options' => $options],
             httpClient: self::httpClient($timeout),
         );
     }
 
-    private static function createMistral(?string $model, ?int $maxOutputTokens, ?float $timeout): Mistral
+    private static function createMistral(?string $model, ?int $maxOutputTokens, ?float $timeout, ?float $temperature): Mistral
     {
         $api_key = ai_config_string('ai.providers.mistral.api_key');
         throw_if($api_key === '', ConfigurationException::class, 'Mistral API key is not configured');
@@ -121,19 +127,32 @@ final class ProviderFactory
         return new Mistral(
             key: $api_key,
             model: $model ?? ai_config_string('ai.providers.mistral.model', 'mistral-large-latest'),
-            parameters: $maxOutputTokens === null ? [] : ['max_tokens' => $maxOutputTokens],
+            parameters: self::withTemperature($maxOutputTokens === null ? [] : ['max_tokens' => $maxOutputTokens], $temperature),
             httpClient: self::httpClient($timeout),
         );
     }
 
-    private static function createAnthropic(?string $model, ?int $maxOutputTokens, ?float $timeout): Anthropic
+    private static function createAnthropic(?string $model, ?int $maxOutputTokens, ?float $timeout, ?float $temperature): Anthropic
     {
         $api_key = ai_config_string('ai.providers.anthropic.api_key');
         throw_if($api_key === '', ConfigurationException::class, 'Anthropic API key is not configured');
 
+        $parameters = self::withTemperature([], $temperature);
+
         return $maxOutputTokens === null
-            ? new Anthropic(key: $api_key, model: $model ?? self::ANTHROPIC_DEFAULT_MODEL, httpClient: self::httpClient($timeout))
-            : new Anthropic(key: $api_key, model: $model ?? self::ANTHROPIC_DEFAULT_MODEL, max_tokens: $maxOutputTokens, httpClient: self::httpClient($timeout));
+            ? new Anthropic(key: $api_key, model: $model ?? self::ANTHROPIC_DEFAULT_MODEL, parameters: $parameters, httpClient: self::httpClient($timeout))
+            : new Anthropic(key: $api_key, model: $model ?? self::ANTHROPIC_DEFAULT_MODEL, max_tokens: $maxOutputTokens, parameters: $parameters, httpClient: self::httpClient($timeout));
+    }
+
+    /**
+     * `$parameters` with the sampling temperature added, when one is asked for.
+     *
+     * @param  array<string, mixed>  $parameters
+     * @return array<string, mixed>
+     */
+    private static function withTemperature(array $parameters, ?float $temperature): array
+    {
+        return $temperature === null ? $parameters : [...$parameters, 'temperature' => $temperature];
     }
 
     private static function httpClient(?float $timeout): CurlHttpClient

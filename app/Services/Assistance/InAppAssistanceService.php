@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Data\UiProposal;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
@@ -66,6 +67,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         private ?Closure $documentation_retrieval = null,
         private ?Closure $completion = null,
         private ?ApplicationContentCitationMapper $application_content_citations = null,
+        private ?RelevanceJudgeStage $relevance_judge = null,
     ) {}
 
     /**
@@ -105,13 +107,18 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_RETRIEVE);
             $module_context = $this->serverApplicationContext();
             $scope = $this->scope_resolver->resolve($access->profile, $module_context?->module);
+            $retrieve = fn (string $query): array => $this->documentation_retrieval instanceof Closure
+                ? ($this->documentation_retrieval)($query, $access, $scope)
+                : $this->documentation->retrieveForInApp($query, $access, $scope);
             $retrieval_started_at = hrtime(true);
-            $documents = match (true) {
-                ! $reads_documentation => [],
-                $this->documentation_retrieval instanceof Closure => ($this->documentation_retrieval)($input, $access, $scope),
-                default => $this->documentation->retrieveForInApp($input, $access, $scope),
-            };
+            $documents = $reads_documentation ? $retrieve($input) : [];
             $retrieval_latency_ms = (hrtime(true) - $retrieval_started_at) / 1_000_000;
+            $judge_run = null;
+
+            if ($reads_documentation) {
+                $judge_run = $this->relevanceJudge()->run($input, $documents, $retrieve);
+                $documents = $judge_run->documents;
+            }
             $prompt_context = $this->guardrails->validateContext(
                 $this->promptContext($policy, $documents, $request_context),
             );
@@ -183,6 +190,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 count($documents),
                 $documentation_citation_count,
                 $retrieval_latency_ms,
+                $judge_run,
             );
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_VALIDATE);
 
@@ -308,6 +316,15 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         } catch (InvalidArgumentException) {
             return null;
         }
+    }
+
+    /**
+     * The optional relevance judge between documentation retrieval and the answer; off, it hands the
+     * documents on as retrieved.
+     */
+    private function relevanceJudge(): RelevanceJudgeStage
+    {
+        return $this->relevance_judge ?? app(RelevanceJudgeStage::class);
     }
 
     private function applicationContentCitations(): ApplicationContentCitationMapper

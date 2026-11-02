@@ -58,6 +58,10 @@ class AIDatabaseSeeder extends Seeder
             self::setting('features.faq.query_logging.retention_days', 30, SettingTypeEnum::Integer, 'ai', 'Days a logged documentation question is kept before it is deleted'),
             self::setting('features.search_orchestration.enabled', true, SettingTypeEnum::Boolean, 'ai', 'Let deep and balanced searches use the AI overlay (when off they are served as fast)'),
             self::setting('features.search_orchestration.timeout', 10.0, SettingTypeEnum::Float, 'ai', 'Seconds one LLM call of a deep search may take before the search falls back to rules (0 = no limit, negative values read as 0)'),
+            self::setting('features.rag.judge.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Let a model judge which retrieved documentation answers the question before the assistant answers. A model smaller than a mid-size instruction-tuned one usually makes judging worse: enable it only after comparing on and off with test:ai:evaluate-documentation'),
+            self::setting('features.rag.judge.max_rounds', 3, SettingTypeEnum::Integer, 'ai', 'Rounds of the relevance judge: each round after the first searches again with the query the judge proposes'),
+            self::setting('features.rag.judge.min_sources', 3, SettingTypeEnum::Integer, 'ai', 'Relevant documents after which the relevance judge stops searching again'),
+            self::setting('features.rag.judge.excerpt_chars', 600, SettingTypeEnum::Integer, 'ai', 'Characters of each document the relevance judge reads'),
         ];
     }
 

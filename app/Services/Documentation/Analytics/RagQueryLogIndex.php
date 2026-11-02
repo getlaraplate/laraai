@@ -10,7 +10,9 @@ use function ai_config_string;
  * The Elasticsearch index of the documentation query log: its name and its mapping.
  *
  * The mapping is strict, so a field the privacy review did not approve is refused by the index
- * instead of being stored, and it has no vector: the log is never searched by similarity.
+ * instead of being stored, and it has no vector: the log is never searched by similarity. The
+ * `judge_*` fields are written only while the relevance judge is on; an index created before they
+ * existed refuses them, so recreate it (`ai:create-rag-query-index --force`) before turning it on.
  */
 final class RagQueryLogIndex
 {
@@ -42,6 +44,13 @@ final class RagQueryLogIndex
                 'answered' => ['type' => 'boolean'],
                 'latency_ms' => ['type' => 'float'],
                 'index' => ['type' => 'keyword'],
+                'judge_rounds' => ['type' => 'integer'],
+                'judge_candidates' => ['type' => 'integer'],
+                'judge_kept' => ['type' => 'integer'],
+                'judge_fallback' => ['type' => 'boolean'],
+                'judge_ms' => ['type' => 'float'],
+                'judge_trace' => ['type' => 'keyword', 'ignore_above' => 2048],
+                'judge_queries' => ['type' => 'text'],
             ],
         ];
     }

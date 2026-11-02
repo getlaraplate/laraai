@@ -216,6 +216,20 @@ return [
             'enabled' => true,
             'timeout' => 10.0,
         ],
+        'rag' => [
+            // The optional relevance judge between documentation retrieval and the answer of the in-app
+            // assistant (RelevanceJudgeStage). `enabled`, `max_rounds`, `min_sources` and `excerpt_chars`
+            // are the settings `features.rag.judge.*`; these are the defaults until they are seeded. The
+            // model is the setting `features.rag.judge.model`. `timeout` is the seconds one judge call may
+            // take before the unjudged documents are used (not a setting; 0 means no limit).
+            'judge' => [
+                'enabled' => false,
+                'max_rounds' => 3,
+                'min_sources' => 3,
+                'excerpt_chars' => 600,
+                'timeout' => 10.0,
+            ],
+        ],
         'moderation' => [
             // The setting `features.moderation.queue`, read when the job is dispatched.
             'queue' => 'default',
