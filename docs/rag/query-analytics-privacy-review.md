@@ -18,14 +18,22 @@ One document per answered documentation query, in its own Elasticsearch index (`
 | `answered` | grounded answer or abstention |
 | `latency_ms` | retrieval latency |
 | `index` | the RAG index that served the query |
+| `judge_rounds`, `judge_candidates`, `judge_kept` | integers: rounds of the relevance judge, documents it read, documents it kept; present only when the judge ran |
+| `judge_fallback` | boolean: the judge failed or kept nothing and the unjudged documents were used; only when the judge ran |
+| `judge_ms` | float: time of the judge calls in milliseconds; only when the judge ran |
+| `judge_trace` | one `round=N candidates=N kept=1,3 ms=N` entry per round (numbers only, no text); only when the judge ran |
+| `judge_queries` | the query of each judge round, one per line: the question and the reformulations the model wrote. Stored only with the query text mode `raw`, absent with `off`; only when the judge ran |
+| `tokens_in_{role}`, `tokens_out_{role}` | integers, no text: tokens the model of a role (`answer`, `judge`, `intent`, `embedding`) read and wrote for the question. Only for a role whose provider reported usage, otherwise the field is absent |
 
 Never stored: the answer text, document bodies, the raw user id, any secret.
+
+The `judge_*` fields exist only when the optional relevance judge (`features.rag.judge.enabled`, off by default) ran, and the query-log index must be recreated (`ai:create-rag-query-index --force`) to hold them. `judge_queries` is the only one that carries text, and model-written text at that: the reformulations of the question that the judge model proposed. It is treated exactly like `query`, so it follows the query text mode below and is not written with `off`. The token fields are counters and hold no text.
 
 ## Query text: raw, or off
 
 The question is stored as typed (`raw`) by default, because the purpose of the log is to see what the documentation does not answer, and a hash cannot be read. A hash of a short question is also easy to reverse by trying likely questions, so it would protect little. The `hashed` mode of the spec is dropped. `off` stores only the structured signal (counts, latency, locale, profile).
 
-A raw question may contain personal data a user typed. The short retention window and the per-user erasure below are what bound it.
+With `raw`, `judge_queries` is stored too, including the reformulations written by the model, which can repeat words of the question. A raw question may contain personal data a user typed. The short retention window and the per-user erasure below are what bound it.
 
 ## Settings, not environment variables
 

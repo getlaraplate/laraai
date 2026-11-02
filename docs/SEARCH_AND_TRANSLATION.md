@@ -56,6 +56,7 @@ sequenceDiagram
 - **Class:** `Modules\AI\Jobs\GenerateEmbeddingsJob`
 - **Service:** `Modules\AI\Contracts\IEmbeddingService` / `EmbeddingService`
 - **Output:** Vectors stored for the model; chunks for long documents
+- **Chunking and context header:** `EmbeddingService::chunksFor()` splits the text of a record first, while its line structure (paragraphs, headings, tables, code fences) is intact, and collapses whitespace to single spaces inside each chunk afterwards. A model may declare a one-line header with `Searchable::embedHeader(?string $locale = null)` (Core, default `null`); `ModelEmbeddingSynchronizer` collapses it to one line, cuts it at 300 characters (`HEADER_LIMIT`) and the service prepends it, followed by a newline, to every chunk of that text. The header is embedding input only: the chunk text is not stored and the header is not in the indexed document. The content hash is `sha256(text)` without a header and `sha256(header . "\0" . text)` with one, so a new, changed or removed header re-embeds the record on its next save, on a reindex (the bulk path skips records whose hash is unchanged) and by a model switch (`EmbeddingSwitchCorpus` hashes the same way). `ai:embeddings:repair` does not: it never compares hashes. A blank text yields no chunk.
 - **Completion:** `event(new ModelPreProcessingCompleted($model, 'embeddings'))`
 - **Idempotent regeneration:** existing embeddings are deleted before the new set is written, so a retry or repair never appends duplicate `ModelEmbedding` rows.
 - **Permanent failure (degrade):** `failed()` still emits `ModelPreProcessingCompleted($model, 'embeddings')`, so the document is indexed **keyword-only** rather than kept out of the index entirely.
@@ -197,6 +198,7 @@ php artisan ai:embeddings:repair --all [--if-idle]
 - Either way, regeneration dispatches `GenerateEmbeddingsJob` per record with `locale = null` (or runs it inline with `--sync`), which performs a full per-locale regenerate — all locales, stamped with the active `model_key` — through the finalize flow. The command itself does not stamp `model_key`.
 - Queued runs are paced by the `embeddings` rate limiter (`EMBEDDINGS_QUEUE_RATE_PER_MINUTE`, default 10 jobs per minute): the jobs wait for their slot. A `--sync` run is not throttled, because a sync queue cannot release a job back, so the limiter would drop it silently. A record whose embedding fails under `--sync` is reported, the others still run, and the command exits with failure.
 - Preflight on the embeddings server of the active profile, before scanning, checks that abort the command with failure **before it dispatches anything**. The server must embed: a `POST /v1/embeddings` with a probe text (`model`, `input`, the bearer token when configured) must answer with a vector of the active profile's dimensions (and of norm 1 when the profile declares `normalize`), so a server that is up but returns 500 on `/v1/embeddings` stops the run instead of losing every job. And it must run the model of the active profile, because embeddings of another model stored under the profile's `model_key` look right, are invisible to `--stale` and quietly degrade the semantic search: the model the probe answer names is authoritative (a multi-model server answers for the model the request asked for), `GET /info` of a TEI server, when it answers, must agree, and names are compared by their last path segment, without case, so `sentence-transformers/all-MiniLM-L6-v2` is `all-MiniLM-L6-v2`. A server that names no model cannot be checked: a warning, and the run goes on. An unavailable `/info` is not a problem; the probe is what gates. The embeddings provider applies the same comparison to every `/v1/embeddings` answer that names its model (an `EmbeddingsException`, so the job fails visibly), not only in the repair.
+- Repair does not re-embed a record whose embedding context header changed, because it never compares content hashes; save the record again, reindex it, or switch the model (see *Chunking and context header* above).
 - Requires `features.embeddings.enabled` on (a vector profile in force) and a searchable, embeddable model (non-empty `$embed`). With the feature off the command does nothing, except while a model switch pins its target profile.
 
 ---
@@ -215,7 +217,7 @@ php artisan ai:embeddings:repair --all [--if-idle]
 
 ### Documentation search route
 
-`GET` or `POST /app/crud/search/{module}/documentation` (`q` in the query string, or in the JSON or form body of a POST) returns passages of the end-user documentation for the command palette. Retrieval only: no language model is called. It is a `/app` route (session), not exposed under `/api/v1`.
+`GET` or `POST /app/crud/search/{module}/documentation` (`q` in the query string, or in the JSON or form body of a POST) returns passages of the end-user documentation for the command palette. Retrieval only: no language model is called, so the relevance judge (below) does not run here. It is a `/app` route (session), not exposed under `/api/v1`.
 
 - Gate, in this order: the `auth` middleware (an unauthenticated call is refused there, before the limiter and the controller; the controller's own 401 is a backstop), not a guest (403), `AssistantCapabilities::help()` i.e. `features.faq.enabled` (403 `{"code":"FEATURE_DISABLED"}`), then the module. The chat switch `features.chat.enabled` and the chat provider do not gate it.
 - Module scope: `{module}` is the documentation scope, resolved through `AssistantScopeResolver` as the assistant does. A module that is unknown, disabled or not shaped `[a-z][a-z0-9_]{0,63}` answers 404 (the route takes any segment and the controller decides, so a malformed one never reaches Core as an entity).
@@ -224,6 +226,16 @@ php artisan ai:embeddings:repair --all [--if-idle]
 - Response: the standard envelope, `data` a list of `{label, reference, excerpt, heading_breadcrumb?, module?}`; `excerpt` is cut at 300 characters, `reference` equals `label`. A retrieval failure (embedding provider or index down) answers 503.
 - Rate limit: 60 requests per minute per signed-in user, limiter `documentation-search`, key `ai.features.faq.search.rate_per_minute`; 429 beyond. The limiter is route middleware that runs after `auth` and before the controller, so every authenticated call counts whatever its outcome (403, `FEATURE_DISABLED`, 404, 422, 503 or 200).
 - Reserved name: `documentation` is a reserved entity name for GET and POST. The route answers both methods, like Core's `search/{module}/{entity?}`, and is registered ahead of it, so an entity called `documentation` is unreachable through search.
+
+---
+
+## 7. Relevance judge, similarity floor and embedding checks
+
+**Relevance judge.** An optional stage of the in-app assistant between the retrieval of the user documentation and the answer (`InAppAssistanceService::respond()`, through `RelevanceJudgeStage`). It is off by default (setting `features.rag.judge.enabled`). A model (setting `features.rag.judge.model`) reads the title, the date and the first `features.rag.judge.excerpt_chars` characters of each candidate and returns the relevant ones plus an optional next query. Rounds after the first retrieve again with that query, under the same access and scope; the stage stops after `features.rag.judge.max_rounds` rounds, when `features.rag.judge.min_sources` documents are kept, when no next query is proposed or when a round brings nothing new. A document is judged once. If a judge call fails or times out (`ai.features.rag.judge.timeout`, 10 seconds) or nothing is kept, the unjudged candidates of the first retrieval are used. The command palette route above, `ai:help` (`DocumentationAgent`) and the search of application content are not judged. Each judged answer adds `judge_*` fields to the query log: recreate its index with `ai:create-rag-query-index --force` before enabling the judge (see `rag/query-analytics-privacy-review.md`). Compare on and off with `test:ai:evaluate-documentation --index=user` before enabling it; a model smaller than a mid-size instruction-tuned one usually makes judging worse.
+
+**Similarity floor.** A profile of `ai.features.embeddings.models` may carry `min_similarity` (0 to 1), carried by Core's `VectorProfile` and applied by the engines in the vector query, on the scale of the profile's similarity function and not the engine score. `test:ai:tune-retrieval` prints a recommended floor measured on the vector hits of the dataset and never writes it. Profile keys, scale and engine behaviour: [rag/MODULE.md](rag/MODULE.md), section *Embedding model and model switch*.
+
+**Embedding checks.** `ai:embeddings:probe <profile> --reference=save|compare` guards against the same model name producing different vectors on another server, runtime or precision (`ai.features.embeddings.drift_floor`); `--cross-language` reports the cosine of one sentence in two languages; a profile's `languages` produce a warning, never an error, when the installation enables locales the model does not declare.
 
 ---
 
@@ -236,6 +248,9 @@ php artisan ai:embeddings:repair --all [--if-idle]
 | Embeddings job | `app/Jobs/GenerateEmbeddingsJob.php` |
 | Translation job | `app/Jobs/TranslateModelJob.php` |
 | Repair command | `app/Console/RepairMissingEmbeddingsCommand.php` |
+| Probe, drift reference, language check | `app/Console/EmbeddingsProbeCommand.php`, `app/Ai/Embeddings/EmbeddingDriftReference.php`, `EmbeddingLanguageCheck.php` |
+| Chunking and context header | `app/Services/EmbeddingService.php` (`chunksFor()`), `app/Services/ModelEmbeddingSynchronizer.php` |
+| Relevance judge | `app/Ai/Rag/Judge/RelevanceJudgeStage.php`, `RelevanceJudge.php`, `JudgeVerdict.php` |
 | Finalize listener (Core) | `Modules/Core/app/Listeners/FinalizeModelIndexingListener.php` |
 | Event registration | `app/Providers/EventServiceProvider.php` |
 | Query embedding cache | `app/Ai/Embeddings/QueryEmbeddingCache.php` |

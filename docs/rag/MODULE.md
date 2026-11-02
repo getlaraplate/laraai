@@ -184,16 +184,41 @@ flowchart TB
   Cit --> Out
 ```
 
+### Relevance judge
+
+An optional stage between the retrieval of the user documentation and the answer of the in-app assistant. It is off by default.
+
+- **Where it runs.** `InAppAssistanceService::respond()` calls `RelevanceJudgeStage::run()` right after the documentation retrieval and before the prompt context is built, only when the assistant reads documentation (`AssistantCapabilities::help()`, that is `features.faq.enabled`). The retrieval it repeats is the same closure, so later rounds keep the access context and the scope. It is not inside `InAppDocumentationRetrieval::retrieve()`, because the command palette search (`DocumentationSearch`) shares that method and must not make a model call. The developer path (`ai:help`, `DocumentationAgent`, `DocumentationService::answerQuestion()`) and the search of application content are not judged.
+- **Settings.** `features.rag.judge.enabled` (seeded `false`), `features.rag.judge.max_rounds` (3), `features.rag.judge.min_sources` (3), `features.rag.judge.excerpt_chars` (600) and the model dropdown `features.rag.judge.model` (`AiModelFeature::RelevanceJudge`; choices are `provider:model` values written by the seeder and refreshed by `ai:models:refresh`, like the other feature models). `ai.features.rag.judge.timeout` (10 seconds, `0` = no limit) is config only. The description of the enable setting says that a model smaller than a mid-size instruction-tuned one usually makes judging worse.
+- **What the judge reads and returns.** For each candidate: a number, the title (source name plus heading breadcrumb), the date when the metadata has one (the first of `date`, `updated_at`, `published_at`, `valid_from`) and an excerpt cut at `excerpt_chars`. It answers through structured output (`JudgeAnswer`) with the numbers of the relevant candidates and an optional `next_query`. The call uses temperature 0 and no retry. Round 1 asks for a more precise next query, later rounds for a broader one with synonyms. Numbers outside the candidate list or repeated are ignored.
+- **Rounds.** Round 1 judges the first retrieval. Each next round retrieves again with the proposed query and judges only documents not judged before (a document is identified by source type, source name and content, since the safe projection assigns new ids on every retrieval). The stage stops when the kept documents reach `min_sources`, when the judge proposes no next query, when a round brings nothing new, or after `max_rounds`. The answer is built from the kept documents.
+- **Fallback.** A failure or timeout of any judge call, a verdict that is not usable, or no document kept at the end returns the unjudged candidates of round 1 (`JudgeRun::$fallback` true); documents kept in earlier rounds are dropped in that case. A failed retrieval of a next query only ends the rounds. The question is always answered.
+- **Off.** With the setting off no call is made, the candidates are returned as given and the query log document has no `judge_*` field.
+- **Logging.** The log gains the `judge_*` fields (see *Documentation query analytics*). Recreate the query-log index with `php artisan ai:create-rag-query-index --force` before enabling the judge: the mapping is strict, so the document of a judged question is refused by an older index and that question is not logged (`rag_query_analytics_write_failed` in the application log).
+- **Evaluation.** `test:ai:evaluate-documentation --index=user` sends the user index through the stage, so the setting changes what it measures; the developer index is never judged. Compare before enabling: run the command with the setting off (`--output=<off.json>`), turn `features.rag.judge.enabled` on with the candidate model in `features.rag.judge.model`, run again (`--output=<on.json>`) and compare `source_hit_at_k`, `mean_reciprocal_rank`, `citation_precision`, `supported_answer_rate`, `refusal_accuracy` and `latency_ms`. Enable it only if the numbers improve.
+
+Classes: `Modules/AI/app/Ai/Rag/Judge/` (`RelevanceJudgeStage`, `RelevanceJudge`, `JudgeAnswer`, `JudgeVerdict`, `JudgeRound`, `JudgeRun`).
+
 ### Documentation query analytics
 
 An optional, write-only log of the questions the in-app assistant answered from the user documentation, so corpus gaps, language mix, abstention rate and retrieval latency can be seen. It is off by default (setting `features.faq.query_logging.enabled`), and nothing in the application reads it: it never feeds retrieval, ranking or tuning. The privacy decisions are in `query-analytics-privacy-review.md`.
 
 - **Where it is written.** `InAppAssistanceService::respond()` times the documentation retrieval and, once the answer is stored, hands it to `RagQueryRecorder`. The recorder checks the switch, skips guests and impersonated sessions (impersonation is known only in the request), builds a `RagQueryLog` and queues `LogRagQueryJob` with the finished document. `RagQueryAnalyticsWriter` indexes it. A refused turn is not logged, and nothing on this path can fail or delay the answer: a dispatch or write failure is logged with the exception class only.
-- **What a document holds.** `id`, `logged_at`, `user_ref`, `tenant` (tenant id or `global`), `profile`, `locale`, `query`, `retrieved_count` (documentation documents after the similarity floor), `citation_count` (in this flow every retrieved document is cited, so it equals `retrieved_count`), `answered` (false when retrieval found nothing), `latency_ms` (retrieval only) and `index` (the user documentation index). Never the answer, document bodies or the user id. The index mapping (`RagQueryLogIndex`) is `dynamic: strict`, so a field outside this list is refused.
+- **What a document holds.** `id`, `logged_at`, `user_ref`, `tenant` (tenant id or `global`), `profile`, `locale`, `query`, `retrieved_count` (documentation documents after the similarity floor), `citation_count` (in this flow every retrieved document is cited, so it equals `retrieved_count`), `answered` (false when retrieval found nothing), `latency_ms` (retrieval only) and `index` (the user documentation index). Never the answer, document bodies or the user id. The index mapping (`RagQueryLogIndex`) is `dynamic: strict`, so a field outside the lists here is refused.
+- **Judge fields.** Only when the relevance judge ran, the document gains `judge_rounds` (int), `judge_candidates` (int), `judge_kept` (int), `judge_fallback` (bool: the unjudged candidates were used), `judge_ms` (float, time of the judge calls), `judge_trace` (keyword, one `round=N candidates=N kept=1,3 ms=N` entry per round, `kept=-` when none) and `judge_queries` (text, the query of each round, one per line: round 1 is the question, later rounds are reformulations written by the model). `judge_queries` follows `query_text_mode`: it is stored only with `raw`, never with `off`.
+- **Token fields.** `tokens_in_{role}` and `tokens_out_{role}` (integers, no text) for `answer` and `judge`, only for roles whose provider reported usage; see *Tokens per role and the data egress indicator*.
 - **The question.** Stored as typed when `features.faq.query_logging.query_text_mode` is `raw` (the default), not at all when it is `off`.
 - **The user.** `user_ref` is an HMAC-SHA256 of the user id under `APP_KEY` (`RagQueryUserReference`).
 - **Retention and erasure.** `ai:prune-rag-queries` runs daily and deletes documents older than `features.faq.query_logging.retention_days` (30). `ai:erase-rag-queries {user}` deletes a user's documents, matching the HMAC under `APP_KEY` and every key in `APP_PREVIOUS_KEYS`, so a key rotation does not hide older documents. No user-erasure flow calls it yet. Both act with the log switched off, and do nothing when the index does not exist.
-- **The index.** `ai:create-rag-query-index` creates it (`AI_FAQ_QUERY_LOG_INDEX`, default `{app}_rag_queries`); `--force` recreates it and loses the logged questions.
+- **The index.** `ai:create-rag-query-index` creates it (`AI_FAQ_QUERY_LOG_INDEX`, default `{app}_rag_queries`); `--force` recreates it and loses the logged questions. Recreate it to take a new mapping: before enabling the judge (its `judge_*` fields are refused by an older index) and to record tokens per role.
+
+### Tokens per role and the data egress indicator
+
+- **Roles.** `AiRole` names `answer` (the model that writes the answer, feature `Chat`), `judge` (`RelevanceJudge`), `intent` (`SearchOrchestration`, the model that reads the intent of a search) and `embedding` (the active embedding profile).
+- **Tokens.** `TokenUsage::fromAgent()` reads the usage that the provider put on the messages of an agent's history (summed over every call of a tool-calling answer). The answer and the judge are recorded in the query log as `tokens_in_{role}` and `tokens_out_{role}`: integers, no text, present only for a role whose provider reported usage (a provider that reports none leaves the fields out). `intent` and `embedding` have mapped fields too, but nothing writes them today: the intent parser is not on the documentation answer path and the embedding providers return vectors only. The mapping declares the eight fields.
+- **Older indexes.** An index created before the token fields refuses them under its strict mapping. `RagQueryAnalyticsWriter` then writes the document again without the `tokens_*` fields and logs the notice `rag_query_analytics_tokens_not_mapped` with the index name. Recreate the index (`ai:create-rag-query-index --force`) to record tokens.
+- **Egress indicator.** `RoleEgress::leavesInstallation(string $role): ?bool` says whether the text sent to a role's model leaves the installation: `true` for an external service (a provider configured by a key only, for example a hosted chat or embeddings API), `false` for a server the installation declares by URL (a server of `ai.servers`, the Ollama URL, an OpenAI-compatible base URL), `null` when it cannot be told (unknown or unconfigured provider). **It reflects the configuration, not the network**: a declared URL that points at a hosted service reads as staying.
+- **Where it is shown.** In the confirmation of a change of the model of any AI feature in Settings, as a modal titled "Text leaves the installation" shown only when the new model's provider is external (a model that stays or is unknown saves without a modal); in the confirmation of the embedding model change (`EmbeddingModelSettingConfirmation`), whose last line says whether the target profile's text leaves or stays; and in `php artisan ai:servers:check`, which first prints a table of role, model and whether the text leaves, with no URL and no key, and then probes the servers. The settings form itself has no permanent indicator next to a field.
 
 ### Message orchestration
 
@@ -325,6 +350,9 @@ Important groups include:
 - `ai.features.embeddings.modules` / `ai.features.translation.modules` — optional per-module allowlist gating auto embedding/translation by the model's owning `Modules\{Name}\` namespace (empty = every module; enforced by `FeatureModuleGate` in the indexing/translation listeners).
 - `ai.features.tools.crud.entities` — opt-in `"module.entity" => [operations]` map exposing Core CRUD as in-app assistant tools (`CrudToolProvider`); tools are exposed only for operations the user is permitted to perform, ACL-enforced by `CrudService`, with moderation handled by `HasApprovals` on the model.
 - `AI_FAQ_DOCS_PATH` / `ai.features.faq.documentation_path` for extra documentation roots.
+- `ai.features.rag.judge.*` for the relevance judge: `enabled`, `max_rounds`, `min_sources`, `excerpt_chars` (settings `features.rag.judge.*`, overlaid onto config) and `timeout` (config only); the model is the setting `features.rag.judge.model`.
+- `ai.features.embeddings.drift_floor` (default 0.999) for `ai:embeddings:probe --reference=compare`; the optional profile keys `languages` and `min_similarity` in `ai.features.embeddings.models`.
+- `ai.features.media_analysis.near_duplicate_distance` (setting `features.media_analysis.near_duplicate_distance`) and `ai.features.media_analysis.near_duplicate_scan_limit` (config only) for near-duplicate images.
 
 The current retrieval strategy is vector similarity. Do not document `graph` as a configuration value unless a separate graph spike spec passes the adoption gate and is explicitly approved.
 
@@ -365,6 +393,12 @@ Profiles live in `ai.features.embeddings.models` (`Modules/AI/config/config.php`
 | `query_prefix` / `passage_prefix` | text prepended to queries and documents (e5 models need `query: ` / `passage: `). `EmbeddingsProviderFactory::make()` wraps the provider of the profile in `PrefixingEmbeddingsProvider`, so every caller hands over the raw text: `embedText()` adds the query prefix, `embedDocument()` and `embedDocuments()` embed a prefixed copy and keep the vector, never touching `Document::$content` |
 | `normalize` | whether the server normalizes the vectors; the probe of `ai:servers:check`, of the switch and of the repair then refuses a server whose vector norm is not 1 |
 | `server` | optional: the name of the server of `ai.servers` that runs the model (for example `embeddings_other`); without it the default `embeddings` server. A named server without a URL falls back to the default one |
+| `languages` | optional: the language codes the model is declared to handle, as a list (`['it', 'en']`; case and region are ignored, so `it_IT` and `it-IT` are `it`) or `['*']` for any language. Left out or empty means unknown and warns nothing (`EmbeddingModelProfile::languages`) |
+| `min_similarity` | optional: the similarity floor of the profile, a number from 0 to 1 (an int, a float or a numeric string; anything else, out of range or absent, means no floor, with no exception). It is carried by Core's `VectorProfile` and applied in the vector query (below) |
+
+**Declared languages.** The languages of the installation are its enabled locales (`config('app.available_locales')`, else the locales that have translations; `EmbeddingLanguageCheck::installationLocales()`). When a profile declares `languages` and some enabled locale is not covered, a warning is shown, never an error: as an extra line of the confirmation of the model change in Settings (`EmbeddingModelSettingConfirmation::warn()`) and as a `warning:` line of `ai:embeddings:probe`. The text is the translation `ai.messages.embeddingLanguagesMissing`: "The embedding model <profile key> does not declare these languages of the installation: <codes>. Search in them may be less accurate." A profile with `['*']` or without `languages` produces none.
+
+**Similarity floor.** `min_similarity` is the lowest similarity a vector hit needs to count. It is on the scale of the similarity function itself, which is what an Elasticsearch kNN `similarity` parameter reads (the cosine for `cosine`, the dot product of unit vectors for `dot_product`), not the engine `_score` (Elasticsearch scores a cosine hit as `(1 + cos) / 2`, so a cosine of 0.6 scores 0.8) and not the scale of `features.faq.min_similarity`, which filters documentation passages by the score their store returns. It is an attribute of the profile and not a setting because score scales change with the model: re-measure it after a model switch, since the floor of the previous model is a silent bug on the next. Engines: Elasticsearch adds `similarity` to the kNN clause for `cosine` and `dot_product` and none for `l2_norm` (a distance). The database engine applies it to `cosine` profiles only: on pgvector as a cosine distance bound, on MySQL and SQLite in place of the built-in cosine cut of 0.7, so a floor below 0.7 returns rows those drivers used to drop. With no `min_similarity` every engine behaves as before. The command `test:ai:tune-retrieval` recommends a value (see *Retrieval tuning*); nothing writes it.
 
 The one shipped profile, `openai_compatible:intfloat/multilingual-e5-small`, declares 384 dimensions. A profile is offered only when its
 provider is configured (`EmbeddingModelRegistry::configuredKeys()`: its API key or URL is set; an
@@ -394,9 +428,30 @@ Only `cosine` is valid on both; keep it unless one engine is the only one in use
 4. Run the AI seeder again (`php artisan module:seed AI`): the choices of `features.embeddings.model`
    are written at seed time from the configured profiles.
 
+Options of the probe (`ai:embeddings:probe {profile}`):
+
+- `--reference=save` embeds a fixed sample of eight short texts (Italian, English, French, German and Spanish, a proper name and a number; `EmbeddingDriftReference::SAMPLE`) with the profile and stores the vectors as the reference of that profile. `--reference=compare` embeds the sample again and compares each vector with the reference by cosine; it prints `lowest cosine` (with the floor) and `lowest text`, and fails when the lowest cosine is below `ai.features.embeddings.drift_floor` (config only, default `0.999`). Lower the floor only when a deliberate runtime change moves vectors slightly. It catches what a length check cannot: the same model name served by another server, runtime or precision gives vectors of the right length that no longer match the ones stored. Any other value of `--reference` fails. The dimension check runs on the first vector of the sample.
+- The reference file is JSON on the `local` disk under `ai/embedding-references/` (`storage/app/private/ai/embedding-references/` with the default local disk), one file per profile named from the sanitised key plus a short hash of the key. It holds the profile, the model, a fingerprint of the sample and the vectors. `compare` fails with a clear message when there is no reference, when the vector length differs (both lengths are named), when the file is unreadable, or when the sample changed since the reference was saved. Save the reference after the first successful probe of a profile, and compare after any change of server, runtime or precision.
+- `--cross-language` also prints `cross-language cosine (it/en)` for sentence pairs of Italian and English, as information only: a low value hints that the model does not align languages.
+- With `languages` declared and an installation locale not covered, the probe prints the `warning:` line described above; the exit code is unchanged.
+
 The probe is the only way a length is trusted. A profile whose declared and measured lengths differ
 cannot be the target of a switch, and a vector of the wrong length is refused when it is stored
 (`ModelEmbeddingSynchronizer` throws `EmbeddingDimensionMismatch` and writes no row).
+
+### Chunking and the context header
+
+The text of a searchable record is embedded in chunks (`EmbeddingService::chunksFor()`). The text is trimmed, line endings are normalised to `\n` and the text is split first, by the configured splitter (`markdown_aware` by default), while its line structure is still there: paragraphs, Markdown headings, tables and code fences end chunks, and a heading adds its `> Section:` breadcrumb. Only then is whitespace collapsed to single spaces inside each chunk. Earlier the text was flattened before the split, so the splitter saw one long line. A text with no line breaks, or one that fits in one chunk and has no Markdown heading, is chunked as before; a long text with line breaks gets different boundaries, and a text starting with a heading marker gets its breadcrumb in front. A blank text yields no chunk.
+
+A model may declare a one-line **context header** with `Searchable::embedHeader(?string $locale = null): ?string` (Core; the trait returns `null`, and `IEmbeddableModel` is not changed, the AI side checks the method). It is computed per locale and must read only what every embedding path has loaded. `ModelEmbeddingSynchronizer::headerFor()` collapses it to one line and cuts it at 300 characters (`HEADER_LIMIT`); `EmbeddingService` prepends it, followed by a newline, to every chunk of that text. CMS `Content` declares the type, the title of the locale and the `valid_from` date. The header is embedding input only: chunk text is never stored (`core_model_embeddings` keeps the vector, locale, model key and content hash) and the header is not part of the indexed document.
+
+**When records are re-embedded.** The content hash is `sha256(text)` for a text without a header, so nothing changes for models that declare none, and `sha256(header . "\0" . text)` with one; vector reuse and deduplication are keyed by that hash. A new, changed or removed header therefore changes the hash and the record is re-embedded:
+
+- on its next save (`GenerateEmbeddingsJob`);
+- on a reindex of the model, for example `php artisan scout:import "<Model FQCN>"`: the bulk path skips records whose hash is unchanged, so only records with a new hash are embedded again;
+- by an embedding model switch, whose corpus (`EmbeddingSwitchCorpus`) hashes with the header too, so a headered record counts as done only when its target row carries that hash.
+
+`ai:embeddings:repair` does **not** re-embed them: it targets records with no rows (or, with `--stale`, no row of the active model) and never compares hashes. Texts whose chunks changed only because of the new splitting, with no header and the same hash, keep their old vectors until their next re-embed (a text edit, a header change or a switch). Deploying a header re-embeds every locale of every record of that model on its next embedding pass, which costs embedding calls on a large installation. Categories, tags and authors are not in the CMS header: they are relations loaded only on the bulk path, and a header that depends on the path would change the hash between paths.
 
 ### Settings
 
@@ -459,6 +514,8 @@ saved yet: a confirmation lists
   `openai_compatible` (on the server the target profile names) with a 3-second timeout and cached (ten minutes, thirty seconds after a
   failure); other providers show no estimate;
 - that vector search is off meanwhile and search uses keywords only;
+- the language warning of the target profile, when it declares `languages` that miss an enabled locale of the installation;
+- as a last line, whether the text sent to the target profile leaves the installation or stays on a server the installation declares (omitted when it cannot be told; see *Tokens per role and the data egress indicator*);
 - that going back to the previous model is the same procedure and costs the same.
 
 Cancel leaves everything as it was. Confirm saves the value and queues
@@ -477,7 +534,7 @@ even once approved: run `ai:embeddings:switch <profile>` afterwards.
 
 | Command | What it does |
 |---------|--------------|
-| `ai:embeddings:probe {profile}` | measures the vector length of a profile, fails when it differs from `dimensions` |
+| `ai:embeddings:probe {profile} [--reference=save\|compare] [--cross-language]` | measures the vector length of a profile, fails when it differs from `dimensions`; `--reference` saves or compares the drift reference, `--cross-language` reports the Italian/English cosine (see *Adding a profile*) |
 | `ai:embeddings:switch {profile}` | checks the target and starts a switch (below) |
 | `ai:embeddings:switch --resume` | continues a failed switch, or a running one with no progress for 30 minutes, from its stored phase; a failed `indexes` or `verify` restarts at `embeddings`, an interrupted `verify` at `indexes` |
 | `ai:embeddings:switch --abandon` | gives the switch up (below) |
@@ -654,12 +711,25 @@ the start is not repeated.
 | Phases | `Switching/EmbeddingSwitchOrchestrator.php`, `EmbeddingSwitchCorpus.php`, `EmbeddingSwitchIndexes.php`, `EmbeddingSwitchVerifier.php`, `EmbeddingSwitchActivation.php` |
 | Confirmation and preview | `Switching/EmbeddingModelSettingConfirmation.php`, `EmbeddingSwitchPreview.php` |
 | Job and commands | `Modules/AI/app/Jobs/SwitchEmbeddingModelJob.php`, `Modules/AI/app/Console/Embeddings{Probe,Switch,Status,Prune}Command.php` |
+| Drift reference, language check, sample | `Modules/AI/app/Ai/Embeddings/EmbeddingDriftReference.php`, `EmbeddingDriftReferenceException.php`, `EmbeddingLanguageCheck.php`, `EmbeddingModelProfile::coversLanguages()` |
+| Similarity floor recommendation | `Modules/AI/app/Services/ApplicationContent/Evaluation/SimilarityFloorRecommendation.php` |
 | Vector profile provider (binding over Core's null provider) | `Modules/AI/app/Ai/Embeddings/ActiveEmbeddingProfileProvider.php`, `EmbeddingModelProfile::vectorProfile()` |
 | AI side of the guard | `Modules/AI/app/Services/EmbeddingVectorSearchAvailability.php` |
 | RAG rebuild (recreate, plan, write a documentation chunk) | `Modules/AI/app/Ai/Rag/RagIndexRebuilder.php`, `DocumentationService::indexSources()` |
 
 `EmbeddingModelSettingConfirmation::warn()` is called twice by Core, before the modal and again
 after the save: it must stay cheap and write nothing.
+
+## Near-duplicate image analyses
+
+`AnalyzeMediaJob` reuses an analysis when the file is an exact duplicate (same `content_hash`). With the opt-in near-duplicate match it also reuses the analysis of an image that merely looks like an earlier one, without a call to the vision model.
+
+- **Settings.** `features.media_analysis.near_duplicate_distance` (integer, group `ai`, choices 0, 2, 4, 6, 8, 10, seeded `0` = off): the largest Hamming distance, out of the 64 bits of the perceptual fingerprint, for a match. About 4 is the same picture resized or re-encoded; above 10 different pictures start to match. `ai.features.media_analysis.near_duplicate_scan_limit` (config only, 50000) bounds the lookup.
+- **Fingerprint.** `ImageFingerprint::of()` makes a 64-bit difference hash (16 hex characters) of an image with GD, stored in the nullable, indexed column `image_fingerprint` of `ai_media_analyses` whenever it can be computed (before the vision call, so it survives a failed call). **GD must be installed where the queue worker runs**: without it, or for a file that is not a decodable image or exceeds 40 million pixels, no fingerprint is stored and the job goes on as before, so the feature is silently off.
+- **No backfill.** Analyses made before the column existed have no fingerprint and are never matched.
+- **Lookup.** Only when the distance is above 0 and the new image has a fingerprint, after the exact-hash lookup fails. It considers completed analyses of the same media model version (`analysis_model_version`) with another `content_hash` and a fingerprint, newest first, reads only the id and fingerprint, stops after `near_duplicate_scan_limit` rows and takes the first within the distance. It is linear in the limit, once per new image that is not an exact duplicate, in a queue job; an older duplicate beyond the limit may be analysed again.
+- **On a match.** A new analysis row is created for the new `content_hash` (the table is unique and reference-counted per hash) copying the entities, idea, intent, OCR text, provenance and model version, with status completed and no model call; embeddings, owner reindex and the completion event run as for an exact duplicate. The provenance of the copy is kept in the `analysis` JSON as `near_duplicate_of` and `near_duplicate_distance`. The caption is copied from an earlier media with the source's hash **only when its description was written by a model** (provenance `llm`), never when a person wrote it, and never over a human edit of the new media.
+- **Schema.** The column is part of the create migration of the table, so a database created before it needs the column and its index added, or a fresh migration.
 
 ## Standard servers
 
@@ -717,7 +787,7 @@ There is no health convention to implement on a server: `EmbeddingServerIdentity
 profile with a `POST /v1/embeddings` for a fixed text and reads the model the answer names, the vector length and
 norm and, where the server has `GET /info` (TEI), its `model_id` and `max_client_batch_size`. The probe answer and
 `/info` must both agree with the profile's model. `refusal()` is the verdict the switch and `--abandon` use; the repair
-uses `inspect()` and warns instead of aborting when no model is named. `ai:servers:check` probes every configured
+uses `inspect()` and warns instead of aborting when no model is named. `ai:servers:check` first prints a table of every role (`answer`, `judge`, `intent`, `embedding`) with its model and whether the text sent to it leaves the installation (from configuration only, no URL, no key), then probes every configured
 server (each embedding profile through the server it names, the reranker with two fixed pairs, the batch limits of a
 TEI server against the configured batch size and against 64) and exits 1 when one fails; transcription is listed and
 not probed because it would need audio.
@@ -746,6 +816,24 @@ To adopt a new release of a documented server, copy its OpenAPI document and wri
 
 - Reindex after major docs updates, module feature changes, or terminology redesign.
 - Use `--full` when source mapping changed significantly or stale vectors are suspected.
+- Reindex a model of application content (`scout:import`) after its embedding context header changed; `ai:embeddings:repair` does not re-embed it (see *Chunking and the context header*).
+
+### Upgrading to the retrieval improvements
+
+What each change needs on an installation that already runs:
+
+| Change | Needs |
+|--------|-------|
+| New settings (`features.rag.judge.*`, `features.media_analysis.near_duplicate_distance`) | seed the AI module (`php artisan db:seed --class="Modules\AI\Database\Seeders\AIDatabaseSeeder"`); an operator's existing values survive a re-seed |
+| Relevance judge | `php artisan ai:create-rag-query-index --force` before enabling it (loses the logged questions); no documentation reindex |
+| Tokens per role in the query log | optional `php artisan ai:create-rag-query-index --force`; until then an older index still logs, without the `tokens_*` fields (notice `rag_query_analytics_tokens_not_mapped`) |
+| Embedding context header of a model | a reindex of that model (`scout:import`), the next save of each record, or a model switch; **not** `ai:embeddings:repair`; every locale of every record of the model is embedded again |
+| Splitting before whitespace collapsing | no rebuild is triggered: a text without a header keeps its old vectors until it is re-embedded (edit, header change, switch) |
+| Near-duplicate images | the `image_fingerprint` column and its index are in the create migration of `ai_media_analyses`: add them to an existing database or migrate fresh; no backfill, older analyses are never matched; GD on the queue worker |
+| Profile keys `languages`, `min_similarity`, option `drift_floor` | configuration only. Run `ai:embeddings:probe <profile> --reference=save` once to create the drift reference; re-measure `min_similarity` after every model switch |
+| Unstemmed text sub-field of the search indexes (Core) | rebuild the affected search indexes; `search:check-index` reports them stale. See `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
+
+The documentation indexes (`ai:index-rag-docs`) need nothing: the context header applies to application content only, and the judge reads the existing index.
 
 ### Common failure modes
 
@@ -771,6 +859,17 @@ To adopt a new release of a documented server, copy its OpenAPI document and wri
 - An embedding model switch failed: how do I resume or abandon it?
 - Which similarity values does an embedding profile accept on pgvector and on Elasticsearch?
 - How does `ai:index-rag-docs --full` differ from incremental indexing?
+- What is the relevance judge, is it on by default and what happens when it fails?
+- Which settings control the relevance judge, and does `ai:help` use it?
+- How do I compare the judge on and off before enabling it?
+- Why must I run `ai:create-rag-query-index --force` before enabling the judge?
+- What does `ai:embeddings:probe --reference=compare` check, and where is the reference stored?
+- What is `ai.features.embeddings.drift_floor`?
+- What do the profile keys `languages` and `min_similarity` do, and what does the language warning mean?
+- Which scale is the similarity floor of a profile on, and does the tuning command write it?
+- When are records re-embedded after an embedding context header changes, and why not by `ai:embeddings:repair`?
+- How do near-duplicate images work, and why is the feature silently off?
+- What do `tokens_in_{role}` and `tokens_out_{role}` hold, and what does the egress indicator tell?
 - How does the system decide between direct answer and tool invocation?
 - What happens when a tool call requires approval?
 - How do I add extra docs roots with `AI_FAQ_DOCS_PATH` safely?
@@ -925,6 +1024,7 @@ same query analysis the runtime uses).
   (profile key, `service_model`, `dimensions`), `corpus.size` and `dataset.sha256`) is written atomically with `JSON_PRESERVE_ZERO_FRACTION` and
   never overwritten without `--force`. `committed` scores the currently committed
   profile the same way.
+- **Similarity floor.** After tuning, the command also prints one `// Similarity floor ...` line for the active embedding profile, measured on the vector hits of the same runs (reranker off): it converts each hit's score back to the profile's similarity scale through the engine of the source (`IReportsVectorSimilarity`) and recommends the 5th percentile (nearest rank, so the lowest one below 20 documents) of the expected documents' similarities, rounded down to two decimals. The line gives the value, the profile key and scale, the share of expected documents it keeps with their lowest similarity, and the share of other vector hits it would cut with their highest similarity, and notes when a floor is already in force (hits below it were not seen). It is **printed, never written**: not in the JSON report, the profile or any config; a person sets `min_similarity` on the profile by hand and re-measures after a model switch. Where it cannot be measured (no active vector profile, an engine that cannot turn scores back to a similarity, no vector hits, no expected document among them) the line says why.
 - The command prints a ready-to-paste `default` / `classes` block and writes
   **no file but its report**: a human reads the per-class table, accepts a
   candidate only if it wins both overall and on the class it targets, pastes it,
@@ -954,6 +1054,8 @@ profile (Level-1, deterministic, no chat model), mirroring
 `docs/superpowers/specs/2026-08-04-documentation-rag-evaluation-baseline-design.md`.
 Guides: `DOCUMENTATION_EVALUATION_USER.md` (operator) and
 `DOCUMENTATION_EVALUATION_DEVELOPER.md` (internals + how to add a module report card).
+
+With `features.rag.judge.enabled` on, the user index goes through the relevance judge, so the numbers change with the setting; the developer index never does. Run the command with the setting off and on to decide whether to keep it (see *Relevance judge*).
 
 ## Assistant end-to-end evaluation
 
