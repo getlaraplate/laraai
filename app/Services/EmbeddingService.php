@@ -39,16 +39,17 @@ final readonly class EmbeddingService implements IEmbeddingService
 
     /**
      * @param  list<string>  $texts
+     * @param  array<int, string|null>  $headers
      * @return list<Document[]>
      */
     #[Override]
-    public function embedDocumentsBatch(array $texts): array
+    public function embedDocumentsBatch(array $texts, array $headers = []): array
     {
         $all_chunks = [];
         $ranges = [];
 
-        foreach ($texts as $text) {
-            $chunks = $this->chunksFor($text);
+        foreach ($texts as $index => $text) {
+            $chunks = $this->chunksFor($text, $headers[$index] ?? null);
             $ranges[] = [count($all_chunks), count($chunks)];
 
             foreach ($chunks as $chunk) {
@@ -100,24 +101,44 @@ final readonly class EmbeddingService implements IEmbeddingService
     }
 
     /**
-     * Clean and split a text into the chunk documents sent to the provider, which adds the
-     * passage prefix of its model to each of them ({@see PrefixingEmbeddingsProvider}).
+     * Split a text into the chunk documents sent to the provider, which adds the passage prefix of its
+     * model to each of them ({@see PrefixingEmbeddingsProvider}). The splitter receives the text with its
+     * line structure (line endings normalised to `\n`), so a structure-aware splitter can cut at paragraphs,
+     * headings and tables; whitespace is collapsed inside each chunk afterwards, so a text without line
+     * structure gives the same chunks as before. A header is prepended to every chunk as its first line:
+     * it reaches the embedding only, nothing stores the chunk text.
      *
      * @return list<Document>
      */
-    private function chunksFor(string $data): array
+    private function chunksFor(string $data, ?string $header = null): array
     {
-        $content = preg_replace("/\n|\t/", ' ', $data);
-        $content = preg_replace("/\s+/", ' ', (string) $content);
-        $content = mb_trim((string) $content);
+        $content = mb_trim(str_replace(["\r\n", "\r"], "\n", $data));
+
+        if ($content === '') {
+            return [];
+        }
 
         $document = (new Document($content))
             ->setSourceType('inline')
             ->setSourceName('document');
 
         $splitter = $this->splitter ?? SplitterFactory::make();
+        $chunks = [];
 
-        return $splitter->splitDocument($document);
+        foreach ($splitter->splitDocument($document) as $chunk) {
+            $text = mb_trim((string) preg_replace("/\s+/", ' ', $chunk->getContent()));
+
+            if ($text === '') {
+                continue;
+            }
+
+            $chunks[] = (new Document($header !== null && $header !== '' ? $header . "\n" . $text : $text))
+                ->setSourceType($chunk->getSourceType())
+                ->setSourceName($chunk->getSourceName())
+                ->setMetadata($chunk->getMetadata());
+        }
+
+        return $chunks;
     }
 
     private function getProvider(): EmbeddingsProviderInterface

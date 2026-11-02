@@ -28,6 +28,11 @@ use NeuronAI\RAG\Document;
  */
 final readonly class ModelEmbeddingSynchronizer
 {
+    /**
+     * Characters of a context header kept: it is prepended to every chunk, so it must stay a short line.
+     */
+    public const int HEADER_LIMIT = 300;
+
     public function __construct(
         private IEmbeddingService $embeddingService,
         private EmbeddingModelRegistry $registry,
@@ -35,11 +40,38 @@ final readonly class ModelEmbeddingSynchronizer
 
     /**
      * The `content_hash` stored with the rows of an embedded text: a row whose hash and model key
-     * match the current text is fresh.
+     * match the current text is fresh. The context header is part of it, so a header that changes or
+     * goes away re-embeds the locale; a text without header hashes as it always did.
      */
-    public static function contentHash(string $text): string
+    public static function contentHash(string $text, ?string $header = null): string
     {
-        return hash('sha256', $text);
+        if ($header === null || $header === '') {
+            return hash('sha256', $text);
+        }
+
+        return hash('sha256', $header . "\0" . $text);
+    }
+
+    /**
+     * The context header a model declares for the text of a locale
+     * ({@see \Modules\Core\Search\Traits\Searchable::embedHeader()}), as one line of at most
+     * {@see HEADER_LIMIT} characters; null when the model declares none.
+     */
+    public static function headerFor(Model $model, string $locale): ?string
+    {
+        if (! method_exists($model, 'embedHeader')) {
+            return null;
+        }
+
+        $header = $model->embedHeader($locale);
+
+        if (! is_string($header)) {
+            return null;
+        }
+
+        $header = mb_trim(mb_substr((string) preg_replace('/\s+/u', ' ', $header), 0, self::HEADER_LIMIT));
+
+        return $header === '' ? null : $header;
     }
 
     /**
@@ -76,6 +108,7 @@ final readonly class ModelEmbeddingSynchronizer
         // that must be embedded across all models.
         $plans = [];
         $texts = [];
+        $headers = [];
         $text_index_by_hash = [];
 
         foreach ($models as $model) {
@@ -85,15 +118,20 @@ final readonly class ModelEmbeddingSynchronizer
                 continue;
             }
 
-            $plan = $this->planModel($fresh, $locale, $model_key, $default_locale, $texts, $text_index_by_hash);
+            $plan = $this->planModel($fresh, $locale, $model_key, $default_locale, $texts, $headers, $text_index_by_hash);
 
             if ($plan !== null) {
                 $plans[] = $plan;
             }
         }
 
-        // Pass 2: one batched (adaptive) embedding call for all stale texts.
-        $embedded = $texts === [] ? [] : $this->embeddingService->embedDocumentsBatch($texts);
+        // Pass 2: one batched (adaptive) embedding call for all stale texts. Headers are passed
+        // only when a model declares one, so a run without any calls the service as it always did.
+        $embedded = match (true) {
+            $texts === [] => [],
+            $headers === [] => $this->embeddingService->embedDocumentsBatch($texts),
+            default => $this->embeddingService->embedDocumentsBatch($texts, $headers),
+        };
 
         $this->ensureProfileIndex($plans);
 
@@ -133,10 +171,11 @@ final readonly class ModelEmbeddingSynchronizer
      * model still gets its own rows, so every copy stays an autonomous search result.
      *
      * @param  list<string>  $texts
+     * @param  array<int, string>  $headers  Context header per index of `$texts`, for the texts that have one
      * @param  array<string, int>  $text_index_by_hash
      * @return array{model: Model, locale: string|null, stale: list<array{row_locale: string|null, content_hash: string, text_index: int|null, vectors: list<mixed>|null}>, processed_locales: list<string|null>}|null
      */
-    private function planModel(Model $model, ?string $locale, string $model_key, string $default_locale, array &$texts, array &$text_index_by_hash): ?array
+    private function planModel(Model $model, ?string $locale, string $model_key, string $default_locale, array &$texts, array &$headers, array &$text_index_by_hash): ?array
     {
         /** @phpstan-ignore method.notFound */
         $by_locale = $model->prepareDataToEmbedByLocale($locale);
@@ -168,7 +207,8 @@ final readonly class ModelEmbeddingSynchronizer
         foreach ($by_locale as $loc => $text) {
             $row_locale = self::rowLocale((string) $loc, $default_locale, $is_translated);
             $processed_locales[] = $row_locale;
-            $content_hash = self::contentHash($text);
+            $header = self::headerFor($model, (string) $loc);
+            $content_hash = self::contentHash($text, $header);
 
             $is_fresh = $existing->first(static fn (ModelEmbedding $row): bool => $row->locale === $row_locale
                 && $row->model_key === $model_key
@@ -188,6 +228,11 @@ final readonly class ModelEmbeddingSynchronizer
 
             if (! array_key_exists($content_hash, $text_index_by_hash)) {
                 $text_index_by_hash[$content_hash] = count($texts);
+
+                if ($header !== null) {
+                    $headers[count($texts)] = $header;
+                }
+
                 $texts[] = $text;
             }
 
