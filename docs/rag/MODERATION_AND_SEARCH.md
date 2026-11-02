@@ -42,7 +42,7 @@ Humans can still approve/reject in Filament after the AI vote.
 
 ### `HandleModelIndexingListener`
 
-When embeddings enabled and model has `$embed`: register `embeddings` pre-processing, dispatch `GenerateEmbeddingsJob`, `markAsHandled()`.
+When embeddings enabled (`features.embeddings.enabled`, the single switch of vector search) and model has `$embed`: register `embeddings` pre-processing, dispatch `GenerateEmbeddingsJob`, `markAsHandled()`.
 
 ### `HandleModelTranslationListener`
 
@@ -58,7 +58,8 @@ If AI does not handle indexing, Core `IndexModelFallbackListener` still runs `In
 | `permission.users.system` | `SYSTEM_USER` (env) | Username of the system user AI votes as |
 | `ai.features.moderation.threshold.{approve,reject}` | settings `features.moderation.threshold.*` | Confidence thresholds |
 | `ai.features.moderation.queue` | setting `features.moderation.queue` | Queue of the moderation job, read at dispatch |
-| `ai.features.embeddings.enabled` | setting `features.embeddings.enabled` | Embedding pipeline |
+| `ai.features.embeddings.enabled` | setting `features.embeddings.enabled` | Embedding pipeline and the single switch of vector search (Core has no `search.vector.*` setting); off means keyword-only search |
+| `ai.features.embeddings.serving_model` | managed setting `features.embeddings.serving_model` | Model whose vectors serve search, written by `ai:embeddings:switch` at activation; its profile gives the vector `dimensions` and `similarity` |
 | `ai.features.chat.enabled` | setting `features.chat.enabled` | The in-app assistant (conversations, messages, agent, proposed writes); seeded off |
 | `ai.features.faq.enabled` | setting `features.faq.enabled` | Documentation RAG: the assistant reads the user documentation to answer how the application works |
 
