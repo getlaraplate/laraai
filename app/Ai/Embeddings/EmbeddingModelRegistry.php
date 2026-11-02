@@ -12,8 +12,8 @@ use Modules\AI\Ai\SelfHosted\AiServers;
 /**
  * Resolves embedding-model profiles from `ai.features.embeddings.models`.
  * A profile key is `provider:service_model`, split at the first colon, and the
- * profile declares its own `dimensions` and `similarity`. The active profile can
- * be overridden for the duration of a callback with `withActive()`.
+ * profile declares its own `dimensions` and `similarity`, and may declare the `languages` it
+ * handles and its similarity floor (`min_similarity`). The active profile can be overridden for the duration of a callback with `withActive()`.
  */
 final class EmbeddingModelRegistry
 {
@@ -120,7 +120,25 @@ final class EmbeddingModelRegistry
             similarity: (string) ($model['similarity'] ?? 'cosine'),
             normalize: (bool) ($model['normalize'] ?? false),
             server: is_string($model['server'] ?? null) && $model['server'] !== '' ? $model['server'] : null,
+            languages: (array) ($model['languages'] ?? []),
+            minSimilarity: self::similarityFloor($model['min_similarity'] ?? null),
         );
+    }
+
+    /**
+     * The `min_similarity` of a profile: a number from 0 to 1, the range of a useful cosine (or unit
+     * dot product) floor. Anything else is read as no floor, without an error: a malformed floor must
+     * not take vector search down, and no floor is the behaviour before it was set.
+     */
+    private static function similarityFloor(mixed $configured): ?float
+    {
+        if (! is_int($configured) && ! is_float($configured) && ! (is_string($configured) && is_numeric($configured))) {
+            return null;
+        }
+
+        $floor = (float) $configured;
+
+        return $floor >= 0.0 && $floor <= 1.0 ? $floor : null;
     }
 
     private function isConfigured(string $key): bool

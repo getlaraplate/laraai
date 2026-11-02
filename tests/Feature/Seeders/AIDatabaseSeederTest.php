@@ -75,3 +75,16 @@ it('overlays a seeded switch that used to be an env variable onto the config the
     expect(config('ai.features.moderation.queue'))->toBe('ai-moderation')
         ->and(config('ai.features.text_generation.max_output_chars'))->toBe(120);
 });
+
+it('seeds the relevance judge off, with its rounds, sources and excerpt length, and the model size hint', function (): void {
+    $this->seed(AIDatabaseSeeder::class);
+
+    $settings = Setting::query()->withoutGlobalScopes()->where('name', 'like', 'features.rag.judge.%')->get()->keyBy('name');
+
+    expect($settings['features.rag.judge.enabled']->value)->toBeFalse()
+        ->and($settings['features.rag.judge.max_rounds']->value)->toBe(3)
+        ->and($settings['features.rag.judge.min_sources']->value)->toBe(3)
+        ->and($settings['features.rag.judge.excerpt_chars']->value)->toBe(600)
+        ->and($settings['features.rag.judge.enabled']->description)->toContain('mid-size instruction-tuned')->toContain('test:ai:evaluate-documentation')
+        ->and($settings['features.rag.judge.model']->choices)->toBe([AiModelFeature::RelevanceJudge->defaultChoice()]);
+});

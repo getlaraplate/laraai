@@ -17,6 +17,11 @@ return [
         'ai_transcript' => 'Transcripción',
     ],
     'messages' => [
+        'egressLeaves' => 'El texto enviado a este modelo sale de la instalación: lo recibe un servicio externo.',
+        'egressStays' => 'El texto enviado a este modelo permanece en un servidor declarado por esta instalación.',
+        'egressTitle' => 'El texto sale de la instalación',
+        'egressUnknown' => 'No se puede determinar si el texto enviado a este modelo sale de la instalación.',
+        'embeddingLanguagesMissing' => 'El modelo de embeddings :profile no declara estos idiomas de la instalación: :languages. La búsqueda en ellos puede ser menos precisa.',
         'reanalysisQueued' => 'Nuevo análisis en cola',
         'reanalyzeDescription' => 'Poner en cola un nuevo análisis de IA de este archivo multimedia.',
     ],

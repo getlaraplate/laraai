@@ -211,7 +211,7 @@ final readonly class EmbeddingSwitchCorpus
         foreach ($model->prepareDataToEmbedByLocale() as $locale => $text) {
             $rows[] = [
                 'locale' => ModelEmbeddingSynchronizer::rowLocale((string) $locale, $default, $translated),
-                'content_hash' => ModelEmbeddingSynchronizer::contentHash((string) $text),
+                'content_hash' => ModelEmbeddingSynchronizer::contentHash((string) $text, ModelEmbeddingSynchronizer::headerFor($model, (string) $locale)),
             ];
         }
 

@@ -132,3 +132,17 @@ it('leaves the limit of the provider alone when no cap is asked for', function (
         ->and($read(ProviderFactory::make('ollama'), 'parameters'))->toBe([])
         ->and($read(ProviderFactory::make('anthropic'), 'max_tokens'))->toBe(8192);
 });
+
+it('sets the temperature of each provider with the parameter it names it by, beside the output cap', function (): void {
+    config()->set('ai.providers.openai.api_key', 'test-key');
+    config()->set('ai.providers.mistral.api_key', 'test-key');
+    config()->set('ai.providers.anthropic.api_key', 'test-key');
+    config()->set('ai.providers.ollama.api_url', 'http://localhost:11434');
+
+    $read = static fn (object $provider, string $property): mixed => new ReflectionProperty($provider, $property)->getValue($provider);
+
+    expect($read(ProviderFactory::make('openai', null, null, null, 0.0), 'parameters'))->toBe(['temperature' => 0.0])
+        ->and($read(ProviderFactory::make('mistral', null, 60, null, 0.0), 'parameters'))->toBe(['max_tokens' => 60, 'temperature' => 0.0])
+        ->and($read(ProviderFactory::make('ollama', null, 60, null, 0.0), 'parameters'))->toBe(['options' => ['num_predict' => 60, 'temperature' => 0.0]])
+        ->and($read(ProviderFactory::make('anthropic', null, null, null, 0.0), 'parameters'))->toBe(['temperature' => 0.0]);
+});

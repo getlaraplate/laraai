@@ -17,6 +17,16 @@ final readonly class EmbeddingDimensionProbe
     public const string TEXT = 'embedding service probe';
 
     /**
+     * The same short sentence in Italian and in English, twice, for the cross-language sanity check.
+     *
+     * @var list<array{it: string, en: string}>
+     */
+    public const array CROSS_LANGUAGE_PAIRS = [
+        ['it' => 'Il gatto dorme sul divano.', 'en' => 'The cat is sleeping on the sofa.'],
+        ['it' => 'Il treno per Milano parte alle otto.', 'en' => 'The train to Milan leaves at eight.'],
+    ];
+
+    /**
      * @param  (Closure(): EmbeddingsProviderInterface)|null  $providerFactory  builds the provider for the profile that is active while it runs; defaults to the application factory
      */
     public function __construct(
@@ -61,6 +71,44 @@ final readonly class EmbeddingDimensionProbe
         return self::assertDimensions($profile, $this->embed($profile));
     }
 
+    /**
+     * The vectors the profile's model returns for each text of the drift sample, in the order of
+     * {@see EmbeddingDriftReference::SAMPLE}.
+     *
+     * @throws EmbeddingDimensionMismatch when the model returns no vector for a text
+     *
+     * @return list<list<float>>
+     */
+    public function embedSample(EmbeddingModelProfile $profile): array
+    {
+        return $this->embedTexts($profile, EmbeddingDriftReference::SAMPLE);
+    }
+
+    /**
+     * The cosine between the Italian and the English sentence of each of {@see self::CROSS_LANGUAGE_PAIRS},
+     * in order: a multilingual model puts a sentence and its translation close together.
+     *
+     * @throws EmbeddingDimensionMismatch when the model returns no vector for a sentence
+     *
+     * @return list<float>
+     */
+    public function crossLanguageCosines(EmbeddingModelProfile $profile): array
+    {
+        $texts = [];
+
+        foreach (self::CROSS_LANGUAGE_PAIRS as $pair) {
+            $texts[] = $pair['it'];
+            $texts[] = $pair['en'];
+        }
+
+        $vectors = $this->embedTexts($profile, $texts);
+
+        return array_map(
+            static fn (int $pair): float => EmbeddingDriftReference::cosine($vectors[$pair * 2], $vectors[$pair * 2 + 1]),
+            array_keys(self::CROSS_LANGUAGE_PAIRS),
+        );
+    }
+
     private static function lengthOf(EmbeddingModelProfile $profile, mixed $vector): int
     {
         if (! is_array($vector) || $vector === []) {
@@ -71,16 +119,53 @@ final readonly class EmbeddingDimensionProbe
     }
 
     /**
+     * @param  list<string>  $texts
+     *
+     * @throws EmbeddingDimensionMismatch when the model returns no vector for a text
+     *
+     * @return list<list<float>>
+     */
+    private function embedTexts(EmbeddingModelProfile $profile, array $texts): array
+    {
+        return $this->withProvider($profile, function (EmbeddingsProviderInterface $provider) use ($profile, $texts): array {
+            $vectors = [];
+
+            foreach ($texts as $text) {
+                $vector = $provider->embedText($text);
+
+                if ($vector === []) {
+                    throw EmbeddingDimensionMismatch::noEmbedding($profile);
+                }
+
+                $vectors[] = array_values($vector);
+            }
+
+            return $vectors;
+        });
+    }
+
+    /**
      * @return list<float>
      */
     private function embed(EmbeddingModelProfile $profile): array
     {
-        return $this->registry->withActive($profile->key, function (): array {
+        return $this->withProvider($profile, static fn (EmbeddingsProviderInterface $provider): array => $provider->embedText(self::TEXT));
+    }
+
+    /**
+     * @template T
+     *
+     * @param  Closure(EmbeddingsProviderInterface): T  $callback
+     * @return T
+     */
+    private function withProvider(EmbeddingModelProfile $profile, Closure $callback): mixed
+    {
+        return $this->registry->withActive($profile->key, function () use ($callback): mixed {
             $provider = $this->providerFactory instanceof Closure
                 ? ($this->providerFactory)()
                 : EmbeddingsProviderFactory::make();
 
-            return $provider->embedText(self::TEXT);
+            return $callback($provider);
         });
     }
 }

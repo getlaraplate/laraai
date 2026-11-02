@@ -54,12 +54,35 @@ return [
             // GenerateEmbeddingsJob::retryUntil()). A fixed value, not a setting.
             'retry_until_minutes' => 1440,
 
+            // Lowest cosine `ai:embeddings:probe --reference=compare` accepts between the saved
+            // reference vectors and the freshly embedded sample of a profile. Config only. Lower it
+            // when a deliberate runtime change moves vectors a little; below it the probe fails.
+            'drift_floor' => 0.999,
+
             // The model choice is the setting `features.embeddings.model` (overlaid as
             // `ai.features.embeddings.model`); the model that serves search is the managed setting
             // `features.embeddings.serving_model`. EmbeddingModelRegistry falls back to the first
             // configured profile below. Profiles are keyed `provider:service_model`, split at the
             // first colon. Each declares the dimensions and the similarity of its vectors, which
             // ActiveEmbeddingProfileProvider hands to Core as the vector profile.
+            // Optional `languages` key: the language codes the model is declared to handle, as a list
+            // (`['it', 'en']`; case and region are ignored, `it_IT` and `it-IT` are `it`) or `['*']` for
+            // any language. Left out or empty means unknown and warns nothing. When a profile declares
+            // languages and the installation has enabled locales (`app.available_locales`) outside them,
+            // the model setting confirmation and `ai:embeddings:probe` show a warning, never an error.
+            // `ai:embeddings:probe --cross-language` also reports the cosine of one sentence in Italian
+            // and English, as information.
+            // Optional `min_similarity` key: the similarity floor of the profile, the lowest similarity a
+            // vector hit needs to count. It is on the scale of the similarity function itself, which is
+            // what an Elasticsearch kNN `similarity` expects: the cosine for `cosine`, the dot product of
+            // unit vectors for `dot_product`. It is not the engine `_score` (a cosine of 0.6 scores 0.8 in
+            // Elasticsearch) nor the scale of `features.faq.min_similarity`, which filters documentation
+            // passages by the score their store returns. A number from 0 to 1; anything else, or leaving
+            // it out, means no floor. `l2_norm` is a distance and takes no floor. On the database engine
+            // the floor applies to `cosine` profiles only and replaces the built-in cosine cut of 0.7 on
+            // MySQL and SQLite. It belongs to the profile because score scales change with the model:
+            // re-measure it after a model switch. `test:ai:tune-retrieval` prints a recommended value
+            // and never writes it.
             'models' => [
                 'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,
@@ -89,6 +112,17 @@ return [
             // Optional per-module allowlist. Empty = every module (default).
             // Matched by FeatureModuleGate against the model's Modules\{Name}\ namespace.
             'modules' => [],
+            // Near-duplicate images. `near_duplicate_distance` is the setting
+            // `features.media_analysis.near_duplicate_distance`; this is the default until it is seeded.
+            // It is the largest Hamming distance (of 64 bits) between the perceptual fingerprints of two
+            // images for the later one to reuse the earlier one's analysis instead of calling the model:
+            // 0 = off, about 4 = the same picture resized or re-encoded, above 10 = different pictures
+            // start to match.
+            'near_duplicate_distance' => 0,
+            // The most recent analyses (newest first) one near-duplicate lookup compares against. The
+            // lookup is linear in this number, once per new image that is not an exact duplicate, in a
+            // queue job; rows past the limit are not considered, so an old duplicate may be analysed again.
+            'near_duplicate_scan_limit' => 50000,
             // The transcription models the dropdown offers for the transcription server (`ai.servers.transcription`),
             // as the server names them (a Hugging Face id for speaches); the installer adds the ones it serves.
             'transcription' => [
@@ -215,6 +249,20 @@ return [
             // planning) before the search falls back to its rule-based answer; 0 means no limit.
             'enabled' => true,
             'timeout' => 10.0,
+        ],
+        'rag' => [
+            // The optional relevance judge between documentation retrieval and the answer of the in-app
+            // assistant (RelevanceJudgeStage). `enabled`, `max_rounds`, `min_sources` and `excerpt_chars`
+            // are the settings `features.rag.judge.*`; these are the defaults until they are seeded. The
+            // model is the setting `features.rag.judge.model`. `timeout` is the seconds one judge call may
+            // take before the unjudged documents are used (not a setting; 0 means no limit).
+            'judge' => [
+                'enabled' => false,
+                'max_rounds' => 3,
+                'min_sources' => 3,
+                'excerpt_chars' => 600,
+                'timeout' => 10.0,
+            ],
         ],
         'moderation' => [
             // The setting `features.moderation.queue`, read when the job is dispatched.

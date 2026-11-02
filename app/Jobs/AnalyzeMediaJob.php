@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\AI\Jobs;
 
+use function ai_config_int;
+
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -15,6 +17,7 @@ use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelRegistry;
 use Modules\AI\Ai\MediaAnalysis\MediaVisionResult;
 use Modules\AI\Enums\MediaAnalysisStatus;
 use Modules\AI\Models\MediaAnalysis;
+use Modules\AI\Services\Media\ImageFingerprint;
 use Modules\Core\Events\ModelPreProcessingCompleted;
 use Modules\Core\Models\Media;
 use Smalot\PdfParser\Parser as PdfParser;
@@ -31,6 +34,11 @@ use Throwable;
  * An analyzer error fails the attempt so the job retries; once retries are spent
  * it degrades (M12): the row is marked failed and completion is still emitted so
  * the deterministic layer indexes.
+ *
+ * Opt-in near-duplicate reuse (`features.media_analysis.near_duplicate_distance`, off): after the exact
+ * lookup misses, an image whose perceptual fingerprint is within that distance of an earlier completed
+ * analysis by the same model copies that analysis instead of calling the model. The fingerprint is
+ * stored for every analysed image either way, so the feature can be switched on later.
  */
 final class AnalyzeMediaJob implements ShouldQueue
 {
@@ -85,12 +93,23 @@ final class AnalyzeMediaJob implements ShouldQueue
             return;
         }
 
-        $analysis = MediaAnalysis::query()->firstOrNew(['content_hash' => $hash]);
-        $analysis->analysis_status = MediaAnalysisStatus::Processing;
-        $analysis->save();
-
         $mime = (string) $media->mime_type;
         $type = mb_strtolower((string) strtok($mime, '/'));
+        $fingerprint = $type === 'image' ? $this->fingerprint($media) : null;
+
+        $near = $fingerprint === null ? null : $this->nearDuplicate($fingerprint, $hash, $modelVersion);
+
+        if ($near instanceof MediaAnalysis) {
+            $this->reuseNearDuplicate($media, $hash, $fingerprint, $near);
+
+            return;
+        }
+
+        $analysis = MediaAnalysis::query()->firstOrNew(['content_hash' => $hash]);
+        $analysis->analysis_status = MediaAnalysisStatus::Processing;
+        $analysis->image_fingerprint = $fingerprint;
+        $analysis->save();
+
         $caption = null;
         $provenance = [];
 
@@ -153,6 +172,105 @@ final class AnalyzeMediaJob implements ShouldQueue
         }
 
         event(new ModelPreProcessingCompleted($this->media, 'media_analysis'));
+    }
+
+    private function fingerprint(Media $media): ?string
+    {
+        $path = $media->getPath();
+        $bytes = is_file($path) ? file_get_contents($path) : false;
+
+        return is_string($bytes) ? ImageFingerprint::of($bytes) : null;
+    }
+
+    /**
+     * The newest completed analysis, by the active model, whose image is within the configured distance
+     * of this one. The comparison is linear: the fingerprints of the newest `near_duplicate_scan_limit`
+     * rows are read in pages and the first one in range wins. It runs once per new image that is not an
+     * exact duplicate, in a queue job, and rows past the limit are not considered.
+     */
+    private function nearDuplicate(string $fingerprint, string $hash, string $modelVersion): ?MediaAnalysis
+    {
+        $distance = max(0, ai_config_int('ai.features.media_analysis.near_duplicate_distance', 0));
+
+        if ($distance === 0) {
+            return null;
+        }
+
+        $limit = max(1, ai_config_int('ai.features.media_analysis.near_duplicate_scan_limit', 50000));
+        $scanned = 0;
+
+        $candidates = MediaAnalysis::query()
+            ->select(['id', 'image_fingerprint'])
+            ->where('analysis_status', MediaAnalysisStatus::Completed->value)
+            ->where('analysis_model_version', $modelVersion)
+            ->where('content_hash', '!=', $hash)
+            ->whereNotNull('image_fingerprint')
+            ->lazyByIdDesc(1000);
+
+        foreach ($candidates as $candidate) {
+            if (++$scanned > $limit) {
+                break;
+            }
+
+            $other = (string) $candidate->image_fingerprint;
+
+            if (ImageFingerprint::isValid($other) && $distance >= ImageFingerprint::distance($fingerprint, $other)) {
+                return MediaAnalysis::query()->find($candidate->id);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Copies the earlier analysis onto the row of this file without a model call, and records which row
+     * it came from in the `analysis` bag. The caption lives on the earlier media, not on the analysis, so
+     * it is copied from there when the earlier media still carries the one the model wrote.
+     */
+    private function reuseNearDuplicate(Media $media, string $hash, string $fingerprint, MediaAnalysis $source): void
+    {
+        $analysis = MediaAnalysis::query()->firstOrNew(['content_hash' => $hash]);
+        $analysis->entities = $source->entities;
+        $analysis->idea = $source->idea;
+        $analysis->intent = $source->intent;
+        $analysis->ocr_text = $source->ocr_text;
+        $analysis->provenance = $source->provenance;
+        $analysis->analysis = [
+            'near_duplicate_of' => $source->id,
+            'near_duplicate_distance' => ImageFingerprint::distance($fingerprint, (string) $source->image_fingerprint),
+        ];
+        $analysis->image_fingerprint = $fingerprint;
+        $analysis->analysis_status = MediaAnalysisStatus::Completed;
+        $analysis->analyzed_at = now();
+        $analysis->analysis_model_version = $source->analysis_model_version;
+        $analysis->save();
+
+        $this->fillCoreFields($media, $this->modelCaption($source->content_hash), $analysis->entities ?? []);
+        dispatch(new GenerateEmbeddingsJob($media));
+        $media->reindexOwner();
+        event(new ModelPreProcessingCompleted($this->media, 'media_analysis'));
+    }
+
+    /**
+     * The description a model wrote for the media of a file, never one a person wrote.
+     */
+    private function modelCaption(string $hash): ?string
+    {
+        $earlier = Media::query()
+            ->withoutGlobalScopes()
+            ->where('custom_properties->content_hash', $hash)
+            ->get()
+            ->first(static function (Media $candidate): bool {
+                $custom = $candidate->custom_properties;
+                $description = $custom['description'] ?? null;
+                $provenance = is_array($custom['_provenance'] ?? null) ? $custom['_provenance'] : [];
+
+                return is_string($description) && $description !== '' && ($provenance['description'] ?? null) === 'llm';
+            });
+
+        $description = $earlier?->custom_properties['description'] ?? null;
+
+        return is_string($description) ? $description : null;
     }
 
     /**

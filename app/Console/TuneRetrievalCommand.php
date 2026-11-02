@@ -17,11 +17,14 @@ use Modules\AI\Services\ApplicationContent\Evaluation\Contracts\PerStrategyEngin
 use Modules\AI\Services\ApplicationContent\Evaluation\RerankerRun;
 use Modules\AI\Services\ApplicationContent\Evaluation\RetrievalTuningSafeguards;
 use Modules\AI\Services\ApplicationContent\Evaluation\RetrievalTuningService;
+use Modules\AI\Services\ApplicationContent\Evaluation\SimilarityFloorRecommendation;
 use Modules\Core\ApplicationContent\Contracts\ApplicationContentRetrievalProviderRegistryInterface;
 use Modules\Core\ApplicationContent\Contracts\ProvidesPermissionModel;
 use Modules\Core\ApplicationContent\Data\ApplicationContentSourceDescriptor;
+use Modules\Core\Search\Contracts\IReportsVectorSimilarity;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 use Modules\Core\Search\DTOs\AdvancedSearchResult;
+use Modules\Core\Search\Support\VectorProfileContext;
 use Nwidart\Modules\Facades\Module;
 use Override;
 use Throwable;
@@ -30,6 +33,10 @@ use Throwable;
  * Grid-searches the fusion parameters of the retrieval tuning profile against a curated dataset
  * and writes a JSON report plus a printed profile block. It never edits `config/search_tuning.php`:
  * a human reads the numbers and commits the profile.
+ *
+ * It also prints a similarity floor for the active embedding profile, measured on the vector hits of
+ * the same runs ({@see SimilarityFloorRecommendation}). The floor is printed only: it is not in the
+ * report and never written to the profile.
  */
 final class TuneRetrievalCommand extends Command
 {
@@ -134,15 +141,25 @@ final class TuneRetrievalCommand extends Command
 
             /** @var array<string, list<float>> $vectors */
             $vectors = [];
+
+            /** @var array{relevant: list<float>, other: list<float>} $vector_scores */
+            $vector_scores = ['relevant' => [], 'other' => []];
             $report = $tuning->tune(
                 $dataset,
                 $source,
                 $grid,
                 $metric,
-                static function (ApplicationContentEvaluationCase $case, bool $useReranker) use (&$vectors, $embedder, $retriever, $model): AdvancedSearchResult {
+                static function (ApplicationContentEvaluationCase $case, bool $useReranker) use (&$vectors, &$vector_scores, $embedder, $retriever, $model, $source): AdvancedSearchResult {
                     $vectors[$case->id] ??= $embedder->embed($case->query);
+                    $result = $retriever->retrieve($model, $case->query, $useReranker, $case->limit, $vectors[$case->id], $case->locale);
 
-                    return $retriever->retrieve($model, $case->query, $useReranker, $case->limit, $vectors[$case->id], $case->locale);
+                    if (! $useReranker) {
+                        $case_scores = SimilarityFloorRecommendation::vectorScores($result, $case->expectedHitIds, $source);
+                        $vector_scores['relevant'] = [...$vector_scores['relevant'], ...$case_scores['relevant']];
+                        $vector_scores['other'] = [...$vector_scores['other'], ...$case_scores['other']];
+                    }
+
+                    return $result;
                 },
                 $safeguards,
             );
@@ -159,6 +176,8 @@ final class TuneRetrievalCommand extends Command
             if ($reranker_warning !== null) {
                 $this->warn($reranker_warning);
             }
+
+            $this->line($this->similarityFloor($model, $vector_scores)->summary());
 
             foreach (explode(PHP_EOL, $tuning->profileBlock($report)) as $line) {
                 $this->line($line);
@@ -198,6 +217,29 @@ final class TuneRetrievalCommand extends Command
         $report['corpus'] = ['size' => $corpus->count()];
 
         return $report;
+    }
+
+    /**
+     * The floor recommended for the active profile, measured with the engine of the source, which alone
+     * knows how its vector scores map back to similarities. An engine that cannot be resolved gives no
+     * recommendation; it never fails the tuning, which already ran.
+     *
+     * @param  array{relevant: list<float>, other: list<float>}  $vectorScores
+     */
+    private function similarityFloor(Model $model, array $vectorScores): SimilarityFloorRecommendation
+    {
+        try {
+            $engine = method_exists($model, 'searchableUsing') ? $model->searchableUsing() : null;
+        } catch (Throwable) {
+            $engine = null;
+        }
+
+        return SimilarityFloorRecommendation::measure(
+            $vectorScores['relevant'],
+            $vectorScores['other'],
+            $engine instanceof IReportsVectorSimilarity ? $engine : null,
+            VectorProfileContext::get(),
+        );
     }
 
     /**

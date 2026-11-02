@@ -16,6 +16,7 @@ enum AiModelFeature: string
     case SearchOrchestration = 'search_orchestration';
     case Translation = 'translation';
     case Faq = 'faq';
+    case RelevanceJudge = 'relevance_judge';
     case ContextualSuggestions = 'contextual_suggestions';
     case ChatSummary = 'chat_summary';
     case Vision = 'vision';
@@ -46,6 +47,7 @@ enum AiModelFeature: string
             self::SearchOrchestration => 'features.search_orchestration.model',
             self::Translation => 'features.translation.model',
             self::Faq => 'features.faq.model',
+            self::RelevanceJudge => 'features.rag.judge.model',
             self::ContextualSuggestions => 'features.contextual_suggestions.model',
             self::ChatSummary => 'features.chat.summary.model',
             self::Vision => 'features.media_analysis.vision.model',
@@ -62,6 +64,7 @@ enum AiModelFeature: string
             self::SearchOrchestration => 'AI model used for search orchestration (provider:model)',
             self::Translation => 'Translation provider: deepl, or an AI model (provider:model)',
             self::Faq => 'AI model used for FAQ answers (provider:model)',
+            self::RelevanceJudge => 'AI model that judges which retrieved documentation answers the question (provider:model)',
             self::ContextualSuggestions => 'AI model used for contextual suggestions (provider:model)',
             self::ChatSummary => 'AI model used for chat summaries and memory (provider:model)',
             self::Vision => 'AI model used for media vision analysis (provider:model)',

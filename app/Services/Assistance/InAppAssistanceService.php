@@ -9,6 +9,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Modules\AI\Ai\Providers\AiRole;
+use Modules\AI\Ai\Providers\RoleTokenUsage;
+use Modules\AI\Ai\Providers\TokenUsage;
+use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Data\UiProposal;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
@@ -66,6 +70,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         private ?Closure $documentation_retrieval = null,
         private ?Closure $completion = null,
         private ?ApplicationContentCitationMapper $application_content_citations = null,
+        private ?RelevanceJudgeStage $relevance_judge = null,
     ) {}
 
     /**
@@ -105,13 +110,18 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_RETRIEVE);
             $module_context = $this->serverApplicationContext();
             $scope = $this->scope_resolver->resolve($access->profile, $module_context?->module);
+            $retrieve = fn (string $query): array => $this->documentation_retrieval instanceof Closure
+                ? ($this->documentation_retrieval)($query, $access, $scope)
+                : $this->documentation->retrieveForInApp($query, $access, $scope);
             $retrieval_started_at = hrtime(true);
-            $documents = match (true) {
-                ! $reads_documentation => [],
-                $this->documentation_retrieval instanceof Closure => ($this->documentation_retrieval)($input, $access, $scope),
-                default => $this->documentation->retrieveForInApp($input, $access, $scope),
-            };
+            $documents = $reads_documentation ? $retrieve($input) : [];
             $retrieval_latency_ms = (hrtime(true) - $retrieval_started_at) / 1_000_000;
+            $judge_run = null;
+
+            if ($reads_documentation) {
+                $judge_run = $this->relevanceJudge()->run($input, $documents, $retrieve);
+                $documents = $judge_run->documents;
+            }
             $prompt_context = $this->guardrails->validateContext(
                 $this->promptContext($policy, $documents, $request_context),
             );
@@ -134,12 +144,14 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_RETRIEVE);
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_ANSWER);
 
+            $answer_usage = null;
+
             if ($application_content->clarificationRequired()) {
                 $output = $this->guardrails->clarificationRequired($access->locale);
+            } elseif ($this->completion instanceof Closure) {
+                $output = ($this->completion)($input, $policy->systemPrompt, $prompt_context, $tools);
             } else {
-                $output = $this->completion instanceof Closure
-                    ? ($this->completion)($input, $policy->systemPrompt, $prompt_context, $tools)
-                    : $this->complete($input, $policy, $prompt_context, $tools);
+                [$output, $answer_usage] = $this->complete($input, $policy, $prompt_context, $tools);
             }
 
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_ANSWER);
@@ -183,6 +195,10 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 count($documents),
                 $documentation_citation_count,
                 $retrieval_latency_ms,
+                $judge_run,
+                (new RoleTokenUsage)
+                    ->with(AiRole::ANSWER, $answer_usage)
+                    ->with(AiRole::JUDGE, $judge_run?->tokens()),
             );
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_VALIDATE);
 
@@ -310,6 +326,15 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         }
     }
 
+    /**
+     * The optional relevance judge between documentation retrieval and the answer; off, it hands the
+     * documents on as retrieved.
+     */
+    private function relevanceJudge(): RelevanceJudgeStage
+    {
+        return $this->relevance_judge ?? app(RelevanceJudgeStage::class);
+    }
+
     private function applicationContentCitations(): ApplicationContentCitationMapper
     {
         return $this->application_content_citations ?? app(ApplicationContentCitationMapper::class);
@@ -411,21 +436,27 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
     }
 
     /**
+     * The answer and the tokens the provider reported for it, every call of a tool-calling turn
+     * included; null tokens when the provider reported none.
+     *
      * @param  list<Tool>  $tools
+     * @return array{0: string, 1: ?TokenUsage}
      */
     private function complete(
         string $input,
         CompiledAssistantPolicy $policy,
         AssistantPromptContext $prompt_context,
         array $tools,
-    ): string {
+    ): array {
         $agent = $this->chat_service->buildProtectedAgent($policy, $prompt_context);
 
         foreach ($tools as $tool) {
             $agent->addTool($tool);
         }
 
-        return $agent->chat(new UserMessage($input))->getMessage()?->getContent() ?? '';
+        $answer = $agent->chat(new UserMessage($input))->getMessage()?->getContent() ?? '';
+
+        return [$answer, TokenUsage::fromAgent($agent)];
     }
 
     /**

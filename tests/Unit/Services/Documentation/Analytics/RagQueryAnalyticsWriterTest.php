@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Elastic\Elasticsearch\Client;
 use Illuminate\Support\Facades\Log;
+use Modules\AI\Ai\Rag\Judge\JudgeRound;
+use Modules\AI\Ai\Rag\Judge\JudgeRun;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
@@ -73,8 +75,12 @@ it('stores no question when the mode is not one the review approved', function (
 
 it('builds a document with exactly the fields of the index mapping', function (): void {
     $document = RagQueryLog::fromAnswer(rag_query_access('42', 'tenant-7'), 'question', 4, 2, 31.25)->toDocument();
+    $unjudged_fields = array_values(array_filter(
+        array_keys(RagQueryLogIndex::mappings()['properties']),
+        static fn (string $field): bool => ! str_starts_with($field, 'judge_') && ! str_starts_with($field, 'tokens_'),
+    ));
 
-    expect(array_keys($document))->toEqualCanonicalizing(array_keys(RagQueryLogIndex::mappings()['properties']))
+    expect(array_keys($document))->toEqualCanonicalizing($unjudged_fields)
         ->and($document)->toMatchArray([
             'tenant' => 'tenant-7',
             'profile' => 'in_app_assistance',
@@ -118,4 +124,28 @@ it('swallows an Elasticsearch failure and logs it without the question', functio
         static fn (string $message, array $context): bool => $message === 'rag_query_analytics_write_failed'
             && ! str_contains((string) json_encode($context), 'private question'),
     );
+});
+
+it('builds a judged document with every field of the index mapping but the tokens', function (): void {
+    $run = new JudgeRun([], applied: true, rounds: [new JudgeRound(1, 'question', 3, [2], 40.5)]);
+    $untokened_fields = array_values(array_filter(
+        array_keys(RagQueryLogIndex::mappings()['properties']),
+        static fn (string $field): bool => ! str_starts_with($field, 'tokens_'),
+    ));
+
+    $document = RagQueryLog::fromAnswer(rag_query_access(), 'question', 3, 1, 12.5, $run)->toDocument();
+
+    expect(array_keys($document))->toEqualCanonicalizing($untokened_fields)
+        ->and($document['judge_trace'])->toBe('round=1 candidates=3 kept=2 ms=40.5');
+});
+
+it('stores no judge query in off mode', function (): void {
+    config()->set('ai.features.faq.query_logging.query_text_mode', 'off');
+    $run = new JudgeRun([], applied: true, rounds: [new JudgeRound(1, 'How do I reset a password?', 3, [], 40.5)]);
+
+    $document = RagQueryLog::fromAnswer(rag_query_access(), 'How do I reset a password?', 3, 0, 12.5, $run)->toDocument();
+
+    expect($document)->not->toHaveKey('judge_queries')
+        ->and($document['judge_trace'])->toBe('round=1 candidates=3 kept=- ms=40.5')
+        ->and(json_encode($document))->not->toContain('reset a password');
 });

@@ -6,6 +6,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Services\ApplicationContent\Evaluation\Contracts\PerStrategyEngineRetrieverInterface;
 use Modules\AI\Tests\Stubs\ApplicationContent\FakePerStrategyEngineRetriever;
 use Modules\AI\Tests\Stubs\ApplicationContent\RetrievalStrategyCommandContentProvider;
+use Modules\AI\Tests\Stubs\ApplicationContent\SimilarityReportingUser;
 use Modules\Core\ApplicationContent\ApplicationContentRetrievalProviderRegistry;
 use Modules\Core\ApplicationContent\Contracts\ApplicationContentRetrievalProviderRegistryInterface;
 use Modules\Core\Models\User;
@@ -14,14 +15,16 @@ use Modules\Core\Search\DTOs\AdvancedSearchResult;
 
 /**
  * @param  list<string>  $orderedIds
+ * @param  array<string, float>  $scores  the score of an id, 1.0 when not given
  * @return array<string, array{id: string, score: float, raw_score: float, score_details: array<never>, source: array<never>, rank: int}>
  */
-function tuneCommandRanking(array $orderedIds): array
+function tuneCommandRanking(array $orderedIds, array $scores = []): array
 {
     $ranked = [];
 
     foreach ($orderedIds as $index => $id) {
-        $ranked[$id] = ['id' => $id, 'score' => 1.0, 'raw_score' => 1.0, 'score_details' => [], 'source' => [], 'rank' => $index + 1];
+        $score = $scores[$id] ?? 1.0;
+        $ranked[$id] = ['id' => $id, 'score' => $score, 'raw_score' => $score, 'score_details' => [], 'source' => [], 'rank' => $index + 1];
     }
 
     return $ranked;
@@ -42,18 +45,20 @@ function tuneCommandResult(array $finalIds, array $meta = []): AdvancedSearchRes
  * Registers the fake source, retriever and embedder, and writes a one-case dataset.
  *
  * @param  bool  $rerankerRan  whether the reranked retrieval carries `meta['reranked'] = true`, as it does when the service answered
+ * @param  class-string<User>  $model  the permission model of the source, whose engine the similarity floor is measured with
+ * @param  array<string, float>  $vectorScores  the score of the vector hits by id, 1.0 when not given
  * @return array{directory: string, dataset: string, output: string, retriever: FakePerStrategyEngineRetriever}
  */
-function tuneCommandFixture(bool $rerankerRan = false): array
+function tuneCommandFixture(bool $rerankerRan = false, string $model = User::class, array $vectorScores = []): array
 {
     $registry = new ApplicationContentRetrievalProviderRegistry;
-    $registry->register(new RetrievalStrategyCommandContentProvider(User::class));
+    $registry->register(new RetrievalStrategyCommandContentProvider($model));
     app()->instance(ApplicationContentRetrievalProviderRegistryInterface::class, $registry);
 
     $retriever = new FakePerStrategyEngineRetriever(
         tuneCommandResult(['1', '2'], ['per_strategy' => [
             'keyword' => tuneCommandRanking(['1', '2']),
-            'vector' => tuneCommandRanking(['2', '1']),
+            'vector' => tuneCommandRanking(['2', '1'], $vectorScores),
             'hybrid' => tuneCommandRanking(['2', '1']),
         ]]),
         tuneCommandResult(['2', '1'], $rerankerRan ? ['reranked' => true] : []),
@@ -370,6 +375,52 @@ it('says nothing about the reranker when it ran', function (): void {
         $report = json_decode((string) file_get_contents($fixture['output']), true, flags: JSON_THROW_ON_ERROR);
 
         expect($report['reranker'])->toBe(['requested' => 1, 'ran' => 1, 'status' => 'ran', 'model' => null]);
+    } finally {
+        tuneCommandCleanup($fixture['directory']);
+    }
+});
+
+it('prints a recommended similarity floor measured on the vector hits, and writes it nowhere', function (): void {
+    config()->set('ai.features.embeddings.enabled', true);
+    config()->set('ai.features.embeddings.models', ['test:floor-model' => ['dimensions' => 3, 'similarity' => 'cosine']]);
+    config()->set('ai.features.embeddings.serving_model', 'test:floor-model');
+    $fixture = tuneCommandFixture(model: SimilarityReportingUser::class, vectorScores: ['2' => 0.8234, '1' => 0.64]);
+    $profile_hash = hash_file('sha256', module_path('Core', 'config/search_tuning.php'));
+
+    try {
+        $this->artisan('test:ai:tune-retrieval', [
+            '--dataset' => $fixture['dataset'],
+            '--source' => 'cms.strategy_records',
+            '--output' => $fixture['output'],
+            '--noise-margin' => '0',
+        ])
+            ->expectsOutputToContain("never written: set 'min_similarity' on the profile 'test:floor-model' by hand): 0.82,")
+            ->assertSuccessful();
+
+        $report = (string) file_get_contents($fixture['output']);
+
+        expect($report)->not->toContain('min_similarity')
+            ->and($report)->not->toContain('Similarity floor')
+            ->and(config('ai.features.embeddings.models.test:floor-model'))->not->toHaveKey('min_similarity')
+            ->and(array_map(basename(...), glob($fixture['directory'] . '/*') ?: []))->toBe(['dataset.json', 'report.json'])
+            ->and(hash_file('sha256', module_path('Core', 'config/search_tuning.php')))->toBe($profile_hash);
+    } finally {
+        tuneCommandCleanup($fixture['directory']);
+    }
+});
+
+it('says why it cannot recommend a similarity floor when the engine does not tell the similarity', function (): void {
+    $fixture = tuneCommandFixture();
+
+    try {
+        $this->artisan('test:ai:tune-retrieval', [
+            '--dataset' => $fixture['dataset'],
+            '--source' => 'cms.strategy_records',
+            '--output' => $fixture['output'],
+            '--noise-margin' => '0',
+        ])
+            ->expectsOutputToContain('Similarity floor: no recommendation')
+            ->assertSuccessful();
     } finally {
         tuneCommandCleanup($fixture['directory']);
     }

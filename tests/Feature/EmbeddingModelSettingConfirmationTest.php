@@ -113,6 +113,39 @@ it('shows both models, both dimensions, the work and what happens meanwhile', fu
         ->and($text)->toContain('Going back');
 });
 
+it('warns, among the lines, about the installation languages the chosen profile does not declare', function (): void {
+    config([
+        'app.available_locales' => ['en', 'it', 'de'],
+        'ai.features.embeddings.models.' . CONFIRM_OTHER_DIMENSIONS . '.languages' => ['en'],
+    ]);
+
+    $text = implode("\n", embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_OTHER_DIMENSIONS)->lines);
+
+    expect($text)->toContain('it, de')->toContain(CONFIRM_OTHER_DIMENSIONS);
+});
+
+it('adds no language line when the chosen profile declares nothing or covers the locales', function (array $languages): void {
+    config([
+        'app.available_locales' => ['en', 'it'],
+        'ai.features.embeddings.models.' . CONFIRM_OTHER_DIMENSIONS . '.languages' => $languages,
+    ]);
+
+    $lines = embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_OTHER_DIMENSIONS)->lines;
+
+    expect(implode("\n", $lines))->not->toContain('does not declare');
+})->with([
+    'unknown' => [[]],
+    'any' => [['*']],
+    'every locale' => [['en', 'it']],
+]);
+
+it('says whether the text embedded by the chosen profile leaves the installation', function (): void {
+    $text = implode("\n", embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_OTHER_DIMENSIONS)->lines);
+
+    expect($text)->toContain('stays on a server')
+        ->and($text)->not->toContain('localhost:8000');
+});
+
 it('says a change with equal dimensions only re-embeds', function (): void {
     $text = implode("\n", embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_SAME_DIMENSIONS)->lines);
 

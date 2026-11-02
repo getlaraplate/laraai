@@ -24,7 +24,7 @@ use Throwable;
  * General-purpose chat agent powered by NeuronAI.
  * Supports multi-provider configuration via ProviderFactory.
  *
- * @method static static make(?string $providerName = null, ?string $systemPrompt = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null)
+ * @method static static make(?string $providerName = null, ?string $systemPrompt = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null, ?float $temperature = null)
  */
 class ChatAgent extends Agent
 {
@@ -34,6 +34,7 @@ class ChatAgent extends Agent
         protected ?string $model = null,
         protected ?int $maxOutputTokens = null,
         protected ?float $timeout = null,
+        protected ?float $temperature = null,
     ) {
         // Neuron runs nothing without a thread id; the application keeps its own conversations, so each agent gets a throwaway one.
         parent::__construct(workflowId: (string) Str::uuid7());
@@ -70,6 +71,17 @@ class ChatAgent extends Agent
     }
 
     /**
+     * Sets the sampling temperature of every call to the model, for a caller that wants the same answer
+     * to the same question (0 for a judgement).
+     */
+    public function withTemperature(float $temperature): static
+    {
+        $this->temperature = $temperature;
+
+        return $this;
+    }
+
+    /**
      * A tool that fails does not end the turn: the model gets a fixed message as the tool's result and
      * can try again or answer without it. The message never carries the exception's text, which can name
      * a parameter, a class or a record. A policy violation is not a failure of the tool and is not
@@ -95,7 +107,7 @@ class ChatAgent extends Agent
 
     protected function provider(): AIProviderInterface
     {
-        return ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens, $this->timeout);
+        return ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens, $this->timeout, $this->temperature);
     }
 
     #[Override]

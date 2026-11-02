@@ -42,6 +42,9 @@ it('creates the query log index with a strict mapping and no vector', function (
         ->and(array_keys($properties))->toEqualCanonicalizing([
             'id', 'logged_at', 'user_ref', 'tenant', 'profile', 'locale', 'query',
             'retrieved_count', 'citation_count', 'answered', 'latency_ms', 'index',
+            'judge_rounds', 'judge_candidates', 'judge_kept', 'judge_fallback', 'judge_ms', 'judge_trace', 'judge_queries',
+            'tokens_in_answer', 'tokens_out_answer', 'tokens_in_judge', 'tokens_out_judge',
+            'tokens_in_intent', 'tokens_out_intent', 'tokens_in_embedding', 'tokens_out_embedding',
         ])
         ->and(array_column($properties, 'type'))->not->toContain('dense_vector');
 });

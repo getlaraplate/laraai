@@ -22,6 +22,11 @@ return new class extends Migration
             $table->string('content_hash', 64)->unique("{$table_name}_content_hash_UN")
                 ->comment('sha256 of the media file bytes; the dedup key');
 
+            // A 64-bit difference hash, written for every analysed image so near-duplicate reuse can be
+            // switched on later (`features.media_analysis.near_duplicate_distance`).
+            $table->char('image_fingerprint', 16)->nullable()->index("{$table_name}_image_fingerprint_IDX")
+                ->comment('Perceptual hash of an image (16 hex characters); null for other media or when it could not be computed');
+
             $table->json('entities')->nullable()->comment('Recognized subjects/objects');
             $table->text('idea')->nullable()->comment('Interpretive: the central concept');
             $table->text('intent')->nullable()->comment('Interpretive: the communicative purpose');
