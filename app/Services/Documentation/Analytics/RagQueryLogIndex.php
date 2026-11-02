@@ -6,6 +6,8 @@ namespace Modules\AI\Services\Documentation\Analytics;
 
 use function ai_config_string;
 
+use Modules\AI\Ai\Providers\AiRole;
+
 /**
  * The Elasticsearch index of the documentation query log: its name and its mapping.
  *
@@ -13,6 +15,9 @@ use function ai_config_string;
  * instead of being stored, and it has no vector: the log is never searched by similarity. The
  * `judge_*` fields are written only while the relevance judge is on; an index created before they
  * existed refuses them, so recreate it (`ai:create-rag-query-index --force`) before turning it on.
+ * The `tokens_in_{role}` and `tokens_out_{role}` fields of every {@see AiRole} are mapped too; an
+ * index created before them keeps working, since the writer stores a refused document again without
+ * them ({@see RagQueryAnalyticsWriter}).
  */
 final class RagQueryLogIndex
 {
@@ -26,6 +31,14 @@ final class RagQueryLogIndex
      */
     public static function mappings(): array
     {
+        $tokens = [];
+
+        foreach (AiRole::ALL as $role) {
+            foreach (RagQueryLog::tokenFieldNames($role) as $field) {
+                $tokens[$field] = ['type' => 'integer'];
+            }
+        }
+
         return [
             'dynamic' => 'strict',
             'properties' => [
@@ -51,6 +64,7 @@ final class RagQueryLogIndex
                 'judge_ms' => ['type' => 'float'],
                 'judge_trace' => ['type' => 'keyword', 'ignore_above' => 2048],
                 'judge_queries' => ['type' => 'text'],
+                ...$tokens,
             ],
         ];
     }

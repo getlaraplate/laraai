@@ -77,7 +77,7 @@ it('builds a document with exactly the fields of the index mapping', function ()
     $document = RagQueryLog::fromAnswer(rag_query_access('42', 'tenant-7'), 'question', 4, 2, 31.25)->toDocument();
     $unjudged_fields = array_values(array_filter(
         array_keys(RagQueryLogIndex::mappings()['properties']),
-        static fn (string $field): bool => ! str_starts_with($field, 'judge_'),
+        static fn (string $field): bool => ! str_starts_with($field, 'judge_') && ! str_starts_with($field, 'tokens_'),
     ));
 
     expect(array_keys($document))->toEqualCanonicalizing($unjudged_fields)
@@ -126,12 +126,16 @@ it('swallows an Elasticsearch failure and logs it without the question', functio
     );
 });
 
-it('builds a judged document with every field of the index mapping', function (): void {
+it('builds a judged document with every field of the index mapping but the tokens', function (): void {
     $run = new JudgeRun([], applied: true, rounds: [new JudgeRound(1, 'question', 3, [2], 40.5)]);
+    $untokened_fields = array_values(array_filter(
+        array_keys(RagQueryLogIndex::mappings()['properties']),
+        static fn (string $field): bool => ! str_starts_with($field, 'tokens_'),
+    ));
 
     $document = RagQueryLog::fromAnswer(rag_query_access(), 'question', 3, 1, 12.5, $run)->toDocument();
 
-    expect(array_keys($document))->toEqualCanonicalizing(array_keys(RagQueryLogIndex::mappings()['properties']))
+    expect(array_keys($document))->toEqualCanonicalizing($untokened_fields)
         ->and($document['judge_trace'])->toBe('round=1 candidates=3 kept=2 ms=40.5');
 });
 

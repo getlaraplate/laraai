@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use InvalidArgumentException;
 use Modules\AI\Ai\Embeddings\EmbeddingLanguageCheck;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
+use Modules\AI\Ai\Providers\RoleEgress;
 use Modules\AI\Jobs\SwitchEmbeddingModelJob;
 use Modules\Core\Contracts\ISettingChangeConfirmation;
 use Modules\Core\Data\SettingChangeWarning;
@@ -20,7 +21,8 @@ use Override;
  * which runs the preflight and, when it refuses, stores the refusal as a failed switch so the field
  * locks and shows why. The field is locked while a
  * switch runs or failed. When the chosen profile declares languages and misses some enabled locales
- * of the installation, a last line says which: a warning, the choice stays possible.
+ * of the installation, a line says which: a warning, the choice stays possible. A last line says
+ * whether the text the chosen profile embeds leaves the installation, when that can be told.
  *
  * Registered once at boot, it resolves the preview when it needs it, so the probe and the
  * embeddable models in use are the container's at that moment.
@@ -33,6 +35,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
         private EmbeddingModelRegistry $registry,
         private EmbeddingSwitchStore $store,
         private EmbeddingLanguageCheck $languages,
+        private RoleEgress $egress,
     ) {}
 
     #[Override]
@@ -62,6 +65,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
 
         $preview = app(EmbeddingSwitchPreview::class)->for($target);
         $languageWarning = $this->languages->warningFor($target);
+        $leaves = $this->egress->forEmbeddingProfile($target);
 
         return new SettingChangeWarning('Change the embedding model?', [
             "Current model: {$preview->currentModel} (" . ($preview->currentDimensions ?? 'unknown') . ' dimensions).',
@@ -73,6 +77,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
             'Meanwhile vector search is off and search uses keywords only, until the switch ends.',
             'Going back to the previous model is the same procedure and costs the same.',
             ...($languageWarning === null ? [] : [$languageWarning]),
+            ...($leaves === null ? [] : [RoleEgress::describe($leaves)]),
         ]);
     }
 

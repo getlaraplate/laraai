@@ -9,6 +9,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Modules\AI\Ai\Providers\AiRole;
+use Modules\AI\Ai\Providers\RoleTokenUsage;
+use Modules\AI\Ai\Providers\TokenUsage;
 use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Data\UiProposal;
 use Modules\AI\Enums\AssistantProfile;
@@ -141,12 +144,14 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_RETRIEVE);
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_ANSWER);
 
+            $answer_usage = null;
+
             if ($application_content->clarificationRequired()) {
                 $output = $this->guardrails->clarificationRequired($access->locale);
+            } elseif ($this->completion instanceof Closure) {
+                $output = ($this->completion)($input, $policy->systemPrompt, $prompt_context, $tools);
             } else {
-                $output = $this->completion instanceof Closure
-                    ? ($this->completion)($input, $policy->systemPrompt, $prompt_context, $tools)
-                    : $this->complete($input, $policy, $prompt_context, $tools);
+                [$output, $answer_usage] = $this->complete($input, $policy, $prompt_context, $tools);
             }
 
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_ANSWER);
@@ -191,6 +196,9 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 $documentation_citation_count,
                 $retrieval_latency_ms,
                 $judge_run,
+                (new RoleTokenUsage)
+                    ->with(AiRole::ANSWER, $answer_usage)
+                    ->with(AiRole::JUDGE, $judge_run?->tokens()),
             );
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_VALIDATE);
 
@@ -428,21 +436,27 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
     }
 
     /**
+     * The answer and the tokens the provider reported for it, every call of a tool-calling turn
+     * included; null tokens when the provider reported none.
+     *
      * @param  list<Tool>  $tools
+     * @return array{0: string, 1: ?TokenUsage}
      */
     private function complete(
         string $input,
         CompiledAssistantPolicy $policy,
         AssistantPromptContext $prompt_context,
         array $tools,
-    ): string {
+    ): array {
         $agent = $this->chat_service->buildProtectedAgent($policy, $prompt_context);
 
         foreach ($tools as $tool) {
             $agent->addTool($tool);
         }
 
-        return $agent->chat(new UserMessage($input))->getMessage()?->getContent() ?? '';
+        $answer = $agent->chat(new UserMessage($input))->getMessage()?->getContent() ?? '';
+
+        return [$answer, TokenUsage::fromAgent($agent)];
     }
 
     /**

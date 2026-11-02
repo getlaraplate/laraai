@@ -17,6 +17,10 @@ return [
         'ai_transcript' => 'Transkript',
     ],
     'messages' => [
+        'egressLeaves' => 'Der an dieses Modell gesendete Text verlässt die Installation: Ein externer Dienst empfängt ihn.',
+        'egressStays' => 'Der an dieses Modell gesendete Text bleibt auf einem Server, den diese Installation deklariert.',
+        'egressTitle' => 'Text verlässt die Installation',
+        'egressUnknown' => 'Ob der an dieses Modell gesendete Text die Installation verlässt, lässt sich nicht feststellen.',
         'embeddingLanguagesMissing' => 'Das Embedding-Modell :profile deklariert diese Sprachen der Installation nicht: :languages. Die Suche in diesen Sprachen kann ungenauer sein.',
         'reanalysisQueued' => 'Erneute Analyse eingereiht',
         'reanalyzeDescription' => 'Eine neue KI-Analyse dieser Mediendatei einreihen.',

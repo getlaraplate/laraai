@@ -5,18 +5,23 @@ declare(strict_types=1);
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Queue;
 use Lab404\Impersonate\Services\ImpersonateManager;
+use Modules\AI\Ai\Agents\ChatAgent;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Jobs\LogRagQueryJob;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
 use Modules\AI\Services\Assistance\InAppAssistanceService;
+use Modules\AI\Services\ChatService;
 use Modules\AI\Services\Documentation\Analytics\RagQueryAnalyticsWriter;
 use Modules\AI\Services\Documentation\Analytics\RagQueryRecorder;
 use Modules\AI\Services\Documentation\Analytics\RagQueryUserReference;
 use Modules\AI\Tests\Stubs\Assistance\ScriptedAssistantFixtures;
 use Modules\Core\Models\User;
+use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\RAG\Document;
+use NeuronAI\Testing\FakeAIProvider;
 
 uses(Illuminate\Foundation\Testing\RefreshDatabase::class);
 
@@ -30,6 +35,20 @@ function rag_logging_service(Request $request, array $documents): InAppAssistanc
         static fn (): string => 'Open Settings and select Profile.',
         static fn (): array => $documents,
     );
+}
+
+/**
+ * The in-app service answering through the real completion, on an agent whose model is Neuron's fake
+ * provider replying `$reply`.
+ *
+ * @param  list<Document>  $documents
+ */
+function rag_logging_service_answering(Request $request, array $documents, AssistantMessage $reply): InAppAssistanceService
+{
+    $chat = Mockery::mock(ChatService::class);
+    $chat->shouldReceive('buildProtectedAgent')->andReturn(ChatAgent::make()->setAiProvider(new FakeAIProvider($reply)));
+
+    return ScriptedAssistantFixtures::inAppService($request, retrieve: static fn (): array => $documents, chat: $chat);
 }
 
 function rag_logging_document(): Document
@@ -123,4 +142,28 @@ it('still answers when the log cannot be written', function (): void {
 
     expect($reply->content)->toBe('Open Settings and select Profile.')
         ->and($reply->metadata['refused'] ?? false)->toBeFalse();
+});
+
+it('records the tokens of the answer model when it reports them', function (): void {
+    Queue::fake([LogRagQueryJob::class]);
+    $reply = (new AssistantMessage('Open Settings and select Profile.'))->setUsage(new Usage(321, 45));
+
+    rag_logging_service_answering($this->request, [rag_logging_document()], $reply)
+        ->respond($this->conversation, $this->user, 'How do I update my profile?');
+
+    Queue::assertPushed(LogRagQueryJob::class, static fn (LogRagQueryJob $job): bool => $job->document['tokens_in_answer'] === 321
+        && $job->document['tokens_out_answer'] === 45
+        && ! array_key_exists('tokens_in_judge', $job->document));
+});
+
+it('records no token field when the answer model reports no usage', function (): void {
+    Queue::fake([LogRagQueryJob::class]);
+
+    rag_logging_service_answering($this->request, [rag_logging_document()], new AssistantMessage('Open Settings and select Profile.'))
+        ->respond($this->conversation, $this->user, 'How do I update my profile?');
+
+    Queue::assertPushed(LogRagQueryJob::class, static fn (LogRagQueryJob $job): bool => array_filter(
+        array_keys($job->document),
+        static fn (string $field): bool => str_starts_with($field, 'tokens_'),
+    ) === []);
 });

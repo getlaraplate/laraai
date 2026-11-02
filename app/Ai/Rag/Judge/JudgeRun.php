@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Rag\Judge;
 
+use Modules\AI\Ai\Providers\TokenUsage;
 use NeuronAI\RAG\Document;
 
 /**
@@ -40,6 +41,20 @@ final readonly class JudgeRun
     public function keptCount(): int
     {
         return array_sum(array_map(static fn (JudgeRound $round): int => count($round->kept), $this->rounds));
+    }
+
+    /**
+     * The tokens of the judge calls, summed over the rounds whose provider reported them; null when none did.
+     */
+    public function tokens(): ?TokenUsage
+    {
+        $total = null;
+
+        foreach ($this->rounds as $round) {
+            $total = $round->usage?->plus($total) ?? $total;
+        }
+
+        return $total;
     }
 
     public function milliseconds(): float

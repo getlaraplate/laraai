@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Rag\Judge;
 
+use Modules\AI\Ai\Providers\TokenUsage;
+
 /**
  * One round of the relevance judge, as the query log records it.
  */
@@ -15,6 +17,7 @@ final readonly class JudgeRound
      * @param  int  $candidates  the candidates judged, not counting those an earlier round judged
      * @param  list<int>  $kept  the 1-based numbers of the candidates kept
      * @param  float  $ms  the time of the judge call
+     * @param  ?TokenUsage  $usage  the tokens of the judge call; null when the provider reported none
      */
     public function __construct(
         public int $round,
@@ -22,5 +25,6 @@ final readonly class JudgeRound
         public int $candidates,
         public array $kept,
         public float $ms,
+        public ?TokenUsage $usage = null,
     ) {}
 }

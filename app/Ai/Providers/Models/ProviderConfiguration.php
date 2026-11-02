@@ -27,6 +27,27 @@ final readonly class ProviderConfiguration
     }
 
     /**
+     * Whether calls to the provider go to a server the installation declares by its URL (true: the
+     * URL of `ollama`, the base URL of `openai`, the transcription server of `ai.servers` for
+     * `openai_compatible`) or to a hosted service reached by its key (false). Null when the provider
+     * is unknown or not configured, so no call leaves at all. The base URL of `openai` serves chat
+     * only: its embeddings always go to the hosted service.
+     */
+    public function reachesDeclaredServer(string $provider, bool $embeddings = false): ?bool
+    {
+        if (! $this->isConfigured($provider)) {
+            return null;
+        }
+
+        return match ($provider) {
+            'ollama', 'openai_compatible' => true,
+            'openai' => ! $embeddings && ai_config_string('ai.providers.openai.base_url') !== '',
+            'anthropic', 'mistral', 'voyageai', 'deepl' => false,
+            default => null,
+        };
+    }
+
+    /**
      * Null for providers without a model catalogue: DeepL has no model to choose. The `openai_compatible`
      * provider offers the transcription models the installer declared in `ai.features.media_analysis.transcription.models`.
      */

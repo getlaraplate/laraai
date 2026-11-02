@@ -17,6 +17,10 @@ return [
         'ai_transcript' => 'Transcript',
     ],
     'messages' => [
+        'egressLeaves' => 'The text sent to this model leaves the installation: an external service receives it.',
+        'egressStays' => 'The text sent to this model stays on a server declared by this installation.',
+        'egressTitle' => 'Text leaves the installation',
+        'egressUnknown' => 'It cannot be told whether the text sent to this model leaves the installation.',
         'embeddingLanguagesMissing' => 'The embedding model :profile does not declare these languages of the installation: :languages. Search in them may be less accurate.',
         'reanalysisQueued' => 'Re-analysis queued',
         'reanalyzeDescription' => 'Queue a fresh AI analysis of this media file.',

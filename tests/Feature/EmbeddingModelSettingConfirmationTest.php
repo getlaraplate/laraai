@@ -139,6 +139,13 @@ it('adds no language line when the chosen profile declares nothing or covers the
     'every locale' => [['en', 'it']],
 ]);
 
+it('says whether the text embedded by the chosen profile leaves the installation', function (): void {
+    $text = implode("\n", embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_OTHER_DIMENSIONS)->lines);
+
+    expect($text)->toContain('stays on a server')
+        ->and($text)->not->toContain('localhost:8000');
+});
+
 it('says a change with equal dimensions only re-embeds', function (): void {
     $text = implode("\n", embedding_model_confirmation()->warn(embedding_model_setting(), CONFIRM_SAME_DIMENSIONS)->lines);
 

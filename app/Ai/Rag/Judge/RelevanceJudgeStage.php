@@ -83,7 +83,7 @@ final readonly class RelevanceJudgeStage
                 $kept[] = $fresh[$number - 1];
             }
 
-            $rounds[] = new JudgeRound($round, $query, count($fresh), $verdict->relevant, round((hrtime(true) - $started_at) / 1_000_000, 2));
+            $rounds[] = new JudgeRound($round, $query, count($fresh), $verdict->relevant, round((hrtime(true) - $started_at) / 1_000_000, 2), $verdict->usage);
 
             if ($min_sources <= count($kept) || $verdict->nextQuery === null) {
                 break;

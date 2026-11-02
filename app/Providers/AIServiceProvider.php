@@ -18,6 +18,7 @@ use Modules\AI\Ai\MediaAnalysis\MediaAnalysisGate;
 use Modules\AI\Ai\MediaAnalysis\MediaAnalysisModelRegistry;
 use Modules\AI\Ai\MediaAnalysis\Transcription\OpenAiTranscriber;
 use Modules\AI\Ai\MediaAnalysis\Vision\NeuronVisionAnalyzer;
+use Modules\AI\Ai\Providers\ModelEgressSettingConfirmation;
 use Modules\AI\Ai\Rag\RagIndexRebuilder;
 use Modules\AI\Console\PruneRagQueryAnalyticsCommand;
 use Modules\AI\Console\RefreshAiModelsCommand;
@@ -178,9 +179,12 @@ class AIServiceProvider extends ModuleServiceProvider
         Conversation::observe(PurgeDeletedConversationObserver::class);
 
         // Changing the embedding model from the settings page asks for a confirmation that shows
-        // what the switch costs, starts it on confirm and locks the field while one runs.
-        $this->app->make(SettingChangeConfirmations::class)
-            ->register($this->app->make(EmbeddingModelSettingConfirmation::class));
+        // what the switch costs, starts it on confirm and locks the field while one runs. Choosing a
+        // feature model whose provider is an external service asks to confirm that its text leaves
+        // the installation.
+        $confirmations = $this->app->make(SettingChangeConfirmations::class);
+        $confirmations->register($this->app->make(EmbeddingModelSettingConfirmation::class));
+        $confirmations->register($this->app->make(ModelEgressSettingConfirmation::class));
     }
 
     #[Override]

@@ -9,6 +9,7 @@ use function ai_config_int;
 
 use Closure;
 use Modules\AI\Ai\Agents\ChatAgent;
+use Modules\AI\Ai\Providers\TokenUsage;
 use Modules\AI\Enums\AiModelFeature;
 use Modules\AI\Services\Documentation\HeadingBreadcrumb;
 use NeuronAI\Chat\Messages\UserMessage;
@@ -20,7 +21,8 @@ use Throwable;
  * Asks a model which retrieved documents help answer a question, and for a query that could find
  * what they miss. The model reads the title, the date and a bounded excerpt of each candidate,
  * answers at temperature 0 in the fixed schema of {@see JudgeAnswer}, on the provider and model
- * chosen in Settings for {@see AiModelFeature::RelevanceJudge}.
+ * chosen in Settings for {@see AiModelFeature::RelevanceJudge}. The verdict carries the tokens the
+ * provider reported for the call.
  *
  * It throws when the model fails or does not answer with a verdict: the caller
  * ({@see RelevanceJudgeStage}) decides what a failure costs.
@@ -65,7 +67,8 @@ PROMPT;
         }
 
         try {
-            $output = $this->createAgent(self::SYSTEM_PROMPT)->structured(
+            $agent = $this->createAgent(self::SYSTEM_PROMPT);
+            $output = $agent->structured(
                 new UserMessage($this->prompt($question, $candidates, $round)),
                 JudgeAnswer::class,
                 self::MAX_RETRIES,
@@ -79,6 +82,7 @@ PROMPT;
         return new JudgeVerdict(
             $this->relevantNumbers($output->relevant, count($candidates)),
             $this->nextQuery($output->next_query),
+            TokenUsage::fromAgent($agent),
         );
     }
 
