@@ -24,7 +24,7 @@ use NeuronAI\RAG\Document;
  */
 function perLocaleEmbeddingDocument(array $vector): Document
 {
-    $document = new Document('');
+    $document = new Document('chunk');
     $document->setEmbedding($vector);
 
     return $document;

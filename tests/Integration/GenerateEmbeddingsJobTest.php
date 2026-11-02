@@ -140,7 +140,7 @@ it('replaces existing embeddings then creates records stamped with locale and mo
     $model->shouldReceive('embeddings')->andReturn($embeddingRelation);
     $model->shouldReceive('fresh')->andReturn($model);
 
-    $document = new Document('');
+    $document = new Document('chunk');
     $document->setEmbedding([0.1, 0.2]);
 
     $embedding_service = Mockery::mock(IEmbeddingService::class);

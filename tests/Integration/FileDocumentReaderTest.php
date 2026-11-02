@@ -30,6 +30,23 @@ it('reads a single markdown file from a file path', function (): void {
     }
 });
 
+it('skips a file with no body after its front matter, alone or in a directory', function (): void {
+    $base = sys_get_temp_dir() . '/lp-reader-bodyless-' . uniqid();
+    mkdir($base);
+    file_put_contents($base . '/bodyless.md', "---\nmodule: core\naudience: developer\n---\n");
+    file_put_contents($base . '/real.md', '# Real');
+
+    try {
+        $documents = (new FileDocumentReader($base))->getDocuments();
+
+        expect((new FileDocumentReader($base . '/bodyless.md'))->getDocuments())->toBe([])
+            ->and($documents)->toHaveCount(1)
+            ->and($documents[0]->getSourceName())->toBe('real.md');
+    } finally {
+        File::deleteDirectory($base);
+    }
+});
+
 it('returns no documents when a file path has an unsupported extension', function (): void {
     $path = sys_get_temp_dir() . '/lp-reader-bad-' . uniqid() . '.txt';
     file_put_contents($path, 'ignored');

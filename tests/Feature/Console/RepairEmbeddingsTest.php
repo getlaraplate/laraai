@@ -25,7 +25,7 @@ use NeuronAI\RAG\Document;
  */
 function repairEmbeddingDocument(array $vector): Document
 {
-    $document = new Document('');
+    $document = new Document('chunk');
     $document->setEmbedding($vector);
 
     return $document;
