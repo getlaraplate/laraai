@@ -50,6 +50,29 @@ final readonly class EmbeddingDriftReference
     }
 
     /**
+     * @param  list<float>  $first
+     * @param  list<float>  $second  of the same length
+     */
+    public static function cosine(array $first, array $second): float
+    {
+        $dot = 0.0;
+        $firstNorm = 0.0;
+        $secondNorm = 0.0;
+
+        foreach ($first as $position => $value) {
+            $dot += $value * $second[$position];
+            $firstNorm += $value * $value;
+            $secondNorm += $second[$position] * $second[$position];
+        }
+
+        if ($firstNorm <= 0.0 || $secondNorm <= 0.0) {
+            return 0.0;
+        }
+
+        return $dot / (sqrt($firstNorm) * sqrt($secondNorm));
+    }
+
+    /**
      * @param  list<list<float>>  $vectors  one per text of {@see self::SAMPLE}, in the same order
      *
      * @throws EmbeddingDriftReferenceException when the vectors do not match the sample
@@ -110,29 +133,6 @@ final readonly class EmbeddingDriftReference
 
         /** @var array{cosine: float, text: string} $lowest */
         return $lowest;
-    }
-
-    /**
-     * @param  list<float>  $first
-     * @param  list<float>  $second  of the same length
-     */
-    private static function cosine(array $first, array $second): float
-    {
-        $dot = 0.0;
-        $firstNorm = 0.0;
-        $secondNorm = 0.0;
-
-        foreach ($first as $position => $value) {
-            $dot += $value * $second[$position];
-            $firstNorm += $value * $value;
-            $secondNorm += $second[$position] * $second[$position];
-        }
-
-        if ($firstNorm <= 0.0 || $secondNorm <= 0.0) {
-            return 0.0;
-        }
-
-        return $dot / (sqrt($firstNorm) * sqrt($secondNorm));
     }
 
     /**

@@ -12,8 +12,8 @@ use Modules\AI\Ai\SelfHosted\AiServers;
 /**
  * Resolves embedding-model profiles from `ai.features.embeddings.models`.
  * A profile key is `provider:service_model`, split at the first colon, and the
- * profile declares its own `dimensions` and `similarity`. The active profile can
- * be overridden for the duration of a callback with `withActive()`.
+ * profile declares its own `dimensions` and `similarity`, and may declare the `languages` it
+ * handles. The active profile can be overridden for the duration of a callback with `withActive()`.
  */
 final class EmbeddingModelRegistry
 {
@@ -120,6 +120,7 @@ final class EmbeddingModelRegistry
             similarity: (string) ($model['similarity'] ?? 'cosine'),
             normalize: (bool) ($model['normalize'] ?? false),
             server: is_string($model['server'] ?? null) && $model['server'] !== '' ? $model['server'] : null,
+            languages: (array) ($model['languages'] ?? []),
         );
     }
 

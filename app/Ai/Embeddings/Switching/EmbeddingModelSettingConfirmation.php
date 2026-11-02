@@ -6,6 +6,7 @@ namespace Modules\AI\Ai\Embeddings\Switching;
 
 use Illuminate\Support\Facades\Artisan;
 use InvalidArgumentException;
+use Modules\AI\Ai\Embeddings\EmbeddingLanguageCheck;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Jobs\SwitchEmbeddingModelJob;
 use Modules\Core\Contracts\ISettingChangeConfirmation;
@@ -18,7 +19,8 @@ use Override;
  * switch costs and what happens meanwhile. Confirming queues `ai:embeddings:switch --report-failure`,
  * which runs the preflight and, when it refuses, stores the refusal as a failed switch so the field
  * locks and shows why. The field is locked while a
- * switch runs or failed.
+ * switch runs or failed. When the chosen profile declares languages and misses some enabled locales
+ * of the installation, a last line says which: a warning, the choice stays possible.
  *
  * Registered once at boot, it resolves the preview when it needs it, so the probe and the
  * embeddable models in use are the container's at that moment.
@@ -30,6 +32,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
     public function __construct(
         private EmbeddingModelRegistry $registry,
         private EmbeddingSwitchStore $store,
+        private EmbeddingLanguageCheck $languages,
     ) {}
 
     #[Override]
@@ -58,6 +61,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
         }
 
         $preview = app(EmbeddingSwitchPreview::class)->for($target);
+        $languageWarning = $this->languages->warningFor($target);
 
         return new SettingChangeWarning('Change the embedding model?', [
             "Current model: {$preview->currentModel} (" . ($preview->currentDimensions ?? 'unknown') . ' dimensions).',
@@ -68,6 +72,7 @@ final readonly class EmbeddingModelSettingConfirmation implements ISettingChange
             "{$preview->recordsToEmbed} records to embed, " . self::duration($preview->estimatedSeconds) . '.',
             'Meanwhile vector search is off and search uses keywords only, until the switch ends.',
             'Going back to the previous model is the same procedure and costs the same.',
+            ...($languageWarning === null ? [] : [$languageWarning]),
         ]);
     }
 

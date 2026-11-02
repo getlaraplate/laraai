@@ -17,6 +17,7 @@ return [
         'ai_transcript' => 'Transkript',
     ],
     'messages' => [
+        'embeddingLanguagesMissing' => 'Das Embedding-Modell :profile deklariert diese Sprachen der Installation nicht: :languages. Die Suche in diesen Sprachen kann ungenauer sein.',
         'reanalysisQueued' => 'Erneute Analyse eingereiht',
         'reanalyzeDescription' => 'Eine neue KI-Analyse dieser Mediendatei einreihen.',
     ],

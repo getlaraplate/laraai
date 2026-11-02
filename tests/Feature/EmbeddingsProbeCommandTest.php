@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Storage;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionProbe;
 use Modules\AI\Ai\Embeddings\EmbeddingDriftReference;
@@ -141,4 +142,50 @@ it('rejects an unknown --reference value', function (): void {
     $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2', '--reference' => 'nope'])
         ->expectsOutputToContain('--reference')
         ->assertFailed();
+});
+
+it('prints a warning for the installation languages the profile does not declare and still succeeds', function (): void {
+    config([
+        'app.available_locales' => ['en', 'it', 'de'],
+        'ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.languages' => ['en'],
+    ]);
+    probe_command_with_length(384);
+
+    $exitCode = Artisan::call('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2']);
+
+    expect($exitCode)->toBe(0)
+        ->and(Artisan::output())->toContain('warning:')->toContain('it, de');
+});
+
+it('prints no language warning when the languages are unknown or all covered', function (array $languages): void {
+    config([
+        'app.available_locales' => ['en', 'it'],
+        'ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.languages' => $languages,
+    ]);
+    probe_command_with_length(384);
+
+    $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2'])
+        ->doesntExpectOutputToContain('warning:')
+        ->assertSuccessful();
+})->with([
+    'unknown' => [[]],
+    'any' => [['*']],
+    'every locale' => [['it', 'en']],
+]);
+
+it('reports the cosine of the same sentence in two languages as information', function (): void {
+    probe_command_with_sample_vectors(static fn (int $index): array => array_replace(array_fill(0, 384, 0.1), [0 => 1.0 + $index]));
+    config(['ai.features.embeddings.models.openai_compatible:all-MiniLM-L6-v2.languages' => ['en']]);
+
+    $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2', '--cross-language' => true])
+        ->expectsOutputToContain('cross-language cosine (it/en)')
+        ->assertSuccessful();
+});
+
+it('does not run the cross-language check without the option', function (): void {
+    probe_command_with_length(384);
+
+    $this->artisan('ai:embeddings:probe', ['profile' => 'openai_compatible:all-MiniLM-L6-v2'])
+        ->doesntExpectOutputToContain('cross-language')
+        ->assertSuccessful();
 });

@@ -10,6 +10,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingDimensionMismatch;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionProbe;
 use Modules\AI\Ai\Embeddings\EmbeddingDriftReference;
 use Modules\AI\Ai\Embeddings\EmbeddingDriftReferenceException;
+use Modules\AI\Ai\Embeddings\EmbeddingLanguageCheck;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Override;
@@ -23,18 +24,23 @@ use Throwable;
  * `--reference=compare` it embeds the sample again and fails when the lowest cosine against the
  * saved vectors is under `ai.features.embeddings.drift_floor`, which a change of server, runtime or
  * precision under the same model name can cause without changing the vector length.
+ *
+ * When the profile declares languages and misses some enabled locales of the installation it prints a
+ * `warning:` line, never a failure. With `--cross-language` it also reports, as information only, the
+ * cosine between the same sentence in Italian and in English.
  */
 final class EmbeddingsProbeCommand extends Command
 {
     #[Override]
     protected $signature = 'ai:embeddings:probe
                             {profile : Embedding model profile key, e.g. openai_compatible:intfloat/multilingual-e5-small}
-                            {--reference= : save: store the vectors of a fixed sample as the reference; compare: fail when they drift below ai.features.embeddings.drift_floor}';
+                            {--reference= : save: store the vectors of a fixed sample as the reference; compare: fail when they drift below ai.features.embeddings.drift_floor}
+                            {--cross-language : report the cosine of the same sentence in Italian and English, as information}';
 
     #[Override]
     protected $description = 'Measure the vector length an embedding profile really produces and compare it with its declared dimensions <fg=magenta>(✨ Modules\AI)</fg=magenta>';
 
-    public function handle(EmbeddingModelRegistry $registry, EmbeddingDimensionProbe $probe, EmbeddingDriftReference $reference): int
+    public function handle(EmbeddingModelRegistry $registry, EmbeddingDimensionProbe $probe, EmbeddingDriftReference $reference, EmbeddingLanguageCheck $languages): int
     {
         $mode = (string) ($this->option('reference') ?? '');
 
@@ -75,11 +81,38 @@ final class EmbeddingsProbeCommand extends Command
         $this->info("model: {$profile->serviceModel}");
         $this->info("measured dimensions: {$measured}");
 
+        $warning = $languages->warningFor($profile);
+
+        if ($warning !== null) {
+            $this->warn("warning: {$warning}");
+        }
+
+        if ($this->option('cross-language')) {
+            $this->reportCrossLanguage($probe, $profile);
+        }
+
         return match ($mode) {
             'save' => $this->saveReference($reference, $profile, $vectors),
             'compare' => $this->compareReference($reference, $profile, $vectors),
             default => self::SUCCESS,
         };
+    }
+
+    private function reportCrossLanguage(EmbeddingDimensionProbe $probe, EmbeddingModelProfile $profile): void
+    {
+        try {
+            $cosines = $probe->crossLanguageCosines($profile);
+        } catch (Throwable $exception) {
+            $this->warn("warning: the cross-language check could not run: {$exception->getMessage()}");
+
+            return;
+        }
+
+        foreach ($cosines as $position => $cosine) {
+            $sentence = EmbeddingDimensionProbe::CROSS_LANGUAGE_PAIRS[$position]['it'];
+
+            $this->info('cross-language cosine (it/en): ' . number_format($cosine, 6, '.', '') . " for \"{$sentence}\"");
+        }
     }
 
     /**

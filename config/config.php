@@ -65,6 +65,13 @@ return [
             // configured profile below. Profiles are keyed `provider:service_model`, split at the
             // first colon. Each declares the dimensions and the similarity of its vectors, which
             // ActiveEmbeddingProfileProvider hands to Core as the vector profile.
+            // Optional `languages` key: the language codes the model is declared to handle, as a list
+            // (`['it', 'en']`; case and region are ignored, `it_IT` and `it-IT` are `it`) or `['*']` for
+            // any language. Left out or empty means unknown and warns nothing. When a profile declares
+            // languages and the installation has enabled locales (`app.available_locales`) outside them,
+            // the model setting confirmation and `ai:embeddings:probe` show a warning, never an error.
+            // `ai:embeddings:probe --cross-language` also reports the cosine of one sentence in Italian
+            // and English, as information.
             'models' => [
                 'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,

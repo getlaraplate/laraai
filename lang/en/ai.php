@@ -17,6 +17,7 @@ return [
         'ai_transcript' => 'Transcript',
     ],
     'messages' => [
+        'embeddingLanguagesMissing' => 'The embedding model :profile does not declare these languages of the installation: :languages. Search in them may be less accurate.',
         'reanalysisQueued' => 'Re-analysis queued',
         'reanalyzeDescription' => 'Queue a fresh AI analysis of this media file.',
     ],

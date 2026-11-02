@@ -17,6 +17,7 @@ return [
         'ai_transcript' => 'Prepis',
     ],
     'messages' => [
+        'embeddingLanguagesMissing' => 'Model vdelav :profile ne navaja teh jezikov namestitve: :languages. Iskanje v njih je lahko manj natančno.',
         'reanalysisQueued' => 'Ponovna analiza v čakalni vrsti',
         'reanalyzeDescription' => 'V čakalno vrsto postavi novo analizo UI te medijske datoteke.',
     ],
