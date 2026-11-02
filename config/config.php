@@ -72,6 +72,17 @@ return [
             // the model setting confirmation and `ai:embeddings:probe` show a warning, never an error.
             // `ai:embeddings:probe --cross-language` also reports the cosine of one sentence in Italian
             // and English, as information.
+            // Optional `min_similarity` key: the similarity floor of the profile, the lowest similarity a
+            // vector hit needs to count. It is on the scale of the similarity function itself, which is
+            // what an Elasticsearch kNN `similarity` expects: the cosine for `cosine`, the dot product of
+            // unit vectors for `dot_product`. It is not the engine `_score` (a cosine of 0.6 scores 0.8 in
+            // Elasticsearch) nor the scale of `features.faq.min_similarity`, which filters documentation
+            // passages by the score their store returns. A number from 0 to 1; anything else, or leaving
+            // it out, means no floor. `l2_norm` is a distance and takes no floor. On the database engine
+            // the floor applies to `cosine` profiles only and replaces the built-in cosine cut of 0.7 on
+            // MySQL and SQLite. It belongs to the profile because score scales change with the model:
+            // re-measure it after a model switch. `test:ai:tune-retrieval` prints a recommended value
+            // and never writes it.
             'models' => [
                 'openai_compatible:intfloat/multilingual-e5-small' => [
                     'dimensions' => 384,

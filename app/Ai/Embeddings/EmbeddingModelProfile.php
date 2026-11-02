@@ -10,8 +10,9 @@ use Modules\Core\Search\DTOs\VectorProfile;
  * Immutable description of a single embedding model's attributes: which
  * provider serves it, its output dimensionality and similarity metric, and
  * the query/passage prefixes it expects (e.g. E5-family instruction
- * prefixes), and optionally the name of the server in `ai.servers` that runs it and the
- * languages it is declared to handle. Resolved from config by EmbeddingModelRegistry.
+ * prefixes), and optionally the name of the server in `ai.servers` that runs it, the
+ * languages it is declared to handle and its similarity floor. Resolved from config by
+ * EmbeddingModelRegistry.
  */
 final readonly class EmbeddingModelProfile
 {
@@ -25,6 +26,9 @@ final readonly class EmbeddingModelProfile
 
     /**
      * @param  array<array-key, mixed>  $languages  locale codes, or `['*']`; empty when unknown
+     * @param  float|null  $minSimilarity  the lowest similarity a vector hit needs to count, on the scale of the
+     *                                     similarity function itself (the cosine for `cosine`), not the engine
+     *                                     score; null for no floor. See {@see VectorProfile::$minSimilarity}.
      */
     public function __construct(
         public string $key,
@@ -37,6 +41,7 @@ final readonly class EmbeddingModelProfile
         public bool $normalize,
         public ?string $server = null,
         array $languages = [],
+        public ?float $minSimilarity = null,
     ) {
         $this->languages = self::normalizeLocales($languages);
     }
@@ -118,6 +123,6 @@ final readonly class EmbeddingModelProfile
      */
     public function vectorProfile(): VectorProfile
     {
-        return new VectorProfile($this->key, $this->dimensions, $this->similarity);
+        return new VectorProfile($this->key, $this->dimensions, $this->similarity, $this->minSimilarity);
     }
 }
