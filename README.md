@@ -76,7 +76,7 @@ php artisan module:install AI
 
 The AI module configuration is automatically mapped as `ai.*` when the module is active. Configuration file: `Modules/AI/config/config.php`.
 
-Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off), `features.search_orchestration.enabled` and `features.search_orchestration.timeout` (seeded on and 10 seconds; see *Search modes and the AI overlay*), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
+Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off) and `features.media_analysis.near_duplicate_distance` (0 = off; see *Near-duplicate images*), the relevance judge `features.rag.judge.{enabled,max_rounds,min_sources,excerpt_chars}` and its model `features.rag.judge.model` (seeded off, 3, 3 and 600; see *Relevance judge*), `features.search_orchestration.enabled` and `features.search_orchestration.timeout` (seeded on and 10 seconds; see *Search modes and the AI overlay*), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
 
 ```env
 # AI Features
@@ -170,6 +170,74 @@ DELETE FROM core_settings WHERE name IN ('search.vector.enabled','search.vector.
 ```bash
 php artisan db:seed --class="Modules\AI\Database\Seeders\AIDatabaseSeeder"
 ```
+
+### Relevance judge
+
+An optional stage between the retrieval of the user documentation and the answer of the in-app assistant: a
+model reads the title, the date and a bounded excerpt of each candidate and keeps the ones that help answer the
+question, and may propose a better query for another round. It is off by default, because it costs model calls
+and, on a small model, usually makes retrieval worse.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `features.rag.judge.enabled` | `false` | the switch. Enable it only after comparing on and off with `test:ai:evaluate-documentation` |
+| `features.rag.judge.model` | the generic default of the AI model dropdowns | the model that judges, a dropdown of `provider:model` choices refreshed by `ai:models:refresh`. A model smaller than a mid-size instruction-tuned one usually makes judging worse |
+| `features.rag.judge.max_rounds` | `3` | rounds at most; each round after the first retrieves again with the query the judge proposed |
+| `features.rag.judge.min_sources` | `3` | relevant documents after which the judge stops searching again |
+| `features.rag.judge.excerpt_chars` | `600` | characters of each document the judge reads |
+
+`ai.features.rag.judge.timeout` (10 seconds, `0` = no limit) is config only. Scope and behaviour:
+
+-   It judges the documentation retrieval of the in-app assistant (`InAppAssistanceService::respond()`) only. The
+    command palette documentation search, `ai:help` (`DocumentationAgent`) and the search of application content are not judged.
+-   On any failure of a judge call (error, timeout, an answer that is not a verdict) or when no document is kept, the unjudged candidates of the first retrieval are used and the question is still answered.
+-   Query analytics gain `judge_*` fields (see `docs/rag/query-analytics-privacy-review.md`). The index mapping is strict: **recreate the query-log index with `php artisan ai:create-rag-query-index --force` before turning the judge on** (it loses the questions logged so far), or the documents of judged questions are refused and not logged.
+-   To compare: run `php artisan test:ai:evaluate-documentation --module=<module> --index=user --dataset=<dataset> --output=<off.json>` with the setting off, again with it on (`--output=<on.json>`), and compare `source_hit_at_k`, `mean_reciprocal_rank`, `citation_precision` and `latency_ms`. With the setting on, the user index goes through the judge; the developer index never does.
+
+### Embedding profile checks
+
+Optional keys of a profile in `ai.features.embeddings.models` and the probe options that use them
+(details and the full key table: [docs/rag/MODULE.md](docs/rag/MODULE.md), section *Embedding model and model switch*):
+
+-   `languages`: the language codes the model is declared to handle (`['it', 'en']`, or `['*']` for any). When a profile declares languages and the installation has enabled locales (`app.available_locales`) outside them, the confirmation of a model change in Settings and `ai:embeddings:probe` show a warning, for example `The embedding model <key> does not declare these languages of the installation: de. Search in them may be less accurate.` It is never an error, and a profile that declares none warns nothing.
+-   `min_similarity`: a similarity floor from 0 to 1, on the scale of the profile's similarity function (the cosine for `cosine`), applied in the vector query. It belongs to the profile because score scales change with the model. `test:ai:tune-retrieval` prints a recommended value and never writes it.
+-   `php artisan ai:embeddings:probe <profile> --reference=save` embeds a fixed sample of eight short texts and stores the vectors as the reference of the profile; `--reference=compare` embeds them again (another server, runtime or precision under the same model name) and fails when the lowest cosine against the reference is below `ai.features.embeddings.drift_floor` (config only, default `0.999`). A length check cannot see such a change. The reference is a JSON file on the `local` disk under `ai/embedding-references/`, which is `storage/app/private/ai/embedding-references/` with the default local disk.
+-   `php artisan ai:embeddings:probe <profile> --cross-language` also prints the cosine of the same sentence in Italian and in English, as information.
+
+### Embedding context header
+
+A searchable model can declare a one-line context header with `Searchable::embedHeader(?string $locale = null): ?string` (Core; the default returns `null`). It is prepended, on its own line, to every chunk of that model's text before the chunk is embedded, so a chunk from the middle of a long text still carries what it belongs to. CMS contents declare the type, the title of the locale and the `valid_from` date. The header is collapsed to one line and cut at 300 characters; it is embedding input only, and is neither stored with the chunk nor indexed.
+
+-   The content hash covers the header and the text, so adding, removing or changing a header re-embeds the record. Without a header the hash is the hash of the text, as before.
+-   Records are re-embedded on their next save, on a reindex (the bulk path skips records whose hash did not change) and by a model switch. `ai:embeddings:repair` does not re-embed them: it never compares hashes.
+-   The text is now split while its line structure is still there (paragraphs, headings, tables, code fences) and whitespace is collapsed inside each chunk afterwards; before, newlines were flattened first. A text without line breaks, or one that fits in one chunk and has no Markdown heading, is chunked as before.
+
+### Near-duplicate images
+
+Off by default. The setting `features.media_analysis.near_duplicate_distance` (choices 0, 2, 4, 6, 8, 10; `0` = off) is the largest number of differing bits, out of the 64 of a perceptual fingerprint, for which a new image reuses the analysis of an earlier one instead of calling the vision model. About 4 matches the same picture resized or re-encoded; above 10 different pictures start to match. The fingerprint is stored with each analysis (`image_fingerprint`); analyses made before it existed have none and are never matched (there is no backfill). The caption of the earlier image is copied only when a model wrote it, never a person's text. Only analyses made with the same media model version are reused.
+
+-   `ai.features.media_analysis.near_duplicate_scan_limit` (config only, `50000`): how many of the newest analyses one lookup compares against. The lookup is linear in it, once per new image that is not an exact duplicate, in the queue job; older duplicates may be analysed again.
+-   The `gd` PHP extension must be installed where the queue worker runs; without it no fingerprint is stored and the feature stays off silently.
+
+### Tokens per role and the data egress indicator
+
+-   **Tokens.** The query analytics log the tokens each model spent on an answered question, per role (`answer`, `judge`, `intent`, `embedding`), as integer fields `tokens_in_{role}` and `tokens_out_{role}`, only for roles whose provider reported usage. Today the answer and the judge are recorded.
+-   **Egress.** For each role the module tells whether the text sent to its model leaves the installation. It reflects the configuration, not the network: a model on a server the installation declares by URL (a server of `ai.servers`, an Ollama URL, an OpenAI-compatible base URL) reads as staying, even if that URL points at a hosted service. It is shown in the confirmation of a model change in Settings (a modal appears only when the new model's provider is an external service; the embedding model confirmation always states it) and by `php artisan ai:servers:check`, which first prints a table of role, model and whether the text leaves, with no URL and no key.
+
+### Upgrading to the retrieval improvements
+
+| Change | What to do |
+|--------|------------|
+| New settings (`features.rag.judge.*`, `features.media_analysis.near_duplicate_distance`) | seed the AI module: `php artisan db:seed --class="Modules\AI\Database\Seeders\AIDatabaseSeeder"` |
+| Relevance judge | recreate the query-log index first: `php artisan ai:create-rag-query-index --force` (loses the logged questions) |
+| Tokens per role in the analytics | optional: an older query-log index still works (the document is written again without the `tokens_*` fields and a notice is logged); recreate it with `ai:create-rag-query-index --force` to record tokens |
+| Embedding context header (below) | reindex the models that declare a header, for example `php artisan scout:import "Modules\CMS\Models\Content"`; `ai:embeddings:repair` does not re-embed them |
+| Chunking of application content (the split happens before whitespace collapsing) | nothing is hashed differently, so a text without a header keeps its old vectors until it is saved again or a model switch re-embeds the corpus |
+| Near-duplicate images | the nullable `image_fingerprint` column is part of the create migration of `ai_media_analyses`: a database created earlier needs the column and its index added, or a fresh migration |
+| `languages`, `min_similarity`, `drift_floor` | configuration only; nothing to rebuild. Save a drift reference with `ai:embeddings:probe <profile> --reference=save` |
+| Unstemmed text sub-field of the search indexes | Core: rebuild the affected search indexes (`scout:check-index` reports them stale); see `Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md` |
+
+The documentation indexes (`ai:index-rag-docs`) are not affected by any of these.
 
 ### Module Priority
 
@@ -359,6 +427,11 @@ answered by a cheaper one and `meta.search.degraded_reason` says why.
 | `fast` | Core's `FallbackSearchPlanner`, `HeuristicReranker`, `SimpleQueryIntentParser`, no vector | nothing |
 | `balanced` | the same, plus the query embedding (`SearchEmbedder`) | the embedding service |
 | `deep` | `SearchOrchestratorAgent`, `LlmQueryIntentParser`, `CrossEncoderService`, embedding | an LLM provider (for example `OLLAMA_API_URL`) |
+
+Dates in the query (a year, a month and year, last month or year, "recent") become a filter on the date field a
+model declares, in every mode. Core's rules read them first; in `deep` mode `LlmQueryIntentParser` also asks the
+model for a date interval and uses it only when the rules found none. Details and the widening of the window:
+`Modules/Core/docs/rag/SEARCH_RETRIEVAL_PIPELINE.md`.
 
 | Setting | Default | Effect |
 |---------|---------|--------|
