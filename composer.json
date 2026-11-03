@@ -16,13 +16,6 @@
   ],
   "license": "AGPL-3.0-or-later",
   "type": "laravel-module",
-  "repositories": [
-    {
-      "type": "vcs",
-      "url": "https://github.com/swolley/license-compliance-checker.git",
-      "no-api": true
-    }
-  ],
   "require": {
     "php": ">=8.5",
     "laravel/framework": "^12.0",
