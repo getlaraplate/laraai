@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Modules\AI\Ai\Embeddings\ActiveEmbeddingProfileProvider;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingModelSettingConfirmation;
+use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchMaintenanceGuard;
 use Modules\AI\Ai\Embeddings\Switching\EmbeddingSwitchStore;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaTranscriber;
 use Modules\AI\Ai\MediaAnalysis\Contracts\MediaVisionAnalyzer;
@@ -67,6 +68,7 @@ use Modules\Core\Filament\ResourceSchemaContributorRegistry;
 use Modules\Core\Models\Media;
 use Modules\Core\Models\User;
 use Modules\Core\Overrides\ModuleServiceProvider;
+use Modules\Core\Search\Contracts\ISearchMaintenanceGuard;
 use Modules\Core\Search\Contracts\ISearchStrategyResolver;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 use Modules\Core\Search\Contracts\IVectorProfileProvider;
@@ -96,6 +98,10 @@ class AIServiceProvider extends ModuleServiceProvider
         $this->app->bind(IRagIndexRebuilder::class, RagIndexRebuilder::class);
         $this->app->singleton(EmbeddingModelRegistry::class);
         $this->app->singleton(IVectorProfileProvider::class, ActiveEmbeddingProfileProvider::class);
+        $this->app->singleton(
+            ISearchMaintenanceGuard::class,
+            static fn ($app): ISearchMaintenanceGuard => new EmbeddingSwitchMaintenanceGuard($app->make(EmbeddingSwitchStore::class)),
+        );
         $this->app->singleton(
             IVectorSearchAvailability::class,
             static fn ($app): IVectorSearchAvailability => new EmbeddingVectorSearchAvailability(
