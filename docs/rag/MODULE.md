@@ -376,7 +376,9 @@ flowchart LR
 
 The embedding model is chosen in Settings and changed by a guided procedure, `ai:embeddings:switch`,
 which re-embeds the corpus, rebuilds the indexes, verifies them and only then makes the new model
-serve search. Vector search is off while it runs; search continues by keywords. Design record:
+serve search. Vector search is off while it runs; search continues by keywords. `scout:rebuild` refuses to run
+while a switch is running or failed after its preflight, because both rebuild the same indexes; resume or
+abandon the switch first. Design record:
 `docs/superpowers/specs/2026-10-05-embedding-model-switch-design.md`.
 
 ### Profiles
