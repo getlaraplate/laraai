@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Modules\AI\Database\Seeders\AIDatabaseSeeder;
+use Modules\AI\Services\ModerationEntitySettings;
 use Modules\Core\Casts\SettingTypeEnum;
 
 it('defines ai runtime settings with current defaults and choices', function (): void {
@@ -40,3 +41,18 @@ it('defines the switches and tuning values that were env variables, with the def
     'search orchestration switch' => ['features.search_orchestration.enabled', true, SettingTypeEnum::Boolean, null],
     'search orchestration timeout' => ['features.search_orchestration.timeout', 10.0, SettingTypeEnum::Float, null],
 ]);
+
+it('keeps every setting description within the 255 characters of the core_settings column', function (): void {
+    $definitions = [
+        ...AIDatabaseSeeder::runtimeSettingDefinitions(),
+        ...AIDatabaseSeeder::modelSettingDefinitions(),
+        ...app(ModerationEntitySettings::class)->definitions(),
+    ];
+
+    $too_long = collect($definitions)
+        ->filter(fn (array $definition): bool => mb_strlen($definition['description']) > 255)
+        ->pluck('name')
+        ->all();
+
+    expect($too_long)->toBe([]);
+});
