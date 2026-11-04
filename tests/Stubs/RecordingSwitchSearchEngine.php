@@ -163,7 +163,7 @@ final class RecordingSwitchSearchEngine extends Engine implements IReportsVector
         return $this->dimensions[$model->searchableAs()] ?? $this->initialDimensions;
     }
 
-    public function supportsVectorSearch(): bool
+    public function offersVectorSearch(): bool
     {
         return true;
     }
