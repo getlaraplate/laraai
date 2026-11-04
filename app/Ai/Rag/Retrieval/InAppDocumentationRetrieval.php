@@ -94,7 +94,7 @@ final readonly class InAppDocumentationRetrieval
     }
 
     /**
-     * @return array{documents: list<Document>, total: int|null}
+     * @return array{documents: array<Document>, total: int|null}
      */
     private function readUserIndex(string $document_key, DocumentationRetrievalContext $context, ?int $from, ?int $to): array
     {
@@ -105,7 +105,7 @@ final readonly class InAppDocumentationRetrieval
             throw new RuntimeException;
         }
 
-        return ['documents' => array_values($result['documents']), 'total' => $result['total']];
+        return $result;
     }
 
     /**

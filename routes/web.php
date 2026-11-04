@@ -25,6 +25,13 @@ Route::prefix('crud')->name('crud.')->group(function (): void {
         ->middleware(['auth', 'throttle:documentation-search'])
         ->name('documentation.search');
 
+    // One documentation document, or the section a search found, read from the index under the access rules of
+    // the search. Registered before Core's generic `detail/{module}/{entity}`, like the search route, for the same
+    // reserved entity name.
+    Route::get('detail/{module}/documentation', [DocumentationSearchController::class, 'read'])
+        ->middleware(['auth', 'throttle:documentation-read'])
+        ->name('documentation.read');
+
     // Chat routes: every one answers 403 FEATURE_DISABLED while the assistant is off
     Route::controller(ChatController::class)->middleware(EnsureAssistantEnabled::class)->group(function (): void {
         Route::get('select/ai/conversations', 'listConversations')->name('conversations.list');

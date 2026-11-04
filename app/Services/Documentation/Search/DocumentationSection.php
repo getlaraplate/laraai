@@ -38,7 +38,7 @@ final readonly class DocumentationSection
     }
 
     /**
-     * @return array{section: int, heading_breadcrumb?: string, content: string}
+     * @return array<string, int|string>
      */
     public function toArray(): array
     {

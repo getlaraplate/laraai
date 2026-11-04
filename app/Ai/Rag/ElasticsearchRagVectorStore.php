@@ -299,7 +299,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
      * document's own section count is the maximum `section` of the document plus one, read from an
      * aggregation that the range does not narrow, and null when no chunk carries a position.
      *
-     * @return array{documents: list<Document>, total: int|null}
+     * @return array{documents: array<Document>, total: int|null}
      */
     public function chunksOfDocument(
         string $document_key,
