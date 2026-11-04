@@ -170,3 +170,12 @@ it('reports a retrieval that is unavailable', function (): void {
 
     expect(fn () => $reader->read(reader_user(), 'cms', READER_KEY))->toThrow(RuntimeException::class);
 });
+
+it('answers nothing for chunks indexed before the position existed, so the client asks to search again', function (): void {
+    $reader = reader_service(static fn (): array => [
+        'documents' => [reader_chunk(0, 'Old.', ['section' => null, 'document_key' => null])],
+        'total' => null,
+    ]);
+
+    expect($reader->read(reader_user(), 'cms', READER_KEY))->toBeNull();
+});
