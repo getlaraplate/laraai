@@ -6,9 +6,11 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Validation\ValidationException;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
@@ -723,6 +725,40 @@ it('answers a fixed error and reports the exception when the summary fails unexp
         ->and(json_encode($result))->not->toContain('core_settings');
 
     Exceptions::assertReported(QueryException::class);
+});
+
+it('answers a malformed scope node with the message of its refusal in the error shape, and does not report it', function (): void {
+    Exceptions::fake();
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldReceive('aggregate')->once()->andThrow(ValidationException::withMessages(['filters' => 'Scope "archived" fails with these parameters.']));
+
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool('setting', $crud)->handler)(group_by: ['group_name']);
+
+    expect($result)->toHaveKey('request')
+        ->and($result)->not->toHaveKey('data')
+        ->and(Arr::except($result, ['request']))->toBe([
+            'error' => 'Scope "archived" fails with these parameters.',
+            'code' => 'INVALID_FIELD',
+            'field' => 'filters',
+        ]);
+
+    Exceptions::assertNothingReported();
+});
+
+it('answers a scope node the parser of the list refuses with that refusal, as show_widget does', function (): void {
+    Exceptions::fake();
+
+    /** @var array<string, mixed> $result */
+    $result = (summarizeTool()->handler)(filters: [['scope' => 'noSuchScope']]);
+
+    expect($result['error'])->toContain('noSuchScope')
+        ->not->toBe('The summary could not be computed.')
+        ->not->toContain('Models')
+        ->and($result['code'])->toBe('INVALID_FIELD')
+        ->and($result['field'])->toBe('filters');
+
+    Exceptions::assertNothingReported();
 });
 
 it('answers a refused permission with its own message and does not report it', function (): void {

@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Fluent;
+use Illuminate\Validation\ValidationException;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\WriteProposalStatus;
 use Modules\AI\Models\WriteProposal;
@@ -252,6 +253,15 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     private static function invalidRequest(string $message, string $field): AggregateException
     {
         return new AggregateException(AggregateErrorCode::InvalidField, $message, $field);
+    }
+
+    /**
+     * The refusal of the parser of the list as the aggregate route answers it: `INVALID_FIELD` on `filters`, with
+     * the first message of the validator.
+     */
+    private static function filtersRefusal(ValidationException $exception): AggregateException
+    {
+        return self::invalidRequest($exception->validator->errors()->first(), 'filters');
     }
 
     /**
@@ -623,8 +633,11 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
      * time bucket shows every bucket. The engine groups by one dimension, so a second `group_by` column is
      * refused. A refusal of the engine or of the call comes back in the error shape with its code and the
      * place it is about, in the vocabulary of the tool, and a refused permission with its own message (it is
-     * written for the reader and is not reported); anything else unexpected is reported and answered with a
-     * fixed text, since the message of such an exception can hold SQL, bindings and the row-level ACL.
+     * written for the reader and is not reported). A filter the parser of the list refuses (a malformed scope node)
+     * comes back as the route answers it, `INVALID_FIELD` on `filters` with the first message of the refusal, which
+     * names the scope and the reason and never a model class or a parameter value; it is not reported. Anything
+     * else unexpected is reported and answered with a fixed text, since the message of such an exception can hold
+     * SQL, bindings and the row-level ACL.
      *
      * @return array<string, mixed>
      */
@@ -673,6 +686,8 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             return ['request' => $request, ...$this->aggregateRefusal($exception, $plan['sources'], $limits)];
         } catch (AuthorizationException $exception) {
             return $this->fail($request, $exception);
+        } catch (ValidationException $exception) {
+            return ['request' => $request, ...$this->aggregateRefusal(self::filtersRefusal($exception), $plan['sources'], $limits)];
         } catch (Throwable $exception) {
             report($exception);
 
