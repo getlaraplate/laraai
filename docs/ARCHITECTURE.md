@@ -103,7 +103,7 @@ Read tools (`crud_list_*`, `crud_detail_*`, ...) run inline, under the permissio
 
 Details, states, routes and the metadata shape are in `docs/rag/MODULE.md` (*Writes through the assistant*) and `docs/TOOLS_USAGE_EXAMPLE.md`.
 
-Figures and charts follow the same rule from the other side: the model never writes a number. `show_widget` (capability `widget_objects`) validates an aggregate request on an entity opted into `summarize`, runs it once so the model can describe it, and stores the request in `metadata.objects`; the client runs it through the aggregate route with the person's session and renders it. The tool is built only when the page declared the object types it renders (`context.page.objects`). Details: `docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md`.
+Figures and charts are computed by the application, not by the model. `show_widget` (capability `widget_objects`) validates an aggregate request on an entity opted into `summarize`, runs it once so the model can describe it, and stores the request with the title the model chose in `metadata.objects`; the client runs the request through the aggregate route with the person's session and renders it. The title is model text (plain text, at most 80 characters), so a number in it is not a computed figure. The tool is built only when the page declared an object type the tool shows (`context.page.objects`) and the acting person is offered `summarize` on at least one entity. Details: `docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md`.
 
 ---
 

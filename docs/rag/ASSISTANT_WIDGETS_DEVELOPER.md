@@ -1,16 +1,19 @@
-# Assistant widget objects: the `show_widget` tool — developer guide
+# Assistant widget objects and the `show_widget` tool: developer guide
 
 ## Purpose
 
-The in-app assistant can put a **figure** (`kpi`) or a **chart** (`chart`) in its answer. An object holds the
-aggregate request that computes its data, never the data: the backend validates the request, runs it once so the
-model can say what the object shows, and stores it in the message. A client runs the request again with the
+The in-app assistant can put a **figure** (`kpi`) or a **chart** (`chart`) in its answer. An object holds a title
+and the aggregate request that computes its figures, not the figures themselves: the backend validates the request,
+runs it once so the model can say what the object shows, and stores it in the message. A client runs the request again with the
 session of the user and renders the result. The backend emits the objects; drawing them is the client's job.
 
 Rules every part below keeps:
 
-- **No figure is written by the model.** The object carries the validated request; the figures come from the
-  aggregate route when the client runs it, under the permission and row-level ACL of the user at that moment.
+- **The figures come from the application.** The object carries the validated request: the figures, the totals,
+  the series and the comparison come from the aggregate route when the client runs it, under the permission and
+  row-level ACL of the user at that moment. The assistant writes the request and the title. The title is plain text
+  of at most 80 characters that the assistant chooses, so a reader should not take a number in a title as a
+  computed figure.
 - **The page narrows, it never widens.** What the page declares it can render limits what the assistant may show;
   it never grants a tool, an entity or a column.
 - **A refusal is a sentence for the model**, never an exception and never an object.
@@ -21,15 +24,18 @@ The aggregate request, its result, its limits and its errors are described in
 ## When the tool is offered
 
 `InAppAssistanceService::respond()` compiles the in-app policy with the capability `widget_objects` among the
-others, and builds `show_widget` for the turn only when all three hold:
+others, and builds `show_widget` for the turn only when all of these hold:
 
-1. the compiled policy allows `show_widget` (capability `widget_objects`, granted to the in-app profile only);
-2. the page declared at least one object type it renders in `context.page.objects`;
-3. `ai.features.tools.crud.entities` lists `summarize` for at least one entity, which is the operator's opt-in to
-   figures and charts.
+1. the assistant scope reaches data (a scope with no data access gets no entity tool and no widget tool);
+2. the compiled policy allows `show_widget` (capability `widget_objects`, granted to the in-app profile only);
+3. the page declared, in `context.page.objects`, at least one object type that the tool shows (`kpi` or `chart`);
+4. `ai.features.tools.crud.entities` lists `summarize` for at least one entity, which is the operator's opt-in to
+   figures and charts;
+5. `CrudToolProvider::offeredOperations()` offers `summarize` to the acting person on at least one entity: the
+   entity is opted in and the person holds `select` on it.
 
-Without the three the model has no widget tool at all. Which entity a given person may show figures of is decided
-on each call (see *What a call is checked against*).
+Without all of them the model has no widget tool at all. Which entity a given call may show is checked again on each
+call (see *What a call is checked against*).
 
 ### `context.page.objects`
 
@@ -39,7 +45,8 @@ on each call (see *What a call is checked against*).
 
 A list of types: `kpi`, `chart` and `graph` are known. `RenderableObjectTypes::fromPageContext()` is the only reader:
 it reads the first three entries, keeps each known type once and drops anything else, never repairing it. A value
-that is not a list declares nothing. `graph` is a known type that the tool does not show yet (see *Graph objects*).
+that is not a list declares nothing. `graph` is a known type that the tool does not show yet, so a page that
+declares only `graph` gets no widget tool (see *Graph objects*).
 The key passes the same control-plane check as the rest of `context`.
 
 ## The tool
@@ -176,7 +183,8 @@ An object does not interrupt the run: nothing waits for the user, so `RunFinishe
 | `limits.aggregate` | The four ceilings of `core.aggregate.*` a client may plan with: `max_measures`, `max_groups`, `max_points`, `max_period_days`, as configured. Every limit is also a structured error of the route, so a client works without them. |
 
 Like the rest of the endpoint, these depend on the instance, not on the person: which entities a person may
-summarize is listed in `actions` (`operation: summarize`, `kind: read`). A client that reads an empty list, or a
+summarize is listed in `actions` (`operation: summarize`, `kind: read`), and the tool is built for a turn only when
+that list is not empty for the acting person. A client that reads an empty list, or a
 response without `features.objects` (an older backend), sends no `context.page.objects` and gets answers in text only.
 
 ## What `summarize` does
@@ -186,7 +194,7 @@ response without `features.objects` (an older backend), sends no `context.page.o
 - it covers every row the person may read that matches the filters, not a sample;
 - it groups by one column, or cuts a date column into `day`, `week`, `month`, `quarter` or `year` buckets over a
   `period`; a second `group_by` column is refused;
-- a column group returns its first `max_groups` (50) groups ranked by the first metric (by count when none is asked),
+- a column group returns its first `max_groups` groups (50 by default) ranked by the first metric (by count when none is asked),
   and the figures of the rest under `other`; a bucketed group returns every bucket;
 - `sum` and `avg` need a numeric column that is not a key;
 - a figure that adds more than one currency is `null`, and the answer carries the `MIXED_CURRENCY` warning;
@@ -194,8 +202,9 @@ response without `features.objects` (an older backend), sends no `context.page.o
 
 ## Graph objects
 
-`graph` is a type a page may already declare, and the tool refuses it (`graph objects are not available yet`). Graph
-objects, built on the graph tools, are the next step of the plan that introduced widgets
+A page may already declare `graph`, but it does not count toward building the tool: a page that declares only
+`graph` gets no widget tool, and a call for a graph on a page that also declares `kpi` or `chart` is refused
+(`graph objects are not available yet`). Graph objects, built on the graph tools, are the next step of the plan that introduced widgets
 (`docs/superpowers/plans/2026-10-20-aggregate-route-and-widget-tool.md`); until then `features.objects` never lists
 `graph`.
 
@@ -226,6 +235,6 @@ routes), `AgentEndpointTest` (the stream event), `CapabilitiesEndpointTest` (`fe
 | Symptom | Check |
 |---|---|
 | `features.objects` is empty | The catalog lacks `widget_objects`, the in-app profile does not grant `show_widget`, or no entity lists `summarize` in `ai.features.tools.crud.entities`. |
-| The model never shows an object | The page sent no `objects` list, or only unknown types, or the person holds no `select` on any entity opted into `summarize` (every call is then refused). |
+| The model never shows an object | The page sent no `objects` list, or only `graph` or unknown types, or the person holds no `select` on any entity opted into `summarize`: the tool is then not built. |
 | An object is refused | The answer to the model says why: see the table of checks. |
 | The figures the client shows differ from what the model said | The client runs the request later, with the permission and ACL of that moment, and the data may have changed. |
