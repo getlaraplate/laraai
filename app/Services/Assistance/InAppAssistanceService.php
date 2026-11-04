@@ -50,6 +50,7 @@ use Modules\AI\Services\Tools\ShowWidgetTool;
 use Modules\AI\Services\Tools\ToolDefinition;
 use Modules\AI\Services\Tools\ToolRegistry;
 use Modules\AI\Services\Tools\ToolResultGuard;
+use Modules\Core\Graph\Contracts\GraphToolGatewayInterface;
 use Modules\Core\Models\User;
 use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
 use NeuronAI\Chat\Messages\UserMessage;
@@ -106,7 +107,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 [
                     'application_content',
                     ...($reads_documentation ? ['in_app_rag'] : []),
-                    'read_only_graph',
+                    AssistantCapabilities::GRAPH_CAPABILITY,
                     AssistantCapabilities::PROPOSALS_CAPABILITY,
                     AssistantCapabilities::READS_CAPABILITY,
                     AssistantCapabilities::WRITES_CAPABILITY,
@@ -323,10 +324,11 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
 
     /**
      * The objects of this message, when the scope reaches data, the compiled policy allows the widget tool,
-     * the page declared an object type that the tool shows (`context.page.objects`, a hint that narrows what
-     * may be shown and grants nothing), the instance opted an entity into `summarize` and the acting person
-     * is offered `summarize` on at least one of them. Without all of them the assistant has no widget tool
-     * at all; which entity a call may show is decided again when the tool runs.
+     * and the page declared an object type that the tool can show in this run (`context.page.objects`, a
+     * hint that narrows what may be shown and grants nothing): a figure or a chart when the instance opted
+     * an entity into `summarize` and the acting person is offered `summarize` on at least one of them, a
+     * graph when the compiled policy allows `graph_expand`. Without them the assistant has no widget tool
+     * at all; which entity or record a call may show is decided again when the tool runs.
      */
     private function widgetCollector(CompiledAssistantPolicy $policy, AssistantScope $scope): ?WidgetObjectCollector
     {
@@ -335,16 +337,36 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         }
 
         $types = RenderableObjectTypes::fromPageContext($this->request->input('context.page.objects'));
-        $shown = array_any(WidgetObjectCollector::TYPES, static fn (string $type): bool => $types->has($type));
+        $graphs = $policy->allowsTool(WidgetObjectCollector::GRAPH_TOOL);
+        $crud = app(CrudToolProvider::class);
 
-        if (! $shown || ! app(AssistantCapabilities::class)->summaries()) {
+        if (! ($graphs && $types->has(WidgetObject::TYPE_GRAPH)) && ! $this->summarizes($types, $crud)) {
             return null;
         }
 
-        $crud = app(CrudToolProvider::class);
-        $summarizes = array_any($crud->offeredOperations(), static fn (array $offered): bool => $offered['operation'] === 'summarize');
+        return new WidgetObjectCollector(
+            $types,
+            $crud,
+            $this->guardrails,
+            AggregateLimits::fromConfig(),
+            $graphs,
+            $graphs ? app(GraphToolGatewayInterface::class) : null,
+        );
+    }
 
-        return $summarizes ? new WidgetObjectCollector($types, $crud, $this->guardrails, AggregateLimits::fromConfig()) : null;
+    /**
+     * The page declared a figure or a chart, the instance opted an entity into `summarize`, and the acting
+     * person is offered `summarize` on at least one of them. The cheap checks run first, so a turn without
+     * an opt-in resolves no model.
+     */
+    private function summarizes(RenderableObjectTypes $types, CrudToolProvider $crud): bool
+    {
+        if (! array_any(WidgetObjectCollector::TYPES, static fn (string $type): bool => $types->has($type))
+            || ! app(AssistantCapabilities::class)->summaries()) {
+            return false;
+        }
+
+        return array_any($crud->offeredOperations(), static fn (array $offered): bool => $offered['operation'] === 'summarize');
     }
 
     /**

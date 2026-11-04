@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Modules\AI\Data;
 
 /**
- * An object the assistant puts in its message for the application to render: a figure or a chart. It holds the
- * request that computes the data, never the data: the client runs the request with the user's session, so what
- * it shows is what the user may read now, and no number in it was written by the model.
+ * An object the assistant puts in its message for the application to render: a figure, a chart or the relation
+ * map of a record. It holds the validated request and the title the model chose, never computed figures or
+ * records: the client runs the request with the user's session, so what it shows is what the user may read now.
+ * The title is model text, so a number in it is not a computed figure.
  */
 final readonly class WidgetObject
 {
@@ -18,7 +19,7 @@ final readonly class WidgetObject
     public const string TYPE_GRAPH = 'graph';
 
     /**
-     * @param  array<string, mixed>  $ref  `request`, and `variant` and `format` when they were given
+     * @param  array<string, mixed>  $ref  `request`, and `variant` (a chart) and `format` (a kpi or a chart) when they were given
      */
     public function __construct(
         public string $id,

@@ -72,36 +72,55 @@ it('tells a signed-in user what the assistant offers', function (): void {
         ->assertJsonPath('data', [
             'enabled' => true,
             'configured' => true,
-            'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true, 'objects' => []],
+            'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true, 'objects' => ['graph']],
             'limits' => ['aggregate' => ['max_measures' => 3, 'max_groups' => 50, 'max_points' => 400, 'max_period_days' => 1096]],
             'actions' => [],
         ]);
 });
 
-it('lists kpi and chart in features.objects when an entity offers summarize and the capability is on', function (): void {
+it('lists kpi, chart and graph in features.objects when an entity offers summarize, the capability is on and the policy allows graph_expand', function (): void {
     config(['ai.features.tools.crud.entities' => ['core.role' => ['list'], 'core.setting' => ['list', 'summarize']]]);
 
     $this->actingAs($this->user)
         ->getJson(route('ai.capabilities'))
         ->assertOk()
-        ->assertJsonPath('data.features.objects', ['kpi', 'chart']);
+        ->assertJsonPath('data.features.objects', ['kpi', 'chart', 'graph']);
 });
 
-it('lists no object type when the capability is removed or no entity offers summarize', function (?Closure $catalog, array $entities): void {
-    config(['ai.features.tools.crud.entities' => $entities]);
-
-    if ($catalog instanceof Closure) {
-        useCatalog($catalog());
-    }
+it('lists no object type when the capability is removed', function (Closure $catalog): void {
+    config(['ai.features.tools.crud.entities' => ['core.setting' => ['summarize']]]);
+    useCatalog($catalog());
 
     $this->actingAs($this->user)
         ->getJson(route('ai.capabilities'))
         ->assertOk()
         ->assertJsonPath('data.features.objects', []);
 })->with([
-    'the catalog lacks the capability' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: false), ['core.setting' => ['summarize']]],
-    'the profile does not grant the tool' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: true), ['core.setting' => ['summarize']]],
-    'no entity offers summarize' => [null, ['core.setting' => ['list', 'detail', 'update']]],
+    'the catalog lacks the capability' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: false)],
+    'the profile does not grant the tool' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: true)],
+]);
+
+it('lists graph alone in features.objects when no entity offers summarize', function (): void {
+    config(['ai.features.tools.crud.entities' => ['core.setting' => ['list', 'detail', 'update']]]);
+
+    $this->actingAs($this->user)
+        ->getJson(route('ai.capabilities'))
+        ->assertOk()
+        ->assertJsonPath('data.features.objects', ['graph']);
+});
+
+it('lists no graph in features.objects when the policy does not allow graph_expand', function (Closure $catalog, array $entities, array $expected): void {
+    config(['ai.features.tools.crud.entities' => $entities]);
+    useCatalog($catalog());
+
+    $this->actingAs($this->user)
+        ->getJson(route('ai.capabilities'))
+        ->assertOk()
+        ->assertJsonPath('data.features.objects', $expected);
+})->with([
+    'the catalog lacks read_only_graph' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('read_only_graph', ['graph_expand'], keepCapability: false), ['core.setting' => ['summarize']], ['kpi', 'chart']],
+    'the profile does not grant graph_expand' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('read_only_graph', ['graph_expand'], keepCapability: true), ['core.setting' => ['summarize']], ['kpi', 'chart']],
+    'and no entity offers summarize' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('read_only_graph', ['graph_expand'], keepCapability: true), [], []],
 ]);
 
 it('publishes the four aggregate limits as the configuration sets them', function (): void {

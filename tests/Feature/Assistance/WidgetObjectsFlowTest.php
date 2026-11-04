@@ -12,6 +12,7 @@ use Modules\AI\Services\Assistance\Policies\AssistantPolicyCompiler;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyRuleSet;
 use Modules\AI\Services\Tools\CrudToolProvider;
 use Modules\AI\Tests\Stubs\Assistance\ScriptedAssistantFixtures;
+use Modules\Core\Graph\Contracts\GraphToolGatewayInterface;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\Permission;
 use Modules\Core\Models\Role;
@@ -83,6 +84,43 @@ function widgetFlowOfferedTools(Request $request, Conversation $conversation, Us
 }
 
 /**
+ * The type enum of `show_widget` as the model is offered it in a turn of the given request, or null when the
+ * tool is not offered.
+ *
+ * @return list<mixed>|null
+ */
+function widgetFlowOfferedTypes(Request $request, Conversation $conversation, User $user, ?AssistantPolicyCompiler $compiler = null): ?array
+{
+    $types = null;
+
+    ScriptedAssistantFixtures::inAppService(
+        $request,
+        function (string $input, string $system, mixed $context, array $tools) use (&$types): string {
+            foreach ($tools as $tool) {
+                if ($tool->getName() === 'show_widget') {
+                    $types = collect($tool->getProperties())->first(static fn (mixed $property): bool => $property->getName() === 'type')->getJsonSchema()['enum'];
+                }
+            }
+
+            return 'There are a few settings.';
+        },
+        compiler: $compiler,
+    )->respond($conversation, $user, 'How are the roles of Alice related?');
+
+    return $types;
+}
+
+/**
+ * The arguments of a graph of the roles of one user, as the model writes them.
+ *
+ * @return array<string, string>
+ */
+function widgetFlowGraph(): array
+{
+    return ['type' => 'graph', 'title' => 'Roles of Alice', 'request' => '{"resource":"core/users","id":7,"relations":["roles"]}'];
+}
+
+/**
  * What the model does when it calls a tool it was offered.
  *
  * @param  list<Tool>  $tools
@@ -127,9 +165,11 @@ function widgetFlowChart(): array
 }
 
 /**
- * The default policy, with `show_widget` taken from what the in-app profile allows.
+ * The default policy, with the given tools taken from what the in-app profile allows.
+ *
+ * @param  list<string>  $tools
  */
-function widgetFlowCompilerWithoutTheTool(): AssistantPolicyCompiler
+function widgetFlowCompilerWithout(array $tools): AssistantPolicyCompiler
 {
     $defaults = AssistantPolicyCatalog::defaults();
     $profile = $defaults->profiles['in_app_assistance'];
@@ -142,7 +182,7 @@ function widgetFlowCompilerWithoutTheTool(): AssistantPolicyCompiler
             'in_app_assistance' => new AssistantPolicyRuleSet(
                 instruction: $profile->instruction,
                 allowedCorpora: $profile->allowedCorpora,
-                allowedTools: array_values(array_diff($profile->allowedTools, ['show_widget'])),
+                allowedTools: array_values(array_diff($profile->allowedTools, $tools)),
                 allowedFields: $profile->allowedFields,
                 deniedCorpora: $profile->deniedCorpora,
                 deniedTools: $profile->deniedTools,
@@ -173,10 +213,12 @@ it('offers show_widget only when the page declares an object type and an entity 
     'an empty list' => [[], ['core.setting' => ['summarize']], []],
     'no objects key' => [null, ['core.setting' => ['summarize']], []],
     'only types the backend does not know' => [['table', 'map'], ['core.setting' => ['summarize']], []],
-    'only graph, which the tool does not show yet' => [['graph'], ['core.setting' => ['summarize']], []],
+    'only graph, which the policy lets the tool show' => [['graph'], ['core.setting' => ['summarize']], ['show_widget']],
+    'only graph, and no entity offers summarize' => [['graph'], [], ['show_widget']],
     'graph beside a type the tool shows' => [['graph', 'kpi'], ['core.setting' => ['summarize']], ['show_widget']],
     'a text instead of a list' => ['kpi', ['core.setting' => ['summarize']], []],
     'no entity offers summarize' => [['kpi', 'chart'], ['core.setting' => ['list', 'detail']], []],
+    'kpi and graph, and no entity offers summarize' => [['kpi', 'graph'], [], ['show_widget']],
     'no entity opted in' => [['kpi', 'chart'], [], []],
 ]);
 
@@ -198,9 +240,57 @@ it('offers show_widget only to a user who may summarize one of the entities opte
 ]);
 
 it('offers no show_widget when the policy of the in-app profile does not allow it', function (): void {
-    $names = widgetFlowOfferedTools(widgetFlowRequest($this->user, ['kpi', 'chart']), $this->conversation, $this->user, widgetFlowCompilerWithoutTheTool());
+    $names = widgetFlowOfferedTools(widgetFlowRequest($this->user, ['kpi', 'chart']), $this->conversation, $this->user, widgetFlowCompilerWithout(['show_widget']));
 
     expect($names)->not->toContain('show_widget');
+});
+
+it('offers show_widget for a graph only when the policy of the in-app profile allows graph_expand', function (array $objects, array $expected): void {
+    $names = widgetFlowOfferedTools(widgetFlowRequest($this->user, $objects), $this->conversation, $this->user, widgetFlowCompilerWithout(['graph_expand']));
+
+    expect(array_values(array_intersect($names, ['show_widget'])))->toBe($expected);
+})->with([
+    'only graph' => [['graph'], []],
+    'only chart, as before' => [['chart'], ['show_widget']],
+    'graph beside kpi' => [['graph', 'kpi'], ['show_widget']],
+]);
+
+it('offers graph among the types of show_widget only when the policy allows graph_expand', function (?AssistantPolicyCompiler $compiler, array $expected): void {
+    $types = widgetFlowOfferedTypes(widgetFlowRequest($this->user, ['kpi', 'graph']), $this->conversation, $this->user, $compiler);
+
+    expect($types)->toBe($expected);
+})->with([
+    'graph_expand allowed' => [null, ['kpi', 'chart', 'graph']],
+    'graph_expand not allowed' => [fn (): AssistantPolicyCompiler => widgetFlowCompilerWithout(['graph_expand']), ['kpi', 'chart']],
+]);
+
+it('puts a graph object in message.metadata.objects, expanded through the graph gateway, without any entity offering summarize', function (): void {
+    config(['ai.features.tools.crud.entities' => []]);
+    $gateway = Mockery::mock(GraphToolGatewayInterface::class);
+    $gateway->shouldReceive('expand')->once()->andReturn(['available' => true, 'nodes' => [['id' => 'core:users:7', 'module' => 'core', 'entity' => 'users', 'label' => 'Alice Example', 'attributes' => []]], 'edges' => [], 'truncated' => false]);
+    app()->instance(GraphToolGatewayInterface::class, $gateway);
+    $answer = null;
+
+    $reply = ScriptedAssistantFixtures::inAppService(
+        widgetFlowRequest($this->user, ['graph']),
+        function (string $input, string $system, mixed $context, array $tools) use (&$answer): string {
+            $answer = widgetFlowToolCall($tools, 'show_widget', widgetFlowGraph());
+
+            return 'Here is how the roles of Alice relate.';
+        },
+    )->respond($this->conversation, $this->user, 'How are the roles of Alice related?');
+
+    $objects = $reply->metadata['objects'];
+
+    expect($answer)->toStartWith('Widget recorded.')->not->toContain('Alice Example');
+    expect($objects)->toHaveCount(1)
+        ->and($objects[0]['id'])->toBeUuid()
+        ->and($objects[0])->toBe([
+            'id' => $objects[0]['id'],
+            'type' => 'graph',
+            'title' => 'Roles of Alice',
+            'ref' => ['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 7, 'relations' => ['roles'], 'depth' => 1]],
+        ]);
 });
 
 it('puts each object the model shows through the tool in message.metadata.objects, with its id, type, title and ref', function (): void {

@@ -28,6 +28,8 @@ final readonly class AssistantCapabilities
 
     public const string WIDGETS_CAPABILITY = WidgetObjectCollector::CAPABILITY;
 
+    public const string GRAPH_CAPABILITY = 'read_only_graph';
+
     public function __construct(private AssistantPolicyCompiler $policy_compiler) {}
 
     /**
@@ -119,18 +121,23 @@ final readonly class AssistantCapabilities
     }
 
     /**
-     * The types of object the backend can put in a message: none while {@see self::widgets()} is off
-     * or no entity is opted into `summarize`, otherwise the figure and the chart.
+     * The types of object the backend can put in a message, none while {@see self::widgets()} is off:
+     * the figure and the chart when an entity is opted into `summarize`, and the graph when the policy
+     * compiled for the in-app profile with `read_only_graph` still allows `graph_expand`, whether or not
+     * an entity is opted into `summarize`.
      *
      * @return list<string>
      */
     public function objects(): array
     {
-        if (! $this->widgets() || ! $this->summaries()) {
+        if (! $this->widgets()) {
             return [];
         }
 
-        return [WidgetObject::TYPE_KPI, WidgetObject::TYPE_CHART];
+        return [
+            ...$this->summaries() ? [WidgetObject::TYPE_KPI, WidgetObject::TYPE_CHART] : [],
+            ...$this->expandsGraphs() ? [WidgetObject::TYPE_GRAPH] : [],
+        ];
     }
 
     /**
@@ -160,6 +167,21 @@ final readonly class AssistantCapabilities
                 'aggregate' => AggregateLimits::fromConfig()->toArray(),
             ],
         ];
+    }
+
+    /**
+     * The policy compiled for the in-app profile with `read_only_graph` still allows the expansion a
+     * graph object runs.
+     */
+    private function expandsGraphs(): bool
+    {
+        try {
+            $policy = $this->policy_compiler->compile(AssistantProfile::InAppAssistance, [self::GRAPH_CAPABILITY]);
+        } catch (InvalidArgumentException) {
+            return false;
+        }
+
+        return $policy->allowsTool(WidgetObjectCollector::GRAPH_TOOL);
     }
 
     /**
