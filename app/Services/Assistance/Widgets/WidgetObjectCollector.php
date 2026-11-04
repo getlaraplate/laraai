@@ -370,6 +370,8 @@ final class WidgetObjectCollector
      * {@see QueryBuilder}, using only the scopes the entity exposes to clients. Nothing is repaired: a list that is
      * not one, or a group left out of a list, would run another filter than the one the model wrote. The first
      * message of the validator names the place of the node and what is wrong with it, never a value it was not sent.
+     * The rule throws on a node whose `filters` is not an array: that is a fault of the request, answered as a
+     * refusal and not reported.
      *
      * @param  array{module: string, entity: string}  $offered
      */
@@ -385,7 +387,13 @@ final class WidgetObjectCollector
 
         $validator = Validator::make(['filters' => $filters], ['filters' => [new QueryBuilder(), new ClientScopeFilters($this->model($offered))]]);
 
-        return $validator->fails() ? 'the filters were refused: ' . mb_rtrim($validator->errors()->first(), '.') : null;
+        try {
+            $refused = $validator->fails();
+        } catch (Throwable) {
+            return 'the filters of a node must themselves be a list of filter objects';
+        }
+
+        return $refused ? 'the filters were refused: ' . mb_rtrim($validator->errors()->first(), '.') : null;
     }
 
     /**

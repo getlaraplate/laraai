@@ -251,6 +251,21 @@ it('refuses filters that are not a list of filter objects', function (mixed $fil
     'a list holding a text' => [['group_name = alpha']],
 ]);
 
+it('refuses a node whose filters are not a list, without reporting it', function (array $filters): void {
+    Exceptions::fake();
+    $collector = widgetCollector(widgetUser());
+
+    $answer = $collector->show('kpi', 'Alpha settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($answer)->toBe('Not shown: the filters of a node must themselves be a list of filter objects. Nothing was recorded.')
+        ->and($collector->hasObjects())->toBeFalse();
+
+    Exceptions::assertNothingReported();
+})->with([
+    'a group' => [[['operator' => 'or', 'filters' => 'x']]],
+    'a leaf' => [[[...widgetFilter('alpha'), 'filters' => 'x']]],
+]);
+
 it('refuses filters the route would refuse, with the first message of its validator', function (array $filters, string $expected): void {
     $collector = widgetCollector(widgetUser());
 
