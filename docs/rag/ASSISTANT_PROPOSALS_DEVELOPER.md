@@ -33,7 +33,8 @@ A client sends `context.page` with each message, to the base transport or to the
   "locale": "it",
   "list": { "filters": {}, "columns": [], "viewMode": "table" },
   "dashboard": { "layout": [] },
-  "proposable": []
+  "proposable": [],
+  "objects": ["kpi", "chart"]
 }
 ```
 
@@ -43,6 +44,8 @@ the pair with Core's model lookup, and keeps it only when the model is registere
 holds `select` on it. Anything else leaves the assistant generic. A `context.assistant_application_context`
 sent by a client is ignored. Details and the effect on retrieval: `ASSISTANT_SCOPE.md`.
 
+`proposable` is read as described under *Proposable targets*, and `objects`, the types of object the page renders,
+as described in `ASSISTANT_WIDGETS_DEVELOPER.md`; both narrow what the assistant may offer and grant nothing.
 `list`, `dashboard` and the rest of the page are hints. They are not read by the server, and none of them
 changes the policy, the tools or the prompt. The control-plane check of the message request applies to the
 whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tenant_id`, `user_id` or
@@ -53,7 +56,15 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
 `GET /app/ai/capabilities`, for a signed-in user (401 when not signed in, 403 for the guest account):
 
 ```json
-{ "data": { "enabled": true, "configured": true, "features": { "help": true, "proposals": true, "streaming": true } } }
+{
+  "data": {
+    "enabled": true,
+    "configured": true,
+    "features": { "help": true, "proposals": true, "writes": false, "streaming": true, "objects": ["kpi", "chart"] },
+    "limits": { "aggregate": { "max_measures": 3, "max_groups": 50, "max_points": 400, "max_period_days": 1096 } },
+    "actions": []
+  }
+}
 ```
 
 | Field | Meaning |
@@ -62,9 +73,14 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
 | `configured` | The chat provider chosen in Settings has what it needs (a key or a URL). |
 | `features.help` | The setting `features.faq.enabled`: the assistant answers from the user documentation. With it off the assistant still serves what its tools reach, reads no documentation and is not told to cite it. A client hides the help sources and the "help" group of its search. |
 | `features.proposals` | The policy compiled for the in-app profile with `ui_proposals` still allows a tool. |
+| `features.writes` | The policy compiled with `governed_writes` allows a tool and an entity is opted into a write operation (`TOOLS_USAGE_EXAMPLE.md`). |
 | `features.streaming` | `POST /app/ai/agent` exists. |
+| `features.objects` | The object types the backend can put in a message: `[]`, or `["kpi", "chart"]` when the policy compiled with `widget_objects` allows a tool and an entity is opted into `summarize` (`ASSISTANT_WIDGETS_DEVELOPER.md`). |
+| `limits.aggregate` | The ceilings of the aggregate requests the objects carry: `max_measures`, `max_groups`, `max_points`, `max_period_days`. |
+| `actions` | What the assistant may do for the signed-in person (`TOOLS_USAGE_EXAMPLE.md`). |
 
-A client that sees `proposals: false` hides the proposal UI and sends no `proposable` list.
+A client that sees `proposals: false` hides the proposal UI and sends no `proposable` list; one that sees an empty
+`objects` list sends no `objects`.
 
 ## Proposable targets
 
@@ -120,6 +136,10 @@ applied. The proposals of a message are in `message.metadata.proposals`:
 }
 ```
 
+Beside the proposal tools, the in-app profile has `show_widget` (capability `widget_objects`), which puts a figure or
+a chart in the message under `message.metadata.objects`; it proposes nothing and needs no answer from the user. See
+`ASSISTANT_WIDGETS_DEVELOPER.md`.
+
 An answer that claims a pending proposal was applied ("I have updated", "has been applied", "ho modificato",
 "è stato salvato") is replaced by a plain statement that the suggestion waits
 (`AssistanceOutputPolicy::reportPendingProposals()`).
@@ -127,7 +147,7 @@ An answer that claims a pending proposal was applied ("I have updated", "has bee
 ## Transport
 
 **Base transport.** `POST /app/crud/insert/ai/conversations/{conversation}/messages`. The profile validates
-the complete output, then delivers it. Proposals and citations come in `message.metadata`.
+the complete output, then delivers it. Citations, proposals, proposed writes and objects come in `message.metadata`.
 
 **Stream endpoint.** `POST /app/ai/agent`, a wrapper of the base transport: it runs the same
 `InAppAssistanceService::respond()`, so the profile, the policy, the guardrails and the proposals are the
@@ -146,8 +166,8 @@ its AG-UI `type`, with the event as JSON in `data`:
 | `StepStarted`, `StepFinished` | around each step | `stepName`: `retrieve`, `answer`, `validate`, fixed by the server |
 | `TextMessageStart`, `TextMessageContent`, `TextMessageEnd` | once the output is validated | `messageId`; `delta` is the **whole** message |
 | `StateDelta` | when there are citations | `delta.citations` |
-| `ToolCall` | one per proposal | `toolCallId` is the proposal id, `toolCallName`, `args` is the proposal |
-| `RunFinished` | last, on success | `outcome`: `success`, or `interrupt` with one interrupt per proposal (`reason: confirm_proposal`) |
+| `ToolCall` | one per proposal, then one per object | `toolCallId` is the proposal or object id, `toolCallName` (`propose_preference_change`, `propose_view_state` or `show_widget`), `args` is the proposal or the object |
+| `RunFinished` | last, on success | `outcome`: `success`, or `interrupt` with one interrupt per proposal (`reason: confirm_proposal`); an object never interrupts |
 | `RunError` | last, on refusal or failure | `code`: `POLICY_DENIED` or `PROVIDER_ERROR`, a fixed `message` |
 
 No event carries a token of the model: the protected profile validates the complete output before it
@@ -178,7 +198,7 @@ the text.
 |---|---|
 | `users.preferences` | The user's. Read, reset and deleted through the preferences routes. |
 | `ai_contextual_suggestions.context` | Keeps only `page` and `action` (text, 255 characters); the `data` a client sends helps generate the suggestion and is never stored. Rows older than 7 days (`ContextualSuggestion::RETENTION_DAYS`) are pruned daily by `model:prune`. |
-| Conversations, messages (with citations and proposals), summaries, titles | Removed with the conversation. |
+| Conversations, messages (with citations, proposals and objects), summaries, titles | Removed with the conversation. |
 | A deleted user's conversations and suggestions | Removed with the user. |
 
 Users and conversations are soft deleted by default, and a soft delete never reaches a foreign key, so
@@ -204,7 +224,7 @@ deleted before the purge existed keep their content until their user is deleted.
 ## Testing and evaluation
 
 `UserPreferencesTest` (Core); in `Modules/AI/tests/Feature/Assistance/`: `ResolveAssistantApplicationContextTest`,
-`CapabilitiesEndpointTest`, `UiProposalsTest`, `AgentEndpointTest`, `ConversationTitleTest`; `StoredDataPrivacyTest`
+`CapabilitiesEndpointTest`, `UiProposalsTest`, `WidgetObjectsFlowTest`, `AgentEndpointTest`, `ConversationTitleTest`; `StoredDataPrivacyTest`
 in `Modules/AI/tests/Feature/`. The evaluation cases are in `Modules/AI/docs/rag/evaluations/assistant-proposals.json`
 and described in `ASSISTANT_EVALUATION.md`. Level 1 scripts the model, so it proves the plumbing and the guard,
 not that a real model proposes when it should.

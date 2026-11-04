@@ -25,6 +25,9 @@ Canonical English names for AI entities in this module. Use these terms in code,
 | **governed_writes / crud_reads** | Policy capabilities that admit the `crud_*` write and read tools for the in-app profile only. |
 | **unmoderated_writes** | Operator list of entities without approvals on which the assistant may nonetheless write; "applied directly, no vote". |
 | **ToolResultGuard** | Withholds from the model the result of an entity read tool whose text reads like an instruction. |
+| **show_widget** (`ShowWidgetTool`) | The tool that puts a figure (`kpi`) or a chart in an answer, as an aggregate request the client runs; capability `widget_objects`, offered when the page declares `context.page.objects` and an entity is opted into `summarize`. |
+| **Widget object** (`WidgetObject`) | One entry of `message.metadata.objects`: `{id, type, title, ref}`, holding the validated request, never the figures. |
+| **WidgetObjectCollector** | Checks each `show_widget` call as untrusted input, runs the request once and keeps the objects of one message. |
 | **ActionRequest, RiskClassifier** | Removed 2026-10-07. A tool-level approval path that nothing used; approval is Core's, at the model. |
 
 ## RAG and documentation intelligence

@@ -14,7 +14,7 @@ The boundaries of this module are **contracts, not folders**. `AI` is not one sy
 | **Search** | `CrudService` → `AdvancedSearchService` → `EnsembleSearchService` | Core contract `ISearchStrategyResolver` | live |
 | **Documentation RAG** | `DocumentationService`, from `respond()` and from `ai:help` | corpora plus the configured vector store | live |
 | **Application content** | CMS and SAO retrieval providers, consumed by `respond()` | citations and authorized evidence | live |
-| **Tools and governed writes** | tools offered by `CrudToolProvider` to `respond()`; `AssistantWriteController` for the person's confirmation | policy capabilities `crud_reads` / `governed_writes`, Core approvals at the model | live; writes are proposals the person confirms |
+| **Tools and governed writes** | tools offered by `CrudToolProvider` to `respond()`, and `show_widget`; `AssistantWriteController` for the person's confirmation | policy capabilities `crud_reads` / `governed_writes` / `widget_objects`, Core approvals at the model | live; writes are proposals the person confirms, figures and charts are requests the client runs |
 | **Contextual suggestions** | `SuggestionController` | per-context generation | live |
 | **Moderation and translation** | queued jobs | asynchronous, no HTTP surface | live |
 | **Conversation memory** | none | none | dormant |
@@ -39,6 +39,15 @@ The assistant acts as the signed-in person, with exactly their permissions and r
 - **Who is acting.** The system prompt carries a server-built block naming the acting user and listing exactly the entity/operation pairs offered; the name is quoted data. Every proposal, confirmation and rejection is logged (`Assistant write`) with actor, conversation, tool, entity, operation, a hash of the payload and the outcome, never the values.
 - **Confinement.** Input is classified before anything runs (override, role reassignment, exfiltration, claimed authority, chat-markup impersonation, hidden characters; English and Italian). What an entity read tool returns is withheld from the model when its text reads like an instruction. A write cannot be applied by the model in any way: there is no parameter and no tool for it.
 - **Not covered.** Core records no origin on a modification, so the log is where assistant writes are told apart. Mass query writes that bypass model events are outside Core approvals and outside this.
+
+#### Figures and charts through the assistant
+
+The same opt-in that offers `summarize` on an entity (`ai.features.tools.crud.entities`) lets the assistant put a figure (`kpi`) or a chart in its answer, through the tool `show_widget` of the capability `widget_objects`.
+
+- **Summaries run on the aggregate engine.** `summarize` delegates to Core's `CrudService::aggregate()`: it covers every row the person may read, groups by one column or by a time bucket over a period, returns the first `max_groups` groups and the rest as `other`, and reports mixed currencies as a warning instead of adding them.
+- **An object is a request, not figures.** `show_widget` validates the model's aggregate request as the route does, runs it once so the model can describe it, and stores it in `metadata.objects` as `{id, type, title, ref: {request, variant?, format?}}`. The client runs the request through the aggregate route with the person's session and renders it; no number in an object was written by the model.
+- **Offered only when asked for.** The tool exists for a turn only when the policy allows it, the page declared the types it renders in `context.page.objects` (a hint that narrows and grants nothing) and an entity is opted into `summarize`. A message holds at most `core.aggregate.max_objects_per_message` objects (6 by default). The stream sends one `ToolCall` event per object, which never interrupts the run. `GET /app/ai/capabilities` returns `features.objects` and `limits.aggregate`.
+- Details, refusals and shapes: `ASSISTANT_WIDGETS_DEVELOPER.md`.
 
 #### What was removed, and why it still appears in history
 
@@ -222,7 +231,7 @@ An optional, write-only log of the questions the in-app assistant answered from 
 
 ### Message orchestration
 
-Every message sent over HTTP goes through `InAppAssistanceService::respond()`. It compiles the policy for the profile and the enabled capabilities (`application_content`, `in_app_rag`, `read_only_graph`), validates the input, resolves the assistant scope, retrieves documentation for that scope, builds an `AssistantPromptContext` from the authorized evidence, validates that context, and only then completes the answer through `ChatService::buildProtectedAgent()`, which wraps the evidence in an explicitly untrusted block. Output is validated before it is stored, which is also why no token of the model is ever streamed: an answer that has already been streamed cannot be refused. `POST /app/ai/agent` streams the run as lifecycle events and one complete validated message, as a wrapper of this same method (see `ASSISTANT_PROPOSALS_DEVELOPER.md`).
+Every message sent over HTTP goes through `InAppAssistanceService::respond()`. It compiles the policy for the profile and the enabled capabilities (`application_content`, `in_app_rag` when the documentation is on, `read_only_graph`, `ui_proposals`, `crud_reads`, `governed_writes`, `widget_objects`), validates the input, resolves the assistant scope, retrieves documentation for that scope, builds an `AssistantPromptContext` from the authorized evidence, validates that context, and only then completes the answer through `ChatService::buildProtectedAgent()`, which wraps the evidence in an explicitly untrusted block. Output is validated before it is stored, which is also why no token of the model is ever streamed: an answer that has already been streamed cannot be refused. `POST /app/ai/agent` streams the run as lifecycle events and one complete validated message, as a wrapper of this same method (see `ASSISTANT_PROPOSALS_DEVELOPER.md`).
 
 `ChatService` no longer orchestrates messages. Its remaining responsibilities are creating conversations and building the protected agent on behalf of the assistant.
 
@@ -284,7 +293,8 @@ tool's result (never the exception text, which can name a parameter or a record)
 and the exception class; the model then tries again or answers without the tool, and the turn is not
 refused. An `AssistancePolicyViolationException` is a policy decision, not a tool failure: it still ends
 the turn. A tool may declare `ToolDefinition::$maxRuns`, how many times the model may call it in a turn
-(`ToolRegistry` sets it with `Tool::setMaxRuns()`); `graph_*` and `crud_*` declare 3, Neuron's default is 10.
+(`ToolRegistry` sets it with `Tool::setMaxRuns()`); `graph_*` and `crud_*` declare 3, `show_widget` declares
+`max_objects_per_message` + 2 (8 by default), Neuron's default is 10.
 
 ### Structured output of the model
 

@@ -27,7 +27,16 @@ Sometimes you want the assistant to **set up** a table view and let the page loa
 
 ## Organizing and summarizing
 
-Ask for totals and breakdowns — "count articles per author", "total amount per customer this quarter". The assistant groups the records and returns a per-group **count** plus any **sum, average, minimum or maximum** you asked for. For very large sets the summary is based on a capped sample and the answer says so, so you know when a number is exact and when it is an estimate.
+Ask for totals and breakdowns — "count articles per author", "total amount per customer this quarter", "orders per month this year". The assistant groups the records by one column, or by day, week, month, quarter or year over a period, and returns a per-group **count** plus any **sum, average, minimum or maximum** you asked for.
+
+- A summary covers **every record you may read** that matches your request, not a sample, so its numbers are exact.
+- It groups by **one column at a time**. For a breakdown by two columns, ask for one summary per column.
+- When there are many groups, the answer shows the largest 50 and adds up the rest as **other**, so the total still covers every record.
+- Amounts in **more than one currency** are never added together: such a figure has no value, and the assistant is told that the currencies are mixed. Ask for the amounts per currency to get one figure for each.
+
+### Figures and charts in the answer
+
+On a page that can show them, the assistant can also add a **figure** (for example the number of open orders) or a **chart** (for example orders per month) to its answer. The assistant writes only the question; the application computes the numbers itself, with your permissions, when it shows the figure or the chart, so what you see is always what you may read, and no number in it was written by the assistant. The text of the answer says what the figure or chart shows. On a page that cannot show them, you get the answer in text only.
 
 ## Exporting
 
@@ -62,4 +71,5 @@ If you are an approver, you can ask the assistant to **list** the changes waitin
 - **Can the assistant see data I can't?** No. It runs as you and applies the same permission and access rules everywhere.
 - **Will a change happen by accident?** No. The assistant only proposes; you confirm in the application, and a bulk change lists what it will touch, needs a filter and is capped.
 - **My edit didn't take effect after I confirmed — why?** On entities that require approval, your confirmed change is queued for a reviewer instead of being applied at once.
-- **Why did an export or summary say it was capped?** Very large result sets are limited for performance; the answer flags when not every matching row was included.
+- **Why did an export say it was capped?** Very large exports are limited for performance; the answer flags when not every matching row was included.
+- **Why does a summary show "other"?** It lists the largest 50 groups and adds up the rest as "other", so no record is left out of the totals.

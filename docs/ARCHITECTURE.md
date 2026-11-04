@@ -68,9 +68,9 @@ flowchart TD
     respond["InAppAssistanceService::respond()"]
     input["policy and input guardrails (AssistanceGuardrailPipeline)"]
     retrieval["scope, documentation retrieval (DocumentationService::retrieveForInApp)"]
-    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals)"]
+    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals, figures and charts as requests)"]
     output["output guardrails, citations"]
-    store["conversation.addMessage('assistant', answer, metadata: citations, writes, ...)"]
+    store["conversation.addMessage('assistant', answer, metadata: citations, proposals, writes, objects)"]
     request --> controller --> respond --> input --> retrieval --> agent --> output --> store
 ```
 
@@ -102,6 +102,8 @@ sequenceDiagram
 Read tools (`crud_list_*`, `crud_detail_*`, ...) run inline, under the permissions and row-level ACL of the person. Which tools exist for a person is the intersection of three things: the operator's opt-in (`ai.features.tools.crud.entities`, plus `unmoderated_writes` for entities without approvals), the person's permissions, and the policy capabilities `crud_reads` and `governed_writes` of the in-app profile. `approve` and `disapprove` are never offered: a decision on a pending change is made by a person in the panel. A read result whose text reads like an instruction is withheld from the model (`ToolResultGuard`).
 
 Details, states, routes and the metadata shape are in `docs/rag/MODULE.md` (*Writes through the assistant*) and `docs/TOOLS_USAGE_EXAMPLE.md`.
+
+Figures and charts follow the same rule from the other side: the model never writes a number. `show_widget` (capability `widget_objects`) validates an aggregate request on an entity opted into `summarize`, runs it once so the model can describe it, and stores the request in `metadata.objects`; the client runs it through the aggregate route with the person's session and renders it. The tool is built only when the page declared the object types it renders (`context.page.objects`). Details: `docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md`.
 
 ---
 
@@ -264,5 +266,6 @@ routes also require the in-app assistance profile (`AssistantAccessContextFactor
 | In-app assistant | Active | JSON answer or event stream; policy, guardrails and scope on every message |
 | RAG/FAQ | Active | User corpus for the assistant, developer corpus for `ai:help` |
 | Governed writes | Active | Propose, then the person confirms (`ai_write_proposals`) |
+| Widget objects | Active (backend) | `show_widget` emits figures and charts as aggregate requests in `metadata.objects`; a client renders them |
 | Contextual Suggestions | Active | Setting `features.contextual_suggestions.enabled` (seeded off) |
 | Memory/Summarization | Kept, not called | Setting `features.chat.summary.enabled`; reused by the persistent user memory plan |

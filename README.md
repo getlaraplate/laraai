@@ -251,7 +251,8 @@ The assistant collects **no usage data**: nothing is recorded in the background,
 a user clicks. The instance keeps only what a user's own request or setting creates:
 
 -   the **preferences** of the user (`users.preferences`, written by the client the user uses);
--   the user's **conversations**: messages with their citations and proposals, summaries and title;
+-   the user's **conversations**: messages with their citations, proposals and objects (the requests behind a
+    figure or a chart, never the figures), summaries and title;
 -   **contextual suggestions** (off by default): the page and the action they are about, pruned after 7 days.
 
 A deleted conversation takes its messages, summaries and title with it, and a deleted user takes their

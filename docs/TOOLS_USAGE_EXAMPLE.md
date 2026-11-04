@@ -98,8 +98,8 @@ state again.
 
 ## What the assistant may do for the signed-in person
 
-`GET /app/ai/capabilities` returns, beside `enabled`, `configured` and `features` (`features.writes` is true
-when the operator opted an entity into a write), the list of what the assistant may do for **this** person:
+`GET /app/ai/capabilities` returns, beside `enabled`, `configured`, `features` (`features.writes` is true
+when the operator opted an entity into a write) and `limits`, the list of what the assistant may do for **this** person:
 
 ```json
 "actions": [
