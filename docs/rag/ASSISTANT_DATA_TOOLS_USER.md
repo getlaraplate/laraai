@@ -33,6 +33,7 @@ Ask for totals and breakdowns, for example "count articles per author", "total a
 - It groups by **one column at a time**. For a breakdown by two columns, ask for one summary per column.
 - When there are many groups, the answer shows the largest ones (50 by default, set by `CORE_AGGREGATE_MAX_GROUPS`) and adds up the rest as **other**, so the total still covers every record.
 - Amounts in **more than one currency** are never added together: such a figure has no value, and the assistant is told that the currencies are mixed. Ask for the amounts per currency to get one figure for each.
+- When such amounts are **ranked**, the largest groups may be picked by a total that mixes currencies and is not shown. For a ranking of amounts, ask for them per currency.
 
 ### Figures, charts and relation maps in the answer
 

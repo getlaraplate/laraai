@@ -200,6 +200,9 @@ An object does not interrupt the run: nothing waits for the user, so `RunFinishe
 | `features.objects` | The types the backend can emit (`AssistantCapabilities::objects()`), in the order `kpi`, `chart`, `graph`. `[]` when the policy compiled for the in-app profile with `widget_objects` allows no tool (the catalog lacks the capability, or the profile does not grant `show_widget`). Otherwise `kpi` and `chart` when an entity in `ai.features.tools.crud.entities` lists `summarize`, and `graph` when the policy compiled for the in-app profile with `read_only_graph` allows `graph_expand`, whether or not an entity lists `summarize`. |
 | `limits.aggregate` | The four ceilings of `core.aggregate.*` a client may plan with: `max_measures`, `max_groups`, `max_points`, `max_period_days`, as configured. Every limit is also a structured error of the route, so a client works without them. |
 
+`features.objects` does not depend on `enabled`, and neither do `proposals` and `writes`: each says what the backend
+can emit once the assistant is switched on. A client reads `enabled` (and `configured`) first.
+
 Like the rest of the endpoint, these depend on the instance, not on the person: which entities a person may
 summarize is listed in `actions` (`operation: summarize`, `kind: read`), and a figure or a chart is offered for a
 turn only when that list is not empty for the acting person. Which records a person may see in a map is decided by
@@ -217,6 +220,10 @@ backend), sends no `context.page.objects` and gets answers in text only.
   and the figures of the rest under `other`; a bucketed group returns every bucket;
 - `sum` and `avg` need a numeric column that is not a key;
 - a figure that adds more than one currency is `null`, and the answer carries the `MIXED_CURRENCY` warning;
+- a ranking of such an amount (a column group of `summarize`, ranked by the first metric, or a `show_widget` request
+  sorted by measure) follows the sum the database computes across currencies, which the answer shows as `null`, so
+  the first groups can be chosen by a number nobody sees: group by the currency column instead, or, in a
+  `show_widget` request, sort by key;
 - a refusal of the engine comes back with its code and the place it is about, so the model can correct the call.
 
 ## Graph objects
