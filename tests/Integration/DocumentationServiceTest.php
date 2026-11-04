@@ -558,16 +558,23 @@ it('uses helper roots when indexing without an explicit path', function (): void
     config()->set('ai.features.faq.documentation_path', $rag_dir);
     config()->set('ai.features.faq.vector_store', 'memory');
 
+    /** @var list<string> $source_names */
+    $source_names = [];
     $agent_mock = Mockery::mock(DocumentationAgent::class);
     $agent_mock->shouldReceive('reindexBySource')
-        ->with(Mockery::on(static fn (array $docs): bool => count($docs) > 0 && count($docs) <= 100))
         ->atLeast()
-        ->once();
+        ->once()
+        ->andReturnUsing(function (array $documents) use (&$source_names): void {
+            foreach ($documents as $document) {
+                $source_names[] = $document->getSourceName();
+            }
+        });
 
     $service = new DocumentationService(fn (): DocumentationAgent => $agent_mock);
 
     try {
-        expect($service->indexDocuments())->toBeGreaterThan(0);
+        expect($service->indexDocuments())->toBeGreaterThan(0)
+            ->and(collect($source_names)->contains(static fn (string $name): bool => str_ends_with($name, 'guide.md')))->toBeTrue();
     } finally {
         unlink($rag_dir . '/guide.md');
         rmdir($rag_dir);
