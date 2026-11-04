@@ -45,10 +45,14 @@ test('index mappings include dense vector with configured dimensions', function 
             'tenant_id',
             'version',
             'heading_breadcrumb',
+            'document_key',
+            'section',
             'source_type',
             'policy_classification_version',
         ]);
-    expect($mappings['properties']['metadata']['properties']['source_type'])->toBe(['type' => 'keyword']);
+    expect($mappings['properties']['metadata']['properties']['source_type'])->toBe(['type' => 'keyword'])
+        ->and($mappings['properties']['metadata']['properties']['document_key'])->toBe(['type' => 'keyword'])
+        ->and($mappings['properties']['metadata']['properties']['section'])->toBe(['type' => 'integer']);
 });
 
 test('profile selects a distinct configured physical index', function (): void {

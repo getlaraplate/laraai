@@ -161,6 +161,26 @@ it('returns only safe citations from authorized scoped hits', function (): void 
         ->and($documents[0]->getScore())->toBe(0.91);
 });
 
+it('hands on the position and the key of a document and still no path', function (): void {
+    $embedding_service = Mockery::mock(IEmbeddingService::class);
+    $embedding_service->shouldReceive('embedText')->once()->andReturn([0.1, 0.2, 0.3]);
+
+    $hit = (new Document('Apri il contenuto e seleziona Modifica.'))
+        ->setSourceName('/internal/path/content.md')
+        ->setMetadata([...safe_retrieval_hit_metadata(), 'section' => 4, 'document_key' => 'd_' . str_repeat('a', 32)])
+        ->setScore(0.91);
+
+    $retrieval = new InAppDocumentationRetrieval(
+        embedding_service: $embedding_service,
+        search: static fn (array $embedding, DocumentationRetrievalContext $context): array => [$hit],
+    );
+
+    $documents = $retrieval->retrieve('Come modifico un contenuto?', in_app_access_context());
+
+    expect($documents[0]->getMetadata())->toMatchArray(['section' => 4, 'document_key' => 'd_' . str_repeat('a', 32)])
+        ->and($documents[0]->getMetadata())->not->toHaveKey('canonical_source');
+});
+
 it('drops documents scoring below the configured minimum similarity', function (): void {
     config()->set('ai.features.faq.min_similarity', 0.95);
 

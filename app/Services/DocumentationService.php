@@ -399,7 +399,11 @@ final readonly class DocumentationService
         $split_documents = [];
 
         foreach ($documents as $document) {
-            foreach ($splitter->splitDocument($document) as $chunk) {
+            $chunks = array_values($splitter->splitDocument($document));
+
+            DocumentationMetadata::markPositions($chunks);
+
+            foreach ($chunks as $chunk) {
                 $split_documents[] = $chunk;
             }
         }

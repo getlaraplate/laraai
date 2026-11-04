@@ -109,10 +109,12 @@ final readonly class InAppDocumentationRetrieval
                 ->setSourceName((string) $metadata['safe_source_label'])
                 ->setMetadata(array_intersect_key($metadata, array_flip([
                     'audience',
+                    'document_key',
                     'heading_breadcrumb',
                     'locale',
                     'module',
                     'safe_source_label',
+                    'section',
                     'version',
                 ])))
                 ->setScore($document->getScore());
