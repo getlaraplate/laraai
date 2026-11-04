@@ -60,15 +60,19 @@ The key passes the same control-plane check as the rest of `context`.
 
 | Parameter | Type | Meaning |
 |---|---|---|
-| `type` | `kpi`, `chart`, and `graph` in a run whose policy allows `graph_expand` | A kpi shows one figure, or its trend over time buckets; a chart shows figures by group or over time; a graph shows the relation map of one record. |
+| `type` | the types of the run, among `kpi`, `chart` and `graph` | A kpi shows one figure, or its trend over time buckets; a chart shows figures by group or over time; a graph shows the relation map of one record. |
 | `title` | text, at most 80 characters | Plain text in the language of the user, without markup or links. |
 | `request` | JSON text, at most 2000 characters | For a kpi or a chart, the aggregate request of the route plus `resource` (`module/entity`, lower case): `measures`, `group_by`, `period`, `filters`, `sort`, `limit`, `other`, `compare`. For a graph, the graph request (see *Graph objects*). |
-| `variant` | `bar`, `line`, `donut`, `ranking` | Required for a chart, refused for a kpi and a graph. |
-| `format` | JSON text, at most 200 characters | Optional for a kpi or a chart: `{style: number\|currency\|percent, currency?: three capital letters, max_fraction_digits?: 0 to 4, compact?: true\|false}` and no other key. Refused for a graph. |
+| `variant` | `bar`, `line`, `donut`, `ranking` | Required for a chart, refused for a kpi and a graph. Offered only when a kpi or a chart is. |
+| `format` | JSON text, at most 200 characters | Optional for a kpi or a chart: `{style: number\|currency\|percent, currency?: three capital letters, max_fraction_digits?: 0 to 4, compact?: true\|false}` and no other key. Refused for a graph. Offered only when a kpi or a chart is. |
 
-The `type` enum and the description of `request` mention the graph only in a run whose policy allows `graph_expand`
-(`WidgetObjectCollector::types()`), so the model is never offered a type it cannot use. The model may call the tool
-`max_objects_per_message` + 2 times in a turn (8 by default), so it can correct a refused request.
+The definition is built from the types of the run (`WidgetObjectCollector::types()`): the types the page declared
+that the run can use, `kpi` and `chart` when the acting person is offered `summarize` (the gate above), `graph` when
+the policy allows `graph_expand`. The `type` enum lists exactly those, and the description of the tool and of
+`request` speak only of them: a run of figures says nothing of graphs, and a run of graphs says nothing of figures,
+charts or `summarize`. A type outside the enum is refused by the schema of the tool before the collector sees it, and
+the collector still refuses it on its own. The model may call the tool `max_objects_per_message` + 2 times in a turn
+(8 by default), so it can correct a refused request.
 
 ### What a call is checked against
 
@@ -77,16 +81,16 @@ In this order, each with its own refusal. Every refusal reads `Not shown: <why>.
 | Check | `<why>` |
 |---|---|
 | The type is one the page declared | `the page does not show objects of that type` |
-| The type is one the tool shows in this run (a graph needs `graph_expand`) | `the assistant may not show graph objects` |
+| The type is one the run shows (a kpi or a chart needs the `summarize` gate, a graph `graph_expand`) | `the assistant may not show <type> objects` |
 | The title is plain text of 1 to 80 characters (no control character, `<`, `>`, backtick or link) that passes the output guardrails | `the title must be plain text of 1 to 80 characters, without markup or links` |
 | The request is JSON text of an object whose `resource` is `module/entity` | `the request must be JSON text of an object with a resource written as module/entity` |
+| The message holds fewer than `max_objects_per_message` objects, of every type | `a message shows at most <max_objects_per_message> objects` (6 by default) |
 
 A graph goes on with its own checks (see *Graph objects*). A kpi or a chart goes on with these:
 
 | Check | `<why>` |
 |---|---|
 | `CrudToolProvider::offeredOperations()` lists `summarize` on that entity for the acting person (opted in, and the person holds `select`) | `the assistant may not show figures of that resource` |
-| The message holds fewer than `max_objects_per_message` objects | `a message shows at most <max_objects_per_message> objects` (6 by default) |
 | `AggregateQuery::fromArray()`, the validator of the route, accepts the request | `the request was refused with <CODE> on <field>: <message>` |
 | The filters are a list of filter nodes that the rules of the route accept | `the filters must be a list of filter objects`, `the filters of a node must themselves be a list of filter objects`, or `the filters were refused: <first message of the validator>` |
 | A kpi has no column group and no variant | `a kpi shows one figure: leave group_by out, or group by a time bucket for its trend`, `a kpi takes no variant` |
@@ -230,12 +234,14 @@ The model writes it as JSON text in `request`:
 | Key | Rule |
 |---|---|
 | `resource` | `module/entity`, lower case, as for the other types. |
-| `id` | The key of the record: an integer, or a text of 1 to 255 characters that is not blank. |
-| `relations` | A list of 1 to 10 distinct relation paths, each of relation names joined by dots (`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`), of at most 128 characters, and with no more steps than the depth. |
+| `id` | The key of the record: an integer, or a text of 1 to 255 characters that is not blank. `0` and `"0"` are keys. |
+| `relations` | A list of 1 to 10 relation paths, each of relation names joined by dots (`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`), of at most 128 characters, and with no more steps than the depth. The paths are distinct in any case: `["roles", "Roles"]` names one relation twice, since relation names are method names, which PHP reads in any case. |
 | `depth` | Optional, `1` or `2`; `1` when left out. |
 | `node_detail` | Optional, `minimal` or `summary`. |
 
-No other key is accepted, `kind` included. These are the bounds of the `graph_expand` tool.
+No other key is accepted, `kind`, `limit` and `relation_limit` included. An optional key sent as `null` is refused,
+as any other value outside its list; leaving it out applies its default. These are the bounds of the `graph_expand`
+tool.
 
 ### What a graph call is checked against
 
@@ -243,26 +249,27 @@ After the checks common to every type (above), in this order, each with its own 
 
 | Check | `<why>` |
 |---|---|
-| The message holds fewer than `max_objects_per_message` objects, counting the figures and charts too | `a message shows at most <max_objects_per_message> objects` |
 | The request has only the keys above | `a graph request holds only resource, id, relations, depth and node_detail` |
 | `id` | `the id must be an integer or a text of 1 to 255 characters` |
 | `relations` is a list of 1 to 10 entries | `the relations must be a list of 1 to 10 relation paths` |
 | Each entry is a relation path of at most 128 characters | `each relation must be a path of relation names joined by dots, of at most 128 characters` |
-| No path is repeated | `each relation may appear only once` |
+| No path is repeated, in any case | `each relation may appear only once` |
 | `depth` | `the depth must be 1 or 2` |
 | No path has more steps than the depth | `a relation path may not have more steps than the depth` |
 | `node_detail` | `node_detail must be minimal or summary` |
 | No variant | `a graph takes no variant` |
 | No format | `a graph takes no format` |
-| No object of the message shows the same graph: the same resource, id (`7` and `"7"` are one id), relations in any order, depth and `node_detail` | `an object showing the same request is already in this message` |
+| No object of the message shows the same graph: the same resource, id (`7` and `"7"` are one id), relations in any order and any case, depth, and `node_detail` with the default of the route (`graph.default_node_detail`) applied when it is left out | `an object showing the same request is already in this message` |
+| Fewer than 3 graphs of the message reached the gateway, whatever it answered (`GraphToolProvider::MAX_RUNS`, the runs a graph tool has in a turn) | `a message expands at most 3 graphs` |
 
 The graph then expands once through `GraphToolGatewayInterface::expand()` with a `GraphExpandToolInput` of the
-module, the entity, the id as text, the relations and the depth, at most 25 nodes and at most 10 records per
-relation (the maximums of the graph tools). The gateway runs Core Graph as the acting person: the permission on each
-entity, the row-level ACL of each record and the rules of its provider. It answers an entity it cannot resolve, a
-record that does not exist or may not be read, a relation it refuses, and any failure of its own with an
-unavailable result, which is answered with a fixed sentence and not reported:
-`the graph cannot be shown: the record does not exist, the user may not read it, or a relation cannot be expanded`.
+module, the entity, the id as text, the relations, the depth and the limits the request carries: at most 25 nodes
+and at most 10 records per relation (`GraphWidgetRequest::NODE_LIMIT` and `RELATION_LIMIT`, the maximums of the
+graph tools). The gateway runs Core Graph as the acting person: the permission on each entity, the row-level ACL of
+each record and the rules of its provider. It answers an entity it cannot resolve, a record that does not exist or
+may not be read, a relation it refuses, and any failure of its own with an unavailable result, which is answered
+with a fixed sentence and not reported:
+`the record does not exist, the user may not see it, or a relation cannot be expanded`.
 Any exception the gateway throws is reported and answered `the figures could not be computed`; its message never
 reaches the model.
 
@@ -277,9 +284,8 @@ of counts only:
 
 `by_type` counts the nodes of each `module/entity` as the gateway names them, `by_relation` the edges of each
 relation, and `truncated` says that the map was cut at its limits. No label, attribute, node id or record key is
-handed over: those are text people wrote, and a channel for instructions. The gateway does not pass on whether
-records were left out for permissions, so the model is not told that. The counts still go through the same check as
-the other results: when they read like an instruction they are withheld, the object is still recorded, and
+handed over: those are text people wrote, and a channel for instructions. The counts still go through the same check
+as the other results: when they read like an instruction they are withheld, the object is still recorded, and
 `Assistant tool result withheld` is logged with `operation: graph_expand`.
 
 ### The object
@@ -290,21 +296,22 @@ the other results: when they read like an instruction they are withheld, the obj
   "type": "graph",
   "title": "Roles of Alice",
   "ref": {
-    "request": { "kind": "graph", "resource": "core/users", "id": 7, "relations": ["roles", "roles.permissions"], "depth": 2, "node_detail": "summary" }
+    "request": { "kind": "graph", "resource": "core/users", "id": 7, "relations": ["roles", "roles.permissions"], "depth": 2, "node_detail": "summary", "limit": 25, "relation_limit": 10 }
   }
 }
 ```
 
 `ref.request` is the validated request, never the raw text of the model: `kind` (`graph`), `resource`, `id` as the
-model wrote it (an integer or a text), `relations` in the order given, `depth` always written (`1` when left out),
-and `node_detail` only when it was given. The audit log writes the same request canonically (keys sorted, the id as
-text, the relations sorted).
+model wrote it (an integer or a text), `relations` as given, `depth` always written (`1` when left out),
+`node_detail` only when it was given, and the limits of the expansion, `limit` (25) and `relation_limit` (10), which
+the model never writes. The audit log writes the request canonically: keys sorted, the id as text, the relations in
+lower case and sorted, and the default node detail of the route when none was given; it is the text the duplicate
+rule compares.
 
-**Running it.** A client calls `GET /app/crud/graph/expand/{module}/{entity}/{id}` with `relations[]`, `depth` and,
-when present, `node_detail` from `ref.request`. The route applies the permission and the ACL again and returns the
-nodes, the edges and `graphMeta`, with `truncated` and `filteredByAcl`. It applies its own `limit` and
-`relation_limit` (see `GRAPH_SYSTEM.md`), which the object does not carry: the map a client draws may hold more
-nodes than the 25 the model's counts came from.
+**Running it.** A client calls `GET /app/crud/graph/expand/{module}/{entity}/{id}` with `relations[]`, `depth`,
+`limit`, `relation_limit` and, when present, `node_detail` from `ref.request`, so the map it draws is expanded with
+the limits the model's counts came from. The route applies the permission and the ACL again and returns the nodes,
+the edges and `graphMeta` (see `GRAPH_SYSTEM.md`).
 
 ## Code map
 
@@ -313,10 +320,11 @@ Paths are under `Modules/AI/app/`.
 | Piece | Role |
 |---|---|
 | `Services/Tools/ShowWidgetTool` | The tool definition and its parameters. |
-| `Services/Assistance/Widgets/WidgetObjectCollector` | Checks each call, runs the request once, keeps the objects of one message. `CAPABILITY = 'widget_objects'`, `GRAPH_TOOL = 'graph_expand'`, `types()` (the types of the run). |
+| `Services/Assistance/Widgets/WidgetObjectCollector` | The single entry point of a call: checks it, runs the request once, keeps the objects of one message. `CAPABILITY = 'widget_objects'`, `GRAPH_TOOL = 'graph_expand'`, `types()` (the types of the run). |
+| `Services/Assistance/Widgets/GraphWidgetRequest` | The graph request: its validation, the stored shape with its limits, the canonical form, the expansion input and the counts handed to the model. |
 | `Services/Assistance/Widgets/RenderableObjectTypes` | Reads `context.page.objects`. |
 | `Data/WidgetObject` | `{id, type, title, ref}`. |
-| `Services/Assistance/InAppAssistanceService` | Builds the tool for the turn, passes the collector whether the policy allows `graph_expand` and the `GraphToolGatewayInterface` of the container, and writes `metadata.objects`. |
+| `Services/Assistance/InAppAssistanceService` | Builds the tool for the turn, tells the collector which types the run can use (a graph declared and allowed, with the `GraphToolGatewayInterface` of the container; the `summarize` gate for figures and charts), and writes `metadata.objects`. |
 | `Services/Assistance/Stream/AgentEvent::object()`, `Services/AssistAgentService` | The stream event. |
 | `Services/Assistance/AssistantCapabilities` | `WIDGETS_CAPABILITY`, `GRAPH_CAPABILITY`, `widgets()`, `summaries()`, `objects()`, `limits` in `toArray()`. |
 | `Modules\Core\Graph\Contracts\GraphToolGatewayInterface` (Core) | The gateway a graph expands through, shared with the graph tools. |
@@ -339,6 +347,6 @@ expands a real record through the gateway of Core.
 | `features.objects` is empty | The catalog lacks `widget_objects` or the in-app profile does not grant `show_widget`; or no entity lists `summarize` in `ai.features.tools.crud.entities` and the policy does not allow `graph_expand`. |
 | `features.objects` lists only `graph` | No entity lists `summarize`: figures and charts need that opt-in, a graph does not. |
 | The model never shows an object | The page sent no `objects` list, or only unknown types; or it declared only `kpi` or `chart` and the person holds no `select` on any entity opted into `summarize`; or it declared only `graph` and the policy does not allow `graph_expand`: the tool is then not built. |
-| A graph is refused with `the graph cannot be shown` | The entity cannot be resolved, the record does not exist, the person may not read it, or Core Graph refuses a relation (a provider rule, an excluded relation, a relation that does not exist). The gateway does not say which. |
+| A graph is refused with `the record does not exist, the user may not see it, or a relation cannot be expanded` | The entity cannot be resolved, the record does not exist, the person may not read it, or Core Graph refuses a relation (a provider rule, an excluded relation, a relation that does not exist). The gateway does not say which. |
 | An object is refused | The answer to the model says why: see the table of checks. |
 | The figures the client shows differ from what the model said | The client runs the request later, with the permission and ACL of that moment, and the data may have changed. |
