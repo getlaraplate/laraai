@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Modules\AI\Services\Assistance\Stream;
 
+use Modules\AI\Services\Tools\ShowWidgetTool;
+
 /**
  * The events of a run, in the vocabulary of AG-UI: every one is an array with its `type`. They carry
  * what the server decided to say: lifecycle, fixed step labels, a complete validated message,
- * validated proposals, and an interrupt or an error code. No event carries a token of the model.
+ * validated proposals and objects, and an interrupt or an error code. No event carries a token of the model.
  */
 final class AgentEvent
 {
@@ -76,6 +78,22 @@ final class AgentEvent
             'toolCallId' => (string) $proposal['id'],
             'toolCallName' => $proposal['kind'] === 'view_state' ? 'propose_view_state' : 'propose_preference_change',
             'args' => $proposal,
+        ];
+    }
+
+    /**
+     * An object of the message, as it was validated, for the client to render. Nothing waits for the user.
+     *
+     * @param  array{id: string, type: string, title: string, ref: array<string, mixed>}  $object
+     * @return array{type: string, toolCallId: string, toolCallName: string, args: array<string, mixed>}
+     */
+    public static function object(array $object): array
+    {
+        return [
+            'type' => 'ToolCall',
+            'toolCallId' => $object['id'],
+            'toolCallName' => ShowWidgetTool::NAME,
+            'args' => $object,
         ];
     }
 

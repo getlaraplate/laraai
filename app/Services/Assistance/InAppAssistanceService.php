@@ -14,6 +14,7 @@ use Modules\AI\Ai\Providers\RoleTokenUsage;
 use Modules\AI\Ai\Providers\TokenUsage;
 use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Data\UiProposal;
+use Modules\AI\Data\WidgetObject;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use Modules\AI\Http\Resources\WriteProposalResource;
@@ -32,6 +33,8 @@ use Modules\AI\Services\Assistance\Scope\AssistantScope;
 use Modules\AI\Services\Assistance\Scope\AssistantScopeResolver;
 use Modules\AI\Services\Assistance\Scope\DataAccess;
 use Modules\AI\Services\Assistance\Stream\RunProgress;
+use Modules\AI\Services\Assistance\Widgets\RenderableObjectTypes;
+use Modules\AI\Services\Assistance\Widgets\WidgetObjectCollector;
 use Modules\AI\Services\Assistance\Writes\ActingIdentityBlock;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\ChatService;
@@ -40,12 +43,15 @@ use Modules\AI\Services\Documentation\HeadingBreadcrumb;
 use Modules\AI\Services\DocumentationService;
 use Modules\AI\Services\Tools\CompositeContextualToolProvider;
 use Modules\AI\Services\Tools\ContextualToolProviderInterface;
+use Modules\AI\Services\Tools\CrudToolProvider;
 use Modules\AI\Services\Tools\ProposePreferenceChangeTool;
 use Modules\AI\Services\Tools\ProposeViewStateTool;
+use Modules\AI\Services\Tools\ShowWidgetTool;
 use Modules\AI\Services\Tools\ToolDefinition;
 use Modules\AI\Services\Tools\ToolRegistry;
 use Modules\AI\Services\Tools\ToolResultGuard;
 use Modules\Core\Models\User;
+use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\RAG\Document;
 use NeuronAI\Tools\Tool;
@@ -104,6 +110,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                     AssistantCapabilities::PROPOSALS_CAPABILITY,
                     AssistantCapabilities::READS_CAPABILITY,
                     AssistantCapabilities::WRITES_CAPABILITY,
+                    AssistantCapabilities::WIDGETS_CAPABILITY,
                 ],
             );
             $input = $this->guardrails->validateInput($user_input);
@@ -141,6 +148,8 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $tools = $this->tool_registry->getNeuronToolsForDefinitions(array_map($guard->wrap(...), $definitions));
             $proposals = $this->proposalCollector($policy);
             $tools = [...$tools, ...$this->proposalTools($policy, $proposals)];
+            $widgets = $this->widgetCollector($policy);
+            $tools = [...$tools, ...$this->widgetTools($widgets)];
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_RETRIEVE);
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_ANSWER);
 
@@ -181,6 +190,13 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 $metadata['writes'] = array_map(
                     static fn (WriteProposal $proposal): array => (new WriteProposalResource($proposal))->resolve(),
                     $pending_writes,
+                );
+            }
+
+            if ($widgets instanceof WidgetObjectCollector && $widgets->hasObjects()) {
+                $metadata['objects'] = array_map(
+                    static fn (WidgetObject $object): array => $object->toArray(),
+                    $widgets->objects(),
                 );
             }
 
@@ -303,6 +319,39 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         }
 
         return $this->tool_registry->getNeuronToolsForDefinitions($definitions);
+    }
+
+    /**
+     * The objects of this message, when the compiled policy allows the widget tool, the page declared an
+     * object type it renders (`context.page.objects`, a hint that narrows what may be shown and grants
+     * nothing) and the instance opted an entity into `summarize`. Without all three the assistant has no
+     * widget tool at all; which entity the acting person may summarize is decided when the tool runs.
+     */
+    private function widgetCollector(CompiledAssistantPolicy $policy): ?WidgetObjectCollector
+    {
+        if (! $policy->allowsTool(ShowWidgetTool::NAME)) {
+            return null;
+        }
+
+        $types = RenderableObjectTypes::fromPageContext($this->request->input('context.page.objects'));
+
+        if ($types->isEmpty() || ! app(AssistantCapabilities::class)->summaries()) {
+            return null;
+        }
+
+        return new WidgetObjectCollector($types, app(CrudToolProvider::class), $this->guardrails, AggregateLimits::fromConfig());
+    }
+
+    /**
+     * @return list<Tool>
+     */
+    private function widgetTools(?WidgetObjectCollector $collector): array
+    {
+        if (! $collector instanceof WidgetObjectCollector) {
+            return [];
+        }
+
+        return $this->tool_registry->getNeuronToolsForDefinitions([new ShowWidgetTool($collector)->definition()]);
     }
 
     private function serverApplicationContext(): ?ApplicationContentRequestContext

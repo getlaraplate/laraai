@@ -8,8 +8,11 @@ use function ai_config_bool;
 
 use InvalidArgumentException;
 use Modules\AI\Ai\Providers\ProviderFactory;
+use Modules\AI\Data\WidgetObject;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCompiler;
+use Modules\AI\Services\Assistance\Widgets\WidgetObjectCollector;
+use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
 
 /**
  * What the in-app assistant offers an instance, as a client may learn it before it shows any
@@ -22,6 +25,8 @@ final readonly class AssistantCapabilities
     public const string READS_CAPABILITY = 'crud_reads';
 
     public const string WRITES_CAPABILITY = 'governed_writes';
+
+    public const string WIDGETS_CAPABILITY = WidgetObjectCollector::CAPABILITY;
 
     public function __construct(private AssistantPolicyCompiler $policy_compiler) {}
 
@@ -85,17 +90,47 @@ final readonly class AssistantCapabilities
             return false;
         }
 
-        $entities = config('ai.features.tools.crud.entities', []);
+        return $this->optsAnEntityInto(['create', 'update', 'delete', 'bulk_update', 'bulk_delete']);
+    }
 
-        foreach (is_array($entities) ? $entities : [] as $operations) {
-            foreach (is_array($operations) ? $operations : [] as $operation) {
-                if (in_array(mb_strtolower((string) $operation), ['create', 'update', 'delete', 'bulk_update', 'bulk_delete'], true)) {
-                    return true;
-                }
-            }
+    /**
+     * Widget objects are offered when the policy compiled for the in-app profile with the capability
+     * `widget_objects` still allows a tool, as for {@see self::proposals()}.
+     */
+    public function widgets(): bool
+    {
+        try {
+            $policy = $this->policy_compiler->compile(AssistantProfile::InAppAssistance, [self::WIDGETS_CAPABILITY]);
+        } catch (InvalidArgumentException) {
+            return false;
         }
 
-        return false;
+        return $policy->allowedTools !== [];
+    }
+
+    /**
+     * The instance has opted an entity into `summarize` (`ai.features.tools.crud.entities`), which is
+     * the operator's opt-in to the figures and charts of the assistant. Whether a given person may
+     * read that entity is decided when the widget tool runs.
+     */
+    public function summaries(): bool
+    {
+        return $this->optsAnEntityInto(['summarize']);
+    }
+
+    /**
+     * The types of object the backend can put in a message: none while {@see self::widgets()} is off
+     * or no entity is opted into `summarize`, otherwise the figure and the chart.
+     *
+     * @return list<string>
+     */
+    public function objects(): array
+    {
+        if (! $this->widgets() || ! $this->summaries()) {
+            return [];
+        }
+
+        return [WidgetObject::TYPE_KPI, WidgetObject::TYPE_CHART];
     }
 
     /**
@@ -107,7 +142,7 @@ final readonly class AssistantCapabilities
     }
 
     /**
-     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool}}
+     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool, objects: list<string>}, limits: array{aggregate: array{max_measures: int, max_groups: int, max_points: int, max_period_days: int}}}
      */
     public function toArray(): array
     {
@@ -119,7 +154,31 @@ final readonly class AssistantCapabilities
                 'proposals' => $this->proposals(),
                 'writes' => $this->writes(),
                 'streaming' => $this->streaming(),
+                'objects' => $this->objects(),
+            ],
+            'limits' => [
+                'aggregate' => AggregateLimits::fromConfig()->toArray(),
             ],
         ];
+    }
+
+    /**
+     * Whether `ai.features.tools.crud.entities` lists one of the operations for an entity.
+     *
+     * @param  list<string>  $operations  in lower case
+     */
+    private function optsAnEntityInto(array $operations): bool
+    {
+        $entities = config('ai.features.tools.crud.entities', []);
+
+        foreach (is_array($entities) ? $entities : [] as $listed) {
+            foreach (is_array($listed) ? $listed : [] as $operation) {
+                if (is_string($operation) && in_array(mb_strtolower($operation), $operations, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

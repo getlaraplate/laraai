@@ -10,16 +10,19 @@ use Modules\Core\Models\User;
 uses(Illuminate\Foundation\Testing\RefreshDatabase::class);
 
 /**
- * The default catalog, with the capability `ui_proposals` and/or the grant of the in-app profile removed.
+ * The default catalog, with the grant of the in-app profile for the given tools removed and, unless it is
+ * kept, the capability itself.
+ *
+ * @param  list<string>  $tools
  */
-function catalogWithoutProposals(bool $keepCapability): AssistantPolicyCatalog
+function catalogWithoutCapability(string $capability, array $tools, bool $keepCapability): AssistantPolicyCatalog
 {
     $defaults = AssistantPolicyCatalog::defaults();
     $profile = $defaults->profiles['in_app_assistance'];
     $capabilities = $defaults->capabilities;
 
     if (! $keepCapability) {
-        unset($capabilities['ui_proposals']);
+        unset($capabilities[$capability]);
     }
 
     return new AssistantPolicyCatalog(
@@ -30,7 +33,7 @@ function catalogWithoutProposals(bool $keepCapability): AssistantPolicyCatalog
             'in_app_assistance' => new AssistantPolicyRuleSet(
                 instruction: $profile->instruction,
                 allowedCorpora: $profile->allowedCorpora,
-                allowedTools: array_values(array_diff($profile->allowedTools, ['propose_preference_change', 'propose_view_state'])),
+                allowedTools: array_values(array_diff($profile->allowedTools, $tools)),
                 allowedFields: $profile->allowedFields,
                 deniedCorpora: $profile->deniedCorpora,
                 deniedTools: $profile->deniedTools,
@@ -40,6 +43,11 @@ function catalogWithoutProposals(bool $keepCapability): AssistantPolicyCatalog
         capabilities: $capabilities,
         modules: $defaults->modules,
     );
+}
+
+function catalogWithoutProposals(bool $keepCapability): AssistantPolicyCatalog
+{
+    return catalogWithoutCapability('ui_proposals', ['propose_preference_change', 'propose_view_state'], $keepCapability);
 }
 
 function useCatalog(AssistantPolicyCatalog $catalog): void
@@ -61,7 +69,55 @@ it('tells a signed-in user what the assistant offers', function (): void {
     $this->actingAs($this->user)
         ->getJson(route('ai.capabilities'))
         ->assertOk()
-        ->assertJsonPath('data', ['enabled' => true, 'configured' => true, 'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true], 'actions' => []]);
+        ->assertJsonPath('data', [
+            'enabled' => true,
+            'configured' => true,
+            'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true, 'objects' => []],
+            'limits' => ['aggregate' => ['max_measures' => 3, 'max_groups' => 50, 'max_points' => 400, 'max_period_days' => 1096]],
+            'actions' => [],
+        ]);
+});
+
+it('lists kpi and chart in features.objects when an entity offers summarize and the capability is on', function (): void {
+    config(['ai.features.tools.crud.entities' => ['core.role' => ['list'], 'core.setting' => ['list', 'summarize']]]);
+
+    $this->actingAs($this->user)
+        ->getJson(route('ai.capabilities'))
+        ->assertOk()
+        ->assertJsonPath('data.features.objects', ['kpi', 'chart']);
+});
+
+it('lists no object type when the capability is removed or no entity offers summarize', function (?Closure $catalog, array $entities): void {
+    config(['ai.features.tools.crud.entities' => $entities]);
+
+    if ($catalog instanceof Closure) {
+        useCatalog($catalog());
+    }
+
+    $this->actingAs($this->user)
+        ->getJson(route('ai.capabilities'))
+        ->assertOk()
+        ->assertJsonPath('data.features.objects', []);
+})->with([
+    'the catalog lacks the capability' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: false), ['core.setting' => ['summarize']]],
+    'the profile does not grant the tool' => [static fn (): AssistantPolicyCatalog => catalogWithoutCapability('widget_objects', ['show_widget'], keepCapability: true), ['core.setting' => ['summarize']]],
+    'no entity offers summarize' => [null, ['core.setting' => ['list', 'detail', 'update']]],
+]);
+
+it('publishes the four aggregate limits as the configuration sets them', function (): void {
+    config([
+        'core.aggregate.max_measures' => 2,
+        'core.aggregate.max_groups' => 12,
+        'core.aggregate.max_points' => 90,
+        'core.aggregate.max_period_days' => 366,
+        'core.aggregate.max_objects_per_message' => 4,
+        'core.aggregate.rate_per_minute' => 10,
+    ]);
+
+    $this->actingAs($this->user)
+        ->getJson(route('ai.capabilities'))
+        ->assertOk()
+        ->assertJsonPath('data.limits', ['aggregate' => ['max_measures' => 2, 'max_groups' => 12, 'max_points' => 90, 'max_period_days' => 366]]);
 });
 
 it('is not enabled while the assistant feature is off', function (): void {

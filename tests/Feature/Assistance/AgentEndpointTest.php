@@ -11,9 +11,11 @@ use Modules\AI\Services\Assistance\InAppAssistanceService;
 use Modules\AI\Services\ChatService;
 use Modules\AI\Tests\Stubs\Assistance\ScriptedAssistantFixtures;
 use Modules\AI\Tests\Stubs\Assistance\ToolCallingFakeProvider;
+use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\Permission;
 use Modules\Core\Models\Role;
 use Modules\Core\Models\User;
+use Modules\Core\Support\PermissionName;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\Tool;
@@ -141,6 +143,33 @@ it('ends the run with an interrupt when the assistant proposes a change, and app
             'interrupts' => [['id' => $proposal['id'], 'reason' => 'confirm_proposal', 'payload' => ['kind' => 'preference', 'target' => ['namespace' => 'ui', 'key' => 'defaultListLayout']]]],
         ])
         ->and($this->user->fresh()->preferences)->toBe($before);
+
+    $provider->assertCallCount(2);
+});
+
+it('sends a show_widget event for each object before RunFinished, and the run ends in success', function (): void {
+    config(['ai.features.tools.crud.entities' => ['core.setting' => ['summarize']]]);
+    $permission = PermissionName::forModel(DynamicEntity::resolve('setting', module: 'core'), 'select');
+    Permission::findOrCreate($permission, 'web');
+    $this->user->givePermissionTo($permission);
+    agentFakeModel($provider = new ToolCallingFakeProvider([
+        ['show_widget', ['type' => 'kpi', 'title' => 'Settings', 'request' => '{"resource":"core/setting","measures":[{"fn":"count"}]}']],
+        ['show_widget', ['type' => 'chart', 'title' => 'Settings by group', 'variant' => 'bar', 'request' => '{"resource":"core/setting","measures":[{"fn":"count"}],"group_by":{"field":"group_name"},"limit":5}']],
+    ], new AssistantMessage('Here is how many settings there are, and how they split by group.')));
+
+    $events = agentEvents(($this->run)(['message' => 'How many settings are there?', 'context' => ['page' => ['objects' => ['kpi', 'chart']]]])->streamedContent());
+    $types = array_column($events, 'type');
+    $objects = $this->conversation->messages()->where('role', 'assistant')->first()->metadata['objects'];
+    $toolCalls = array_keys($types, 'ToolCall', true);
+
+    expect($objects)->toHaveCount(2)
+        ->and(array_map(static fn (int $index): array => $events[$index], $toolCalls))->toBe([
+            ['event' => 'ToolCall', 'type' => 'ToolCall', 'toolCallId' => $objects[0]['id'], 'toolCallName' => 'show_widget', 'args' => $objects[0]],
+            ['event' => 'ToolCall', 'type' => 'ToolCall', 'toolCallId' => $objects[1]['id'], 'toolCallName' => 'show_widget', 'args' => $objects[1]],
+        ])
+        ->and(array_search('TextMessageEnd', $types, true))->toBeLessThan($toolCalls[0])
+        ->and(max($toolCalls))->toBeLessThan(array_search('RunFinished', $types, true))
+        ->and(end($events))->toMatchArray(['type' => 'RunFinished', 'outcome' => ['type' => 'success']]);
 
     $provider->assertCallCount(2);
 });

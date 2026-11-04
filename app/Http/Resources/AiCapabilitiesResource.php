@@ -10,7 +10,8 @@ use Modules\AI\Services\Assistance\AssistantCapabilities;
 use Override;
 
 /**
- * The body of `GET /app/ai/capabilities`: `enabled`, `configured` and the `features` a client may rely on.
+ * The body of `GET /app/ai/capabilities`: `enabled`, `configured`, the `features` a client may rely on and the
+ * `limits` it may plan with.
  *
  * @property AssistantCapabilities $resource
  */
@@ -29,7 +30,7 @@ final class AiCapabilitiesResource extends JsonResource
      * operator opted in and the person is permitted to perform, `kind` being `read` or `write`, and
      * `requires_approval` saying that a write the person confirms is then sent for a vote.
      *
-     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool}, actions: list<array{entity: string, operation: string, kind: string, requires_approval: bool}>}
+     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool, objects: list<string>}, limits: array{aggregate: array{max_measures: int, max_groups: int, max_points: int, max_period_days: int}}, actions: list<array{entity: string, operation: string, kind: string, requires_approval: bool}>}
      */
     #[Override]
     public function toArray(Request $request): array

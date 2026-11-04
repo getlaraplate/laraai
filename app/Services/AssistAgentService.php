@@ -7,6 +7,7 @@ namespace Modules\AI\Services;
 use Fiber;
 use Generator;
 use Illuminate\Support\Str;
+use LogicException;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\Message;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
@@ -19,7 +20,7 @@ use Throwable;
  * One turn of the in-app assistant, told as the events of a run while it happens.
  *
  * It is a wrapper and nothing more: the turn is `InAppAssistanceService::respond()`, with its
- * protected profile, its compiled policy, its guardrails and its proposals, and this class neither
+ * protected profile, its compiled policy, its guardrails, its proposals and its objects, and this class neither
  * chooses nor changes any of them. The service runs inside a fiber and reports where it is, so the
  * run says "retrieving" while it retrieves; the answer is sent once it is complete and validated, as
  * one message, because no token of the model is ever delivered.
@@ -29,6 +30,9 @@ final readonly class AssistAgentService
     public function __construct(private InAppAssistanceServiceInterface $assistance) {}
 
     /**
+     * The proposals and then the objects of the message follow it, one event each. Only a proposal waits
+     * for the user, so only a proposal interrupts the run: an object is shown, never confirmed.
+     *
      * @param  array<string, mixed>|null  $context
      * @return Generator<int, array<string, mixed>>
      */
@@ -62,6 +66,10 @@ final readonly class AssistAgentService
             }
 
             $reply = $fiber->getReturn();
+
+            if (! $reply instanceof Message) {
+                throw new LogicException('The assistance service returned no message.');
+            }
         } catch (Throwable) {
             yield AgentEvent::runError(RunProgress::POLICY_DENIED);
 
@@ -85,6 +93,10 @@ final readonly class AssistAgentService
 
         foreach ($proposals as $proposal) {
             yield AgentEvent::proposal($proposal);
+        }
+
+        foreach ($reply->metadata['objects'] ?? [] as $object) {
+            yield AgentEvent::object($object);
         }
 
         yield AgentEvent::runFinished($conversation->getKey(), $run_id, $proposals);
