@@ -646,6 +646,28 @@ it('refuses filters the route would refuse, with the first message of its valida
     'a scope the entity does not expose' => [[['scope' => 'noSuchScope']], 'Not shown: the filters were refused: filters.0 '],
 ]);
 
+it('refuses a relation filter node at any depth, before anything runs and without reporting it', function (array $filters): void {
+    Exceptions::fake();
+    $crud = Mockery::mock(resolve(CrudService::class));
+    $crud->shouldNotReceive('aggregate');
+    $collector = widgetCollector(widgetUser(), crud: $crud);
+
+    $answer = $collector->show('kpi', 'Settings', widgetRequest(['filters' => $filters]), null, null);
+
+    expect($answer)->toBe('Not shown: relation filters are not supported, filter on a dotted property such as customer.country instead. Nothing was recorded.')
+        ->and($collector->hasObjects())->toBeFalse();
+
+    Exceptions::assertNothingReported();
+})->with([
+    'at depth 0' => [[['relation' => 'modifications', 'filters' => ['operator' => 'and', 'filters' => [['property' => 'id', 'operator' => '=', 'value' => 5]]]]]],
+    'nested in a group' => [[['operator' => 'or', 'filters' => [
+        widgetFilter('alpha'),
+        ['relation' => 'modifications', 'filters' => ['operator' => 'and', 'filters' => []]],
+    ]]]],
+    'with morph types' => [[['relation' => 'modifiable', 'morph_types' => ['setting'], 'filters' => ['operator' => 'and', 'filters' => [widgetFilter('alpha')]]]]],
+    'whose filters the route would refuse' => [[['relation' => 'modifications', 'filters' => [widgetFilter('alpha')]]]],
+]);
+
 it('records an OR group as an OR group and runs it as one', function (): void {
     foreach (['alpha', 'beta', 'gamma'] as $group) {
         Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'or-' . $group, 'group_name' => $group]);

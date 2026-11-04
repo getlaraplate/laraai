@@ -93,6 +93,7 @@ A graph goes on with its own checks (see *Graph objects*). A kpi or a chart goes
 | `CrudToolProvider::offeredOperations()` lists `summarize` on that entity for the acting person (opted in, and the person holds `select`) | `the assistant may not show figures of that resource` |
 | `AggregateQuery::fromArray()`, the validator of the route, accepts the request | `the request was refused with <CODE> on <field>: <message>` |
 | The filters are a list of filter nodes that the rules of the route accept | `the filters must be a list of filter objects`, `the filters of a node must themselves be a list of filter objects`, or `the filters were refused: <first message of the validator>` |
+| No filter node, at any depth, has a `relation` key: the route refuses a relation node, since the list reads it as a group of the main record | `relation filters are not supported, filter on a dotted property such as customer.country instead` |
 | A kpi has no column group and no variant | `a kpi shows one figure: leave group_by out, or group by a time bucket for its trend`, `a kpi takes no variant` |
 | A chart has a variant and a `group_by`; a `line` groups by a time bucket; a `donut` has a `limit` of at most 8 | `a chart needs a variant, one of bar, line, donut, ranking`, `a chart needs a group_by`, `a line chart needs a group_by with a time bucket`, `a donut chart needs a limit of at most 8 groups` |
 | The format is in the closed list | `the format must be JSON text of {style: number, currency or percent, currency?: three capital letters, max_fraction_digits?: 0 to 4, compact?: true or false} and nothing else` |
@@ -144,8 +145,9 @@ turn keeps only `{ "refused": true }`, whatever the tool recorded before the ref
 - `id` is a UUID, `type` is `kpi`, `chart` or `graph`, `title` is the validated title.
 - `ref.request` of a kpi or a chart is the validated request, not what the model wrote: `kind` (`aggregate`), `resource`, then the request
   as `AggregateQuery::toArray()` writes it (the `sort` that applies is always written, and a `limit` written as text
-  is a number), then `filters` when there are some, keeping only the words of the filter vocabulary at every depth.
-  A key the model adds anywhere else is dropped.
+  is a number), then `filters` when there are some, keeping only the words of the filter vocabulary at every depth:
+  `scope` and `parameters` for a scope node, `operator` and `filters` for a group, `property`, `operator` and `value`
+  for a condition. A key the model adds anywhere else is dropped.
 - `ref.variant` is present for a chart, `ref.format` when a format was given. A kpi has neither a variant nor a
   `delta`. A graph has only `ref.request` (see *Graph objects*).
 

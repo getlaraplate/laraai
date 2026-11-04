@@ -290,10 +290,10 @@ final class WidgetObjectCollector
 
     /**
      * The filter nodes in the vocabulary of {@see QueryBuilder} and nothing else, at every depth, so that no key the
-     * model adds reaches the object: a scope node keeps its scope and parameters, a relation node its relation,
-     * filters and morph types, a group its operator and filters, a leaf its property, operator and value. A node is
-     * read as the parser of the list reads it (one with filters is a group), and the same tree is stored, run here
-     * and run again by the route.
+     * model adds reaches the object: a scope node keeps its scope and parameters, a group its operator and filters, a
+     * leaf its property, operator and value. A relation node was refused before ({@see self::filtersRefusal()}). A
+     * node is read as the parser of the list reads it (one with filters is a group), and the same tree is stored, run
+     * here and run again by the route.
      *
      * @param  array<array-key, mixed>  $node  validated filters
      * @return array<array-key, mixed>
@@ -306,7 +306,6 @@ final class WidgetObjectCollector
 
         $keys = match (true) {
             array_key_exists('scope', $node) => ['scope', 'parameters'],
-            array_key_exists('relation', $node) => ['relation', 'filters', 'morph_types'],
             array_key_exists('filters', $node) => ['operator', 'filters'],
             default => ['property', 'operator', 'value'],
         };
@@ -318,6 +317,22 @@ final class WidgetObjectCollector
         }
 
         return $kept;
+    }
+
+    /**
+     * Whether a node of the filters, at any depth, has a `relation` key.
+     *
+     * @param  array<array-key, mixed>  $node
+     */
+    private static function holdsRelationNode(array $node): bool
+    {
+        if (! array_is_list($node) && array_key_exists('relation', $node)) {
+            return true;
+        }
+
+        $children = array_is_list($node) ? $node : [$node['filters'] ?? null];
+
+        return array_any($children, static fn (mixed $child): bool => is_array($child) && self::holdsRelationNode($child));
     }
 
     /**
@@ -507,11 +522,12 @@ final class WidgetObjectCollector
     /**
      * Why the filters of the request cannot be used, checked with the rules of the route ({@see ListRequest}), so
      * that an object the tool records is one the route runs: a list of filter nodes in the vocabulary of
-     * {@see QueryBuilder}, using only the scopes the entity exposes to clients. Nothing is repaired: a list that is
-     * not one, or a group left out of a list, would run another filter than the one the model wrote. The first
-     * message of the validator names the place of the node and what is wrong with it, never a value it was not sent.
-     * The rule throws on a node whose `filters` is not an array: that is a fault of the request, answered as a
-     * refusal and not reported.
+     * {@see QueryBuilder}, using only the scopes the entity exposes to clients, and no relation node at any depth,
+     * which the route refuses (the parser of the list would read it as a group of the main record). Nothing is
+     * repaired: a list that is not one, or a group left out of a list, would run another filter than the one the
+     * model wrote. The first message of the validator names the place of the node and what is wrong with it, never a
+     * value it was not sent. The rule throws on a node whose `filters` is not an array: that is a fault of the
+     * request, answered as a refusal and not reported.
      *
      * @param  array{module: string, entity: string}  $offered
      */
@@ -523,6 +539,10 @@ final class WidgetObjectCollector
 
         if (! is_array($filters) || ! array_is_list($filters) || array_any($filters, static fn (mixed $node): bool => ! is_array($node))) {
             return 'the filters must be a list of filter objects';
+        }
+
+        if (self::holdsRelationNode($filters)) {
+            return 'relation filters are not supported, filter on a dotted property such as customer.country instead';
         }
 
         $validator = Validator::make(['filters' => $filters], ['filters' => [new QueryBuilder(), new ClientScopeFilters($this->model($offered))]]);
