@@ -51,6 +51,14 @@ final class DocumentationMetadata
     }
 
     /**
+     * Whether `$key` has the shape of a key made by {@see self::documentKey()}.
+     */
+    public static function isDocumentKey(string $key): bool
+    {
+        return preg_match('/\Ad_[0-9a-f]{32}\z/', $key) === 1;
+    }
+
+    /**
      * Numbers the chunks of one document in order (`section`, from 0) and gives each the key of the
      * document ({@see self::documentKey()}), when it has one. Called once per document with the
      * chunks the configured splitter produced, whatever the splitter.

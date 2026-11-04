@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Modules\AI\Services\Documentation\Search;
 
 use Illuminate\Support\Str;
+use Modules\AI\Enums\ReferenceKind;
+use Modules\AI\Services\Documentation\DocumentationMetadata;
 use Modules\AI\Services\Documentation\HeadingBreadcrumb;
 use NeuronAI\RAG\Document;
 
 /**
- * One documentation hit shaped like the assistant's documentation citation: the source name as label
- * and reference, an excerpt cut at 300 characters, and the optional heading breadcrumb and module.
+ * One documentation hit shaped like the assistant's documentation citation: the source name as label,
+ * the opaque key of its document as reference and the position of the passage in it (`section`), an
+ * excerpt cut at 300 characters, and the optional heading breadcrumb and module. A passage indexed
+ * before the key existed keeps the label as its reference and has no section, so it still displays.
  */
 final readonly class DocumentationPassage
 {
@@ -22,6 +26,7 @@ final readonly class DocumentationPassage
         public string $excerpt,
         public ?string $headingBreadcrumb = null,
         public ?string $module = null,
+        public ?int $section = null,
     ) {}
 
     /**
@@ -35,27 +40,43 @@ final readonly class DocumentationPassage
             return null;
         }
 
+        $metadata = $document->getMetadata();
+        $key = $metadata['document_key'] ?? null;
+        $section = $metadata['section'] ?? null;
+        $has_key = is_string($key) && DocumentationMetadata::isDocumentKey($key);
+
         return new self(
             label: $label,
-            reference: $label,
+            reference: $has_key ? $key : $label,
             excerpt: Str::limit(self::plainText($document->getContent()), self::EXCERPT_LENGTH),
             headingBreadcrumb: HeadingBreadcrumb::fromMetadata($document->getMetadata()['heading_breadcrumb'] ?? null),
             module: self::metadataString($document, 'module'),
+            section: $has_key && is_int($section) && $section >= 0 ? $section : null,
         );
     }
 
     /**
-     * @return array<string, string>
+     * The opaque key of the document, null for a passage indexed before the key existed.
+     */
+    public function documentKey(): ?string
+    {
+        return DocumentationMetadata::isDocumentKey($this->reference) ? $this->reference : null;
+    }
+
+    /**
+     * @return array<string, int|string>
      */
     public function toArray(): array
     {
         return array_filter([
+            'kind' => ReferenceKind::Documentation->value,
             'label' => $this->label,
             'reference' => $this->reference,
             'excerpt' => $this->excerpt,
             'heading_breadcrumb' => $this->headingBreadcrumb,
             'module' => $this->module,
-        ], static fn (?string $value): bool => $value !== null && $value !== '');
+            'section' => $this->section,
+        ], static fn (int|string|null $value): bool => $value !== null && $value !== '');
     }
 
     /**

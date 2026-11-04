@@ -25,6 +25,7 @@ function protectedAssistanceDocument(
     string $content = 'Use the visible settings screen.',
     ?float $score = 0.9,
     mixed $breadcrumb = 'Settings > Profile',
+    array $position = [],
 ): Document {
     return (new Document($content))
         ->setSourceName('Application settings')
@@ -34,6 +35,7 @@ function protectedAssistanceDocument(
             'module' => 'core',
             'safe_source_label' => 'Application settings',
             'version' => '1',
+            ...$position,
         ])
         ->setScore($score);
 }
@@ -86,6 +88,37 @@ it('cites a retrieved document that carries no score with a null score', functio
 
     expect($message->metadata['citations'][0]['label'])->toBe('Application settings')
         ->and($message->metadata['citations'][0]['score'])->toBeNull();
+});
+
+it('cites a documentation passage with its kind, the key of its document and its position', function (): void {
+    $key = 'd_' . str_repeat('c', 32);
+    $service = protectedAssistanceService(
+        $this->request,
+        static fn (): array => [protectedAssistanceDocument(position: ['document_key' => $key, 'section' => 2])],
+        static fn (): string => 'Open Settings and select Profile.',
+    );
+
+    $message = $service->respond($this->conversation, $this->user, 'How do I update my profile?', ['verbosity' => 'concise']);
+
+    expect($message->metadata['citations'][0])->toMatchArray([
+        'kind' => 'documentation',
+        'label' => 'Application settings',
+        'reference' => $key,
+        'section' => 2,
+    ]);
+});
+
+it('cites a passage indexed before the key existed by its label only', function (): void {
+    $service = protectedAssistanceService(
+        $this->request,
+        static fn (): array => [protectedAssistanceDocument()],
+        static fn (): string => 'Open Settings and select Profile.',
+    );
+
+    $message = $service->respond($this->conversation, $this->user, 'How do I update my profile?', ['verbosity' => 'concise']);
+
+    expect($message->metadata['citations'][0])->toMatchArray(['kind' => 'documentation', 'label' => 'Application settings'])
+        ->and($message->metadata['citations'][0])->not->toHaveKeys(['reference', 'section']);
 });
 
 it('hands the assistant the heading breadcrumb of a passage as a list, a string or nothing', function (mixed $stored, ?string $expected): void {

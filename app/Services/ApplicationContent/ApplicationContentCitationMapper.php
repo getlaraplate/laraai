@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Services\ApplicationContent;
 
+use Modules\AI\Enums\ReferenceKind;
 use Modules\AI\Services\ApplicationContent\Data\ApplicationContentRoutingDecision;
 use Modules\AI\Services\ApplicationContent\Enums\ApplicationContentRoutingStatus;
 use Modules\Core\ApplicationContent\Data\ApplicationContentResult;
@@ -62,6 +63,7 @@ final class ApplicationContentCitationMapper
     public function citationsFor(ApplicationContentResult $result): array
     {
         return array_map(static fn ($hit): array => [
+            'kind' => ReferenceKind::Content->value,
             'label' => $hit->label,
             'reference' => $hit->canonicalReference,
             'excerpt' => mb_substr($hit->excerpt, 0, 300),
