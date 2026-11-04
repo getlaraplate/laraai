@@ -34,9 +34,9 @@ Ask for totals and breakdowns, for example "count articles per author", "total a
 - When there are many groups, the answer shows the largest ones (50 by default, set by `CORE_AGGREGATE_MAX_GROUPS`) and adds up the rest as **other**, so the total still covers every record.
 - Amounts in **more than one currency** are never added together: such a figure has no value, and the assistant is told that the currencies are mixed. Ask for the amounts per currency to get one figure for each.
 
-### Figures and charts in the answer
+### Figures, charts and relation maps in the answer
 
-On a page that can show them, the assistant can also add a **figure** (for example the number of open orders) or a **chart** (for example orders per month) to its answer. The assistant writes the question and a short title. The application computes the figures, the totals, the series and the comparison itself, with your permissions, when it shows the figure or the chart, so what it computes is always what you may read. The title is the assistant's own words: do not take a number in a title as a computed figure. The text of the answer says what the figure or chart shows. On a page that cannot show them, you get the answer in text only.
+On a page that can show them, the assistant can also add a **figure** (for example the number of open orders), a **chart** (for example orders per month) or a **relation map** of one record (for example a customer with its orders and contacts) to its answer. The assistant writes the question and a short title. The application computes the figures, the totals, the series and the comparison itself, and finds the related records of a map itself, with your permissions, when it shows the object, so what it shows is what you may read at that moment. The title is the assistant's own words: do not take a number in a title as a computed figure. The text of the answer says what the object shows; for a map the assistant is told only how many records of each kind it holds, not their names. A map shows a limited number of records, and the application marks it when some were left out. On a page that cannot show them, you get the answer in text only.
 
 ## Exporting
 

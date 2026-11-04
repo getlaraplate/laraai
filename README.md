@@ -36,7 +36,7 @@ The AI Module provides artificial intelligence capabilities for embeddings gener
 - 🌐 Automatic translation (AI-powered and DeepL)
 - 💬 AI Chat with conversation history and streaming
 - 📚 RAG (Retrieval-Augmented Generation) for FAQ/documentation
-- 🛠️ Assistant tools: reads under the user's permissions, writes as proposals the user confirms, figures and charts as requests the backend emits and a client renders
+- 🛠️ Assistant tools: reads under the user's permissions, writes as proposals the user confirms, figures, charts and relation maps as requests the backend emits and a client renders
 - 🧠 Conversation memory with automatic summarization
 - 🛡️ In-app assistance guardrails: policy, input and output limits, a deterministic injection classifier, tool results checked before the model reads them
 - 🔄 Event-driven architecture for seamless integration
@@ -252,8 +252,8 @@ a user clicks. The instance keeps only what a user's own request or setting crea
 
 -   the **preferences** of the user (`users.preferences`, written by the client the user uses);
 -   the user's **conversations**: messages with their citations, proposals and objects (the request behind a
-    figure or a chart and the title the assistant gave it; the computed figures are not stored), summaries and
-    title;
+    figure, a chart or a relation map and the title the assistant gave it; the computed figures and the records of a
+    map are not stored), summaries and title;
 -   **contextual suggestions** (off by default): the page and the action they are about, pruned after 7 days.
 
 A deleted conversation takes its messages, summaries and title with it, and a deleted user takes their
@@ -350,9 +350,10 @@ The AI Module includes built-in features such as:
     - A write is only a **proposal**: the person confirms it in the application (`POST /app/crud/update/ai/assistant-writes/{id}/confirm`), and on entities with approvals it then goes to a vote. The model cannot apply, confirm or approve anything.
     - Entities without approvals are written only if listed in `ai.features.tools.crud.unmoderated_writes`. Proposals expire after `ai.features.tools.crud.proposal_ttl_minutes` (30). See [docs/rag/MODULE.md](docs/rag/MODULE.md) (*Writes through the assistant*) and [docs/TOOLS_USAGE_EXAMPLE.md](docs/TOOLS_USAGE_EXAMPLE.md).
 
--   **Assistant figures and charts:**
+-   **Assistant figures, charts and relation maps:**
     - On an entity opted into `summarize`, the in-app assistant can add a figure (`kpi`) or a chart to its answer through the tool `show_widget`, when the page declares the object types it renders (`context.page.objects`) and the person may read that entity.
-    - The backend validates the aggregate request, runs it once so the assistant can describe it, and stores the request and a title in `message.metadata.objects`; it also sends one `ToolCall` event per object on `POST /app/ai/agent`. A client runs the request through the aggregate route with the user's session and renders it, so the figures are computed by the application. The title is written by the assistant.
+    - When the policy allows `graph_expand` (capability `read_only_graph`), it can also add the relation map (`graph`) of one record, on a page that declares `graph`; no entity needs to offer `summarize`, since Core Graph applies the permission and the ACL itself.
+    - The backend validates the request, runs it once so the assistant can describe it, and stores the request and a title in `message.metadata.objects`; it also sends one `ToolCall` event per object on `POST /app/ai/agent`. A client runs the request through the aggregate route or the graph expand route with the user's session and renders it, so the figures and the records are computed by the application. The title is written by the assistant.
     - `GET /app/ai/capabilities` lists the types in `features.objects` and the ceilings in `limits.aggregate`. See [docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md](docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md).
 
 -   **Conversation Memory:**

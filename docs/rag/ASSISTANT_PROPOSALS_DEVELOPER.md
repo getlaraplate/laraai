@@ -34,7 +34,7 @@ A client sends `context.page` with each message, to the base transport or to the
   "list": { "filters": {}, "columns": [], "viewMode": "table" },
   "dashboard": { "layout": [] },
   "proposable": [],
-  "objects": ["kpi", "chart"]
+  "objects": ["kpi", "chart", "graph"]
 }
 ```
 
@@ -60,7 +60,7 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
   "data": {
     "enabled": true,
     "configured": true,
-    "features": { "help": true, "proposals": true, "writes": false, "streaming": true, "objects": ["kpi", "chart"] },
+    "features": { "help": true, "proposals": true, "writes": false, "streaming": true, "objects": ["kpi", "chart", "graph"] },
     "limits": { "aggregate": { "max_measures": 3, "max_groups": 50, "max_points": 400, "max_period_days": 1096 } },
     "actions": []
   }
@@ -75,7 +75,7 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
 | `features.proposals` | The policy compiled for the in-app profile with `ui_proposals` still allows a tool. |
 | `features.writes` | The policy compiled with `governed_writes` allows a tool and an entity is opted into a write operation (`TOOLS_USAGE_EXAMPLE.md`). |
 | `features.streaming` | `POST /app/ai/agent` exists. |
-| `features.objects` | The object types the backend can put in a message: `[]`, or `["kpi", "chart"]` when the policy compiled with `widget_objects` allows a tool and an entity is opted into `summarize` (`ASSISTANT_WIDGETS_DEVELOPER.md`). |
+| `features.objects` | The object types the backend can put in a message, `[]` unless the policy compiled with `widget_objects` allows a tool: then `kpi` and `chart` when an entity is opted into `summarize`, and `graph` when the policy compiled with `read_only_graph` allows `graph_expand` (`ASSISTANT_WIDGETS_DEVELOPER.md`). |
 | `limits.aggregate` | The ceilings of the aggregate requests the objects carry: `max_measures`, `max_groups`, `max_points`, `max_period_days`. |
 | `actions` | What the assistant may do for the signed-in person (`TOOLS_USAGE_EXAMPLE.md`). |
 
@@ -136,8 +136,8 @@ applied. The proposals of a message are in `message.metadata.proposals`:
 }
 ```
 
-Beside the proposal tools, the in-app profile has `show_widget` (capability `widget_objects`), which puts a figure or
-a chart in the message under `message.metadata.objects`; it proposes nothing and needs no answer from the user. See
+Beside the proposal tools, the in-app profile has `show_widget` (capability `widget_objects`), which puts a figure,
+a chart or the relation map of a record in the message under `message.metadata.objects`; it proposes nothing and needs no answer from the user. See
 `ASSISTANT_WIDGETS_DEVELOPER.md`.
 
 An answer that claims a pending proposal was applied ("I have updated", "has been applied", "ho modificato",

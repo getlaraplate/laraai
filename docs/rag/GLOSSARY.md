@@ -27,8 +27,8 @@ Canonical English names for AI entities in this module. Use these terms in code,
 | **governed_writes / crud_reads** | Policy capabilities that admit the `crud_*` write and read tools for the in-app profile only. |
 | **unmoderated_writes** | Operator list of entities without approvals on which the assistant may nonetheless write; "applied directly, no vote". |
 | **ToolResultGuard** | Withholds from the model the result of an entity read tool whose text reads like an instruction. |
-| **show_widget** (`ShowWidgetTool`) | The tool that puts a figure (`kpi`) or a chart in an answer, as an aggregate request the client runs; capability `widget_objects`, offered when the page declares an object type the tool shows in `context.page.objects` and the acting person may summarize an entity opted into `summarize`. |
-| **Widget object** (`WidgetObject`) | One entry of `message.metadata.objects`: `{id, type, title, ref}`. `ref` holds the validated request, whose figures the application computes when the client runs it; `title` is plain text the assistant chose. |
+| **show_widget** (`ShowWidgetTool`) | The tool that puts a figure (`kpi`) or a chart in an answer, as an aggregate request the client runs, or the relation map (`graph`) of one record, as a graph request; capability `widget_objects`, offered when the page declares in `context.page.objects` a type the tool can show in the turn: a figure or a chart when the acting person may summarize an entity opted into `summarize`, a graph when the policy allows `graph_expand`. |
+| **Widget object** (`WidgetObject`) | One entry of `message.metadata.objects`: `{id, type, title, ref}`. `ref` holds the validated request (aggregate or graph), whose figures or records the application computes when the client runs it; `title` is plain text the assistant chose. |
 | **WidgetObjectCollector** | Checks each `show_widget` call as untrusted input, runs the request once and keeps the objects of one message. |
 | **ActionRequest, RiskClassifier** | Removed 2026-10-07. A tool-level approval path that nothing used; approval is Core's, at the model. |
 

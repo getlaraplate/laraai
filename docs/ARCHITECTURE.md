@@ -68,7 +68,7 @@ flowchart TD
     respond["InAppAssistanceService::respond()"]
     input["policy and input guardrails (AssistanceGuardrailPipeline)"]
     retrieval["scope, documentation retrieval (DocumentationService::retrieveForInApp)"]
-    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals, figures and charts as requests)"]
+    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals, figures, charts and relation maps as requests)"]
     output["output guardrails, citations"]
     store["conversation.addMessage('assistant', answer, metadata: citations, proposals, writes, objects)"]
     request --> controller --> respond --> input --> retrieval --> agent --> output --> store
@@ -103,7 +103,7 @@ Read tools (`crud_list_*`, `crud_detail_*`, ...) run inline, under the permissio
 
 Details, states, routes and the metadata shape are in `docs/rag/MODULE.md` (*Writes through the assistant*) and `docs/TOOLS_USAGE_EXAMPLE.md`.
 
-Figures and charts are computed by the application, not by the model. `show_widget` (capability `widget_objects`) validates an aggregate request on an entity opted into `summarize`, runs it once so the model can describe it, and stores the request with the title the model chose in `metadata.objects`; the client runs the request through the aggregate route with the person's session and renders it. The title is model text (plain text, at most 80 characters), so a number in it is not a computed figure. The tool is built only when the page declared an object type the tool shows (`context.page.objects`) and the acting person is offered `summarize` on at least one entity. Details: `docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md`.
+Figures and charts are computed by the application, not by the model. `show_widget` (capability `widget_objects`) validates an aggregate request on an entity opted into `summarize`, runs it once so the model can describe it, and stores the request with the title the model chose in `metadata.objects`; the client runs the request through the aggregate route with the person's session and renders it. The title is model text (plain text, at most 80 characters), so a number in it is not a computed figure. When the policy allows `graph_expand`, the same tool stores the relation map of one record as a graph request, expanded once through Core's graph gateway, and the model is told only how many nodes and edges of each type it holds; the client runs it through the graph expand route. The tool is built only when the page declared an object type the tool can show in the turn (`context.page.objects`): a figure or a chart when the acting person is offered `summarize` on at least one entity, a graph when the policy allows `graph_expand`. Details: `docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md`.
 
 ---
 
@@ -266,6 +266,6 @@ routes also require the in-app assistance profile (`AssistantAccessContextFactor
 | In-app assistant | Active | JSON answer or event stream; policy, guardrails and scope on every message |
 | RAG/FAQ | Active | User corpus for the assistant, developer corpus for `ai:help` |
 | Governed writes | Active | Propose, then the person confirms (`ai_write_proposals`) |
-| Widget objects | Active (backend) | `show_widget` emits figures and charts as aggregate requests in `metadata.objects`; a client renders them |
+| Widget objects | Active (backend) | `show_widget` emits figures and charts as aggregate requests, and relation maps as graph requests, in `metadata.objects`; a client renders them |
 | Contextual Suggestions | Active | Setting `features.contextual_suggestions.enabled` (seeded off) |
 | Memory/Summarization | Kept, not called | Setting `features.chat.summary.enabled`; reused by the persistent user memory plan |
