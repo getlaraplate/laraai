@@ -84,30 +84,33 @@ function widgetFlowOfferedTools(Request $request, Conversation $conversation, Us
 }
 
 /**
- * The type enum of `show_widget` as the model is offered it in a turn of the given request, or null when the
- * tool is not offered.
- *
- * @return list<mixed>|null
+ * `show_widget` as the model is offered it in a turn of the given request, or null when the tool is not offered.
  */
-function widgetFlowOfferedTypes(Request $request, Conversation $conversation, User $user, ?AssistantPolicyCompiler $compiler = null): ?array
+function widgetFlowOfferedWidgetTool(Request $request, Conversation $conversation, User $user, ?AssistantPolicyCompiler $compiler = null): ?Tool
 {
-    $types = null;
+    $offered = null;
 
     ScriptedAssistantFixtures::inAppService(
         $request,
-        function (string $input, string $system, mixed $context, array $tools) use (&$types): string {
-            foreach ($tools as $tool) {
-                if ($tool->getName() === 'show_widget') {
-                    $types = collect($tool->getProperties())->first(static fn (mixed $property): bool => $property->getName() === 'type')->getJsonSchema()['enum'];
-                }
-            }
+        function (string $input, string $system, mixed $context, array $tools) use (&$offered): string {
+            $offered = collect($tools)->first(static fn (Tool $tool): bool => $tool->getName() === 'show_widget');
 
             return 'There are a few settings.';
         },
         compiler: $compiler,
     )->respond($conversation, $user, 'How are the roles of Alice related?');
 
-    return $types;
+    return $offered;
+}
+
+/**
+ * The JSON schema of one parameter of an offered tool.
+ *
+ * @return array<string, mixed>
+ */
+function widgetFlowParameter(Tool $tool, string $name): array
+{
+    return collect($tool->getProperties())->first(static fn (mixed $property): bool => $name === $property->getName())->getJsonSchema();
 }
 
 /**
@@ -121,7 +124,8 @@ function widgetFlowGraph(): array
 }
 
 /**
- * What the model does when it calls a tool it was offered.
+ * What the model does when it calls a tool it was offered: the text it reads back, an answer of the tool or the
+ * feedback on an argument the schema refused.
  *
  * @param  list<Tool>  $tools
  * @param  array<string, mixed>  $inputs
@@ -132,7 +136,7 @@ function widgetFlowToolCall(array $tools, string $name, array $inputs): string
         if ($name === $tool->getName()) {
             $tool->setInputs($inputs)->execute();
 
-            return $tool->getResult();
+            return (string) $tool->getResult();
         }
     }
 
@@ -255,13 +259,25 @@ it('offers show_widget for a graph only when the policy of the in-app profile al
     'graph beside kpi' => [['graph', 'kpi'], ['show_widget']],
 ]);
 
-it('offers graph among the types of show_widget only when the policy allows graph_expand', function (?AssistantPolicyCompiler $compiler, array $expected): void {
-    $types = widgetFlowOfferedTypes(widgetFlowRequest($this->user, ['kpi', 'graph']), $this->conversation, $this->user, $compiler);
+it('offers the model exactly the types it can use in the turn, and describes only those', function (array $objects, array $entities, ?Closure $compiler, array $expected): void {
+    config(['ai.features.tools.crud.entities' => $entities]);
 
-    expect($types)->toBe($expected);
+    $tool = widgetFlowOfferedWidgetTool(widgetFlowRequest($this->user, $objects), $this->conversation, $this->user, $compiler instanceof Closure ? $compiler() : null);
+    $request = widgetFlowParameter($tool, 'request')['description'];
+    $graphs = in_array('graph', $expected, true);
+    $figures = array_intersect($expected, ['kpi', 'chart']) !== [];
+
+    expect(widgetFlowParameter($tool, 'type')['enum'])->toBe($expected)
+        ->and(str_contains($request, '"relations"'))->toBe($graphs)
+        ->and(str_contains($request, '"measures"'))->toBe($figures)
+        ->and(str_contains($tool->getDescription(), 'graph'))->toBe($graphs)
+        ->and(str_contains($tool->getDescription(), 'summarize'))->toBe($figures);
 })->with([
-    'graph_expand allowed' => [null, ['kpi', 'chart', 'graph']],
-    'graph_expand not allowed' => [fn (): AssistantPolicyCompiler => widgetFlowCompilerWithout(['graph_expand']), ['kpi', 'chart']],
+    'kpi and chart, graph_expand allowed' => [['kpi', 'chart'], ['core.setting' => ['summarize']], null, ['kpi', 'chart']],
+    'only graph, no entity offers summarize' => [['graph'], [], null, ['graph']],
+    'kpi and graph, no entity offers summarize' => [['kpi', 'graph'], [], null, ['graph']],
+    'kpi and graph, graph_expand not allowed' => [['kpi', 'graph'], ['core.setting' => ['summarize']], fn (): AssistantPolicyCompiler => widgetFlowCompilerWithout(['graph_expand']), ['kpi']],
+    'every type, everything allowed' => [['kpi', 'chart', 'graph'], ['core.setting' => ['summarize']], null, ['kpi', 'chart', 'graph']],
 ]);
 
 it('puts a graph object in message.metadata.objects, expanded through the graph gateway, without any entity offering summarize', function (): void {
@@ -289,7 +305,7 @@ it('puts a graph object in message.metadata.objects, expanded through the graph 
             'id' => $objects[0]['id'],
             'type' => 'graph',
             'title' => 'Roles of Alice',
-            'ref' => ['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 7, 'relations' => ['roles'], 'depth' => 1]],
+            'ref' => ['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 7, 'relations' => ['roles'], 'depth' => 1, 'limit' => 25, 'relation_limit' => 10]],
         ]);
 });
 
@@ -393,17 +409,20 @@ it('adds no objects key to a message that shows no object', function (?array $ca
 
 it('lets the page narrow the object types, never widen them', function (): void {
     $answer = null;
+    $types = null;
 
     $reply = ScriptedAssistantFixtures::inAppService(
         widgetFlowRequest($this->user, ['chart']),
-        function (string $input, string $system, mixed $context, array $tools) use (&$answer): string {
+        function (string $input, string $system, mixed $context, array $tools) use (&$answer, &$types): string {
+            $types = widgetFlowParameter(collect($tools)->first(static fn (Tool $tool): bool => $tool->getName() === 'show_widget'), 'type')['enum'];
             $answer = widgetFlowToolCall($tools, 'show_widget', widgetFlowKpi());
 
             return 'There are a few settings.';
         },
     )->respond($this->conversation, $this->user, 'How many settings are there?');
 
-    expect($answer)->toBe('Not shown: the page does not show objects of that type. Nothing was recorded.')
+    expect($types)->toBe(['chart'])
+        ->and($answer)->toBe('Parameter "type" must be one of "chart"; "kpi" given.')
         ->and($reply->metadata)->not->toHaveKey('objects');
 });
 

@@ -102,7 +102,7 @@ final readonly class AssistantPolicyCatalog
                     allowedFields: [],
                 ),
                 WidgetObjectCollector::CAPABILITY => new AssistantPolicyRuleSet(
-                    instruction: 'You may put a figure or chart object in your answer only through the widget tool. An object shows data that the application computes and renders itself: say what it shows, and never invent its figures or state one that the widget tool did not return for it.',
+                    instruction: 'You may put an object in your answer only through the widget tool. An object shows data that the application computes and renders itself: say what it shows, and never invent its figures or state one that the widget tool did not return for it.',
                     allowedCorpora: [],
                     allowedTools: $widget_tools,
                     allowedFields: [],

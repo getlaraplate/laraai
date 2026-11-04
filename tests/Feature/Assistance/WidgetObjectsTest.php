@@ -63,11 +63,12 @@ function widgetUser(array $readable = ['setting']): object
 
 /**
  * The collector of one message for a page that declared the given types, reading as the given user. With
- * `$graphs` the policy of the run allows `graph_expand`, and the graph gateway bound in the container runs it.
+ * `$graphs` the policy of the run allows `graph_expand`, and the graph gateway bound in the container runs it;
+ * without `$figures` the person may summarize nothing in the run.
  *
  * @param  mixed  $types  what the page sent in `context.page.objects`
  */
-function widgetCollector(object $user, mixed $types = ['kpi', 'chart'], ?CrudService $crud = null, bool $graphs = false): WidgetObjectCollector
+function widgetCollector(object $user, mixed $types = ['kpi', 'chart'], ?CrudService $crud = null, bool $graphs = false, bool $figures = true): WidgetObjectCollector
 {
     $request = Request::create('/app/ai/assistance', 'POST');
     $request->setUserResolver(fn (): object => $user);
@@ -81,7 +82,7 @@ function widgetCollector(object $user, mixed $types = ['kpi', 'chart'], ?CrudSer
         resolve(WriteProposalService::class),
     );
 
-    if (! $graphs) {
+    if (! $graphs && $figures) {
         return new WidgetObjectCollector(
             RenderableObjectTypes::fromPageContext($types),
             $crudTools,
@@ -95,8 +96,9 @@ function widgetCollector(object $user, mixed $types = ['kpi', 'chart'], ?CrudSer
         $crudTools,
         AssistanceGuardrailPipeline::defaults(),
         AggregateLimits::fromConfig(),
-        true,
-        app(GraphToolGatewayInterface::class),
+        $graphs,
+        $graphs ? app(GraphToolGatewayInterface::class) : null,
+        $figures,
     );
 }
 
@@ -247,6 +249,18 @@ it('refuses a graph when the policy of the run does not allow graph_expand', fun
         ->and($collector->hasObjects())->toBeFalse();
 });
 
+it('refuses a kpi or a chart in a run where the person may summarize nothing', function (string $type, ?string $variant): void {
+    $collector = widgetCollector(widgetUser(), ['kpi', 'chart', 'graph'], graphs: true, figures: false);
+
+    $answer = $collector->show($type, 'Settings', $type === 'kpi' ? widgetRequest() : widgetChartRequest(), $variant, null);
+
+    expect($answer)->toBe("Not shown: the assistant may not show {$type} objects. Nothing was recorded.")
+        ->and($collector->hasObjects())->toBeFalse();
+})->with([
+    'a kpi' => ['kpi', null],
+    'a chart' => ['chart', 'bar'],
+]);
+
 it('records a graph object for a valid expand request', function (): void {
     $received = [];
     widgetGraphGateway(widgetGraph(), received: $received);
@@ -262,7 +276,7 @@ it('records a graph object for a valid expand request', function (): void {
             'id' => $object->id,
             'type' => 'graph',
             'title' => 'Roles of Alice',
-            'ref' => ['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 7, 'relations' => ['roles', 'roles.permissions'], 'depth' => 2, 'node_detail' => 'minimal']],
+            'ref' => ['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 7, 'relations' => ['roles', 'roles.permissions'], 'depth' => 2, 'node_detail' => 'minimal', 'limit' => 25, 'relation_limit' => 10]],
         ])
         ->and($received)->toHaveCount(1)
         ->and(get_object_vars($received[0]))->toBe([
@@ -283,10 +297,25 @@ it('stores the depth of a graph with its default and no node detail it was not g
 
     $collector->show('graph', 'Roles of Alice', widgetGraphRequest(['id' => 'a1-b2']), null, null);
 
-    expect($collector->objects()[0]->ref)->toBe(['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 'a1-b2', 'relations' => ['roles'], 'depth' => 1]])
+    expect($collector->objects()[0]->ref)->toBe(['request' => ['kind' => 'graph', 'resource' => 'core/users', 'id' => 'a1-b2', 'relations' => ['roles'], 'depth' => 1, 'limit' => 25, 'relation_limit' => 10]])
         ->and($received[0]->recordKey)->toBe('a1-b2')
         ->and($received[0]->depth)->toBe(1);
 });
+
+it('takes 0 and "0" for the id of a record and stores each as written', function (int|string $id): void {
+    $received = [];
+    widgetGraphGateway(widgetGraph(), received: $received);
+    $collector = widgetCollector(widgetUser([]), ['graph'], graphs: true);
+
+    $answer = $collector->show('graph', 'Record zero', widgetGraphRequest(['id' => $id]), null, null);
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->and($collector->objects()[0]->ref['request']['id'])->toBe($id)
+        ->and($received[0]->recordKey)->toBe('0');
+})->with([
+    'the integer 0' => [0],
+    'the text "0"' => ['0'],
+]);
 
 it('refuses a graph request outside its bounds, each with its own sentence, and expands nothing', function (string $request, string $why): void {
     $gateway = Mockery::mock(GraphToolGatewayInterface::class);
@@ -302,6 +331,7 @@ it('refuses a graph request outside its bounds, each with its own sentence, and 
     'an invalid resource' => [fn (): string => widgetGraphRequest(['resource' => 'Core/Users']), 'the request must be JSON text of an object with a resource written as module/entity'],
     'an unknown key' => [fn (): string => widgetGraphRequest(['limit' => 25]), 'a graph request holds only resource, id, relations, depth and node_detail'],
     'the kind written by the model' => [fn (): string => widgetGraphRequest(['kind' => 'graph']), 'a graph request holds only resource, id, relations, depth and node_detail'],
+    'a relation limit written by the model' => [fn (): string => widgetGraphRequest(['relation_limit' => 10]), 'a graph request holds only resource, id, relations, depth and node_detail'],
     'no id' => [fn (): string => widgetGraphRequest(without: ['id']), 'the id must be an integer or a text of 1 to 255 characters'],
     'an empty id' => [fn (): string => widgetGraphRequest(['id' => '']), 'the id must be an integer or a text of 1 to 255 characters'],
     'a blank id' => [fn (): string => widgetGraphRequest(['id' => '   ']), 'the id must be an integer or a text of 1 to 255 characters'],
@@ -317,12 +347,15 @@ it('refuses a graph request outside its bounds, each with its own sentence, and 
     'a path of 129 characters' => [fn (): string => widgetGraphRequest(['relations' => [str_repeat('r', 129)]]), 'each relation must be a path of relation names joined by dots, of at most 128 characters'],
     'a path that is not a text' => [fn (): string => widgetGraphRequest(['relations' => [42]]), 'each relation must be a path of relation names joined by dots, of at most 128 characters'],
     'a duplicate path' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'permissions', 'roles']]), 'each relation may appear only once'],
+    'a duplicate path in another case' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'Roles']]), 'each relation may appear only once'],
     'depth 3' => [fn (): string => widgetGraphRequest(['depth' => 3]), 'the depth must be 1 or 2'],
     'depth 0' => [fn (): string => widgetGraphRequest(['depth' => 0]), 'the depth must be 1 or 2'],
     'a depth written as text' => [fn (): string => widgetGraphRequest(['depth' => '2']), 'the depth must be 1 or 2'],
+    'a depth of null' => [fn (): string => widgetGraphRequest(['depth' => null]), 'the depth must be 1 or 2'],
     'a path deeper than the depth' => [fn (): string => widgetGraphRequest(['relations' => ['roles.permissions']]), 'a relation path may not have more steps than the depth'],
     'a node detail outside the list' => [fn (): string => widgetGraphRequest(['node_detail' => 'full']), 'node_detail must be minimal or summary'],
     'a node detail that is not a text' => [fn (): string => widgetGraphRequest(['node_detail' => 1]), 'node_detail must be minimal or summary'],
+    'a node detail of null' => [fn (): string => widgetGraphRequest(['node_detail' => null]), 'node_detail must be minimal or summary'],
 ]);
 
 it('refuses a variant or a format for a graph', function (?string $variant, ?string $format, string $why): void {
@@ -347,7 +380,7 @@ it('answers a refusal of the graph gateway with a fixed sentence and does not re
 
     $answer = $collector->show('graph', 'Roles of Alice', widgetGraphRequest(), null, null);
 
-    expect($answer)->toBe('Not shown: the graph cannot be shown: the record does not exist, the user may not read it, or a relation cannot be expanded. Nothing was recorded.')
+    expect($answer)->toBe('Not shown: the record does not exist, the user may not see it, or a relation cannot be expanded. Nothing was recorded.')
         ->and($collector->hasObjects())->toBeFalse();
 
     Exceptions::assertNothingReported();
@@ -413,22 +446,80 @@ it('counts a graph against the cap of a message, as the other objects', function
         ->and(array_map(static fn (WidgetObject $object): string => $object->type, $collector->objects()))->toBe(['kpi', 'graph']);
 });
 
-it('refuses a duplicate graph however it is spelled, and takes another record, relation, depth or detail for a new one', function (): void {
-    widgetGraphGateway(widgetGraph(), times: 5);
+it('refuses a duplicate graph however it is spelled', function (string $spelling): void {
+    widgetGraphGateway(widgetGraph());
     $collector = widgetCollector(widgetUser([]), ['graph'], graphs: true);
 
     $collector->show('graph', 'Roles and permissions of Alice', widgetGraphRequest(['relations' => ['roles', 'permissions']]), null, null);
-    $duplicate = $collector->show('graph', 'Alice', '{"relations":["permissions","roles"],"depth":1,"id":"7","resource":"core/users"}', null, null);
-    $others = [
-        $collector->show('graph', 'Roles of Bob', widgetGraphRequest(['id' => 8, 'relations' => ['roles', 'permissions']]), null, null),
-        $collector->show('graph', 'Roles of Alice', widgetGraphRequest(), null, null),
-        $collector->show('graph', 'Deeper', widgetGraphRequest(['relations' => ['roles', 'permissions'], 'depth' => 2]), null, null),
-        $collector->show('graph', 'Lighter', widgetGraphRequest(['relations' => ['roles', 'permissions'], 'node_detail' => 'minimal']), null, null),
+    $answer = $collector->show('graph', 'Alice', $spelling, null, null);
+
+    expect($answer)->toBe('Not shown: an object showing the same request is already in this message. Nothing was recorded.')
+        ->and($collector->objects())->toHaveCount(1);
+})->with([
+    'the id as text and the keys in another order' => ['{"relations":["roles","permissions"],"id":"7","resource":"core/users"}'],
+    'the relations in another order' => [fn (): string => widgetGraphRequest(['relations' => ['permissions', 'roles']])],
+    'the relations in another case' => [fn (): string => widgetGraphRequest(['relations' => ['Roles', 'PERMISSIONS']])],
+    'the default depth written out' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'permissions'], 'depth' => 1])],
+    'the default node detail of the route written out' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'permissions'], 'node_detail' => 'summary'])],
+]);
+
+it('takes another record, relation set, depth or node detail for a new graph', function (string $other): void {
+    widgetGraphGateway(widgetGraph(), times: 2);
+    $collector = widgetCollector(widgetUser([]), ['graph'], graphs: true);
+
+    $collector->show('graph', 'Roles and permissions of Alice', widgetGraphRequest(['relations' => ['roles', 'permissions']]), null, null);
+    $answer = $collector->show('graph', 'Another map', $other, null, null);
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->and($collector->objects())->toHaveCount(2);
+})->with([
+    'another record' => [fn (): string => widgetGraphRequest(['id' => 8, 'relations' => ['roles', 'permissions']])],
+    'another relation set' => [fn (): string => widgetGraphRequest()],
+    'another depth' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'permissions'], 'depth' => 2])],
+    'another node detail' => [fn (): string => widgetGraphRequest(['relations' => ['roles', 'permissions'], 'node_detail' => 'minimal'])],
+]);
+
+it('reads the default node detail of the route for the duplicate rule', function (): void {
+    config(['graph.default_node_detail' => 'minimal']);
+    widgetGraphGateway(widgetGraph(), times: 2);
+    $collector = widgetCollector(widgetUser([]), ['graph'], graphs: true);
+
+    $collector->show('graph', 'Roles of Alice', widgetGraphRequest(), null, null);
+    $answers = [
+        $collector->show('graph', 'Minimal roles of Alice', widgetGraphRequest(['node_detail' => 'minimal']), null, null),
+        $collector->show('graph', 'Summary roles of Alice', widgetGraphRequest(['node_detail' => 'summary']), null, null),
     ];
 
-    expect($duplicate)->toBe('Not shown: an object showing the same request is already in this message. Nothing was recorded.')
-        ->and($others)->each->toStartWith('Widget recorded.')
-        ->and($collector->objects())->toHaveCount(5);
+    expect($answers[0])->toBe('Not shown: an object showing the same request is already in this message. Nothing was recorded.')
+        ->and($answers[1])->toStartWith('Widget recorded.');
+});
+
+it('expands at most three graphs in a message, counting every attempt that reached the gateway', function (): void {
+    Exceptions::fake();
+    $calls = 0;
+    $gateway = Mockery::mock(GraphToolGatewayInterface::class);
+    $gateway->shouldReceive('expand')->times(3)->andReturnUsing(static function () use (&$calls): array {
+        $calls++;
+
+        return match ($calls) {
+            1 => ['available' => false, 'nodes' => [], 'edges' => [], 'truncated' => false],
+            2 => throw new RuntimeException('Unexpected failure'),
+            default => widgetGraph(),
+        };
+    });
+    app()->instance(GraphToolGatewayInterface::class, $gateway);
+    $collector = widgetCollector(widgetUser([]), ['graph'], graphs: true);
+
+    $answers = array_map(
+        static fn (int $id): string => $collector->show('graph', 'Roles', widgetGraphRequest(['id' => $id]), null, null),
+        [1, 2, 3, 4],
+    );
+
+    expect($answers[0])->toStartWith('Not shown: the record does not exist')
+        ->and($answers[1])->toBe('Not shown: the figures could not be computed. Nothing was recorded.')
+        ->and($answers[2])->toStartWith('Widget recorded.')
+        ->and($answers[3])->toBe('Not shown: a message expands at most 3 graphs. Nothing was recorded.')
+        ->and($collector->objects())->toHaveCount(1);
 });
 
 it('logs the validated request of a recorded graph and never its nodes', function (): void {
@@ -442,7 +533,7 @@ it('logs the validated request of a recorded graph and never its nodes', functio
         && $context === [
             'type' => 'graph',
             'resource' => 'core/users',
-            'request' => '{"depth":1,"id":"7","node_detail":"summary","relations":["permissions","roles"],"resource":"core/users"}',
+            'request' => '{"depth":1,"id":"7","limit":25,"node_detail":"summary","relation_limit":10,"relations":["permissions","roles"],"resource":"core/users"}',
         ])->once();
 });
 
@@ -946,7 +1037,7 @@ it('allows show_widget to the in-app profile only with the widget_objects capabi
     expect(WidgetObjectCollector::CAPABILITY)->toBe('widget_objects')
         ->and($with->allowsTool(ShowWidgetTool::NAME))->toBeTrue()
         ->and($with->allowedTools)->toBe([ShowWidgetTool::NAME])
-        ->and($with->systemPrompt)->toContain('put a figure or chart object in your answer only through the widget tool')
+        ->and($with->systemPrompt)->toContain('You may put an object in your answer only through the widget tool')
         ->and($with->systemPrompt)->toContain('never invent')
         ->and($without->allowsTool(ShowWidgetTool::NAME))->toBeFalse();
 });
@@ -973,16 +1064,27 @@ it('describes show_widget with a kpi or chart type, a JSON request and an option
         ->and($collector->objects())->toHaveCount(1);
 });
 
-it('offers graph in show_widget, and describes its request, only when the run may expand graphs', function (bool $graphs, array $types): void {
-    $tool = (new ShowWidgetTool(widgetCollector(widgetUser(), ['kpi', 'graph'], graphs: $graphs)))->definition();
+it('offers the model exactly the types of the run, and describes only those', function (array $page, bool $figures, bool $graphs, array $types): void {
+    $tool = (new ShowWidgetTool(widgetCollector(widgetUser(), $page, graphs: $graphs, figures: $figures)))->definition();
     $parameters = collect($tool->parameters)->keyBy('name');
+    $offersFigures = array_intersect($types, ['kpi', 'chart']) !== [];
+    $offersGraphs = in_array('graph', $types, true);
 
     expect($parameters['type']['enum'])->toBe($types)
-        ->and(str_contains($parameters['request']['description'], '"relations"'))->toBe($graphs)
-        ->and(str_contains($tool->description, 'graph'))->toBe($graphs);
+        ->and($parameters->keys()->all())->toBe($offersFigures ? ['type', 'title', 'request', 'variant', 'format'] : ['type', 'title', 'request'])
+        ->and(str_contains($parameters['request']['description'], '"measures"'))->toBe($offersFigures)
+        ->and(str_contains($parameters['request']['description'], '"relations"'))->toBe($offersGraphs)
+        ->and(array_values(array_filter(['kpi', 'chart', 'graph'], static fn (string $type): bool => str_contains($parameters['type']['description'], "{$type} for"))))->toBe($types)
+        ->and(str_contains($tool->description, 'graph'))->toBe($offersGraphs)
+        ->and(str_contains($tool->description, 'kpi'))->toBe($offersFigures)
+        ->and(str_contains($tool->description, 'summarize'))->toBe($offersFigures);
 })->with([
-    'graph_expand allowed' => [true, ['kpi', 'chart', 'graph']],
-    'graph_expand not allowed' => [false, ['kpi', 'chart']],
+    'a page of figures, graph_expand allowed' => [['kpi', 'chart'], true, true, ['kpi', 'chart']],
+    'a page of one chart' => [['chart'], true, true, ['chart']],
+    'a page of graphs, nothing to summarize' => [['graph'], false, true, ['graph']],
+    'a page of everything, nothing to summarize' => [['kpi', 'chart', 'graph'], false, true, ['graph']],
+    'a page of everything, graph_expand not allowed' => [['kpi', 'chart', 'graph'], true, false, ['kpi', 'chart']],
+    'a page of everything, everything allowed' => [['kpi', 'chart', 'graph'], true, true, ['kpi', 'chart', 'graph']],
 ]);
 
 it('expands a real record through the graph gateway of Core and hands the model its counts', function (): void {
@@ -998,4 +1100,20 @@ it('expands a real record through the graph gateway of Core and hands the model 
     expect($answer)->toStartWith('Widget recorded.')
         ->toEndWith('{"nodes":{"total":2,"by_type":{"core/users":1,"core/vend_roles":1}},"edges":{"total":1,"by_relation":{"roles":1}},"truncated":false}')
         ->not->toContain('night-editors');
+});
+
+it('answers a reader who may not read the record through the graph gateway of Core with the fixed refusal', function (): void {
+    Exceptions::fake();
+    $reader = widgetUser(['role']);
+    $member = User::factory()->create();
+    request()->setUserResolver(static fn (): object => $reader);
+    app()->forgetInstance(GraphToolGatewayInterface::class);
+    $collector = widgetCollector($reader, ['graph'], graphs: true);
+
+    $answer = $collector->show('graph', 'Roles of a member', widgetGraphRequest(['id' => $member->getKey()]), null, null);
+
+    expect($answer)->toBe('Not shown: the record does not exist, the user may not see it, or a relation cannot be expanded. Nothing was recorded.')
+        ->and($collector->hasObjects())->toBeFalse();
+
+    Exceptions::assertNothingReported();
 });

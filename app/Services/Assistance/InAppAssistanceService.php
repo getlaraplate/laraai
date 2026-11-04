@@ -327,8 +327,9 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
      * and the page declared an object type that the tool can show in this run (`context.page.objects`, a
      * hint that narrows what may be shown and grants nothing): a figure or a chart when the instance opted
      * an entity into `summarize` and the acting person is offered `summarize` on at least one of them, a
-     * graph when the compiled policy allows `graph_expand`. Without them the assistant has no widget tool
-     * at all; which entity or record a call may show is decided again when the tool runs.
+     * graph when the compiled policy allows `graph_expand`. The collector learns which of them hold, so the
+     * tool offers exactly those types. Without any of them the assistant has no widget tool at all; which
+     * entity or record a call may show is decided again when the tool runs.
      */
     private function widgetCollector(CompiledAssistantPolicy $policy, AssistantScope $scope): ?WidgetObjectCollector
     {
@@ -337,10 +338,11 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
         }
 
         $types = RenderableObjectTypes::fromPageContext($this->request->input('context.page.objects'));
-        $graphs = $policy->allowsTool(WidgetObjectCollector::GRAPH_TOOL);
+        $graphs = $types->has(WidgetObject::TYPE_GRAPH) && $policy->allowsTool(WidgetObjectCollector::GRAPH_TOOL);
         $crud = app(CrudToolProvider::class);
+        $figures = $this->summarizes($types, $crud);
 
-        if (! ($graphs && $types->has(WidgetObject::TYPE_GRAPH)) && ! $this->summarizes($types, $crud)) {
+        if (! $graphs && ! $figures) {
             return null;
         }
 
@@ -351,6 +353,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             AggregateLimits::fromConfig(),
             $graphs,
             $graphs ? app(GraphToolGatewayInterface::class) : null,
+            $figures,
         );
     }
 

@@ -15,11 +15,11 @@ use Modules\AI\Data\WidgetObject;
 use Modules\AI\Services\Assistance\AssistanceGuardrailPipeline;
 use Modules\AI\Services\Assistance\PlainText;
 use Modules\AI\Services\Tools\CrudToolProvider;
+use Modules\AI\Services\Tools\GraphToolProvider;
 use Modules\AI\Services\Tools\ShowWidgetTool;
 use Modules\Core\Enums\TimeBucket;
 use Modules\Core\Exceptions\AggregateException;
 use Modules\Core\Graph\Contracts\GraphToolGatewayInterface;
-use Modules\Core\Graph\Data\GraphExpandToolInput;
 use Modules\Core\Http\Requests\ListRequest;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Rules\ClientScopeFilters;
@@ -36,19 +36,19 @@ use Throwable;
  * Tool arguments come from a model steered by text that is not fully ours, so each one is checked as untrusted
  * input, in this order, each with its own refusal: the type is one the page declared and the tool shows in this
  * run; the title is plain text of bounded length that passes the output guardrails; the request is JSON text of an
- * object about a `module/entity` resource. A figure or a chart then needs a resource the assistant is offered
- * `summarize` on for the acting person; the message holds fewer than `max_objects_per_message` objects; the
- * aggregate validator of the route accepts the request; the rules of the route accept its filters; its shape fits
- * the type and the variant; the format is in the closed list; no object of the message already shows the same
- * request. The request then runs once through {@see CrudToolProvider::aggregate()}, with the filters as they were
- * validated, under the permission and the row-level ACL of the acting person, so that the model can say what the
- * object shows.
+ * object about a `module/entity` resource; the message holds fewer than `max_objects_per_message` objects. A figure
+ * or a chart then needs a resource the assistant is offered `summarize` on for the acting person; the aggregate
+ * validator of the route accepts the request; the rules of the route accept its filters; its shape fits the type and
+ * the variant; the format is in the closed list; no object of the message already shows the same request. The
+ * request then runs once through {@see CrudToolProvider::aggregate()}, with the filters as they were validated,
+ * under the permission and the row-level ACL of the acting person, so that the model can say what the object shows.
  *
- * A graph is shown only when the policy of the run allows `graph_expand`: its request names one record and the
- * relations to expand within the bounds of the graph tools, takes no variant and no format, counts against the same
- * cap and the same duplicate rule, and runs once through the graph gateway of Core, which applies the permission and
- * the row-level ACL of each record itself. The model is told only how many nodes and edges of each type the graph
- * holds, never a label or a value, since those are text people wrote.
+ * A graph is shown only when the page declared it and the policy of the run allows `graph_expand`: its request
+ * ({@see GraphWidgetRequest}) names one record and the relations to expand within the bounds of the graph tools,
+ * takes no variant and no format, follows the same duplicate rule, and runs once through the graph gateway of Core,
+ * which applies the permission and the row-level ACL of each record itself; a message expands at most as many graphs
+ * as a graph tool may run in a turn. The model is told only how many nodes and edges of each type the graph holds,
+ * never a label or a value, since those are text people wrote.
  *
  * The object holds the validated request, never the figures: the client runs the request itself, and the route
  * reads it as it was run here. Every refusal is a sentence for the model, never an exception, and no message of an
@@ -62,8 +62,7 @@ final class WidgetObjectCollector
     public const string CAPABILITY = 'widget_objects';
 
     /**
-     * The types the tool shows from an aggregate request, whenever it is built. A graph is shown too when the policy
-     * of the run allows {@see self::GRAPH_TOOL} ({@see self::types()}).
+     * The types the tool shows from an aggregate request. Which types a run offers is {@see self::types()}.
      */
     public const array TYPES = [WidgetObject::TYPE_KPI, WidgetObject::TYPE_CHART];
 
@@ -80,10 +79,6 @@ final class WidgetObjectCollector
      */
     public const string GRAPH_TOOL = 'graph_expand';
 
-    public const int MAX_GRAPH_RELATIONS = 10;
-
-    public const int MAX_GRAPH_DEPTH = 2;
-
     private const int MAX_DONUT_SLICES = 8;
 
     /**
@@ -98,23 +93,6 @@ final class WidgetObjectCollector
     private const int MAX_FRACTION_DIGITS = 4;
 
     private const string RESOURCE_PATTERN = '/^[a-z][a-z0-9_]{0,63}\/[a-z][a-z0-9_]{0,63}$/D';
-
-    private const array NODE_DETAILS = ['minimal', 'summary'];
-
-    private const int MAX_RECORD_KEY_LENGTH = 255;
-
-    private const int MAX_RELATION_PATH_LENGTH = 128;
-
-    private const string RELATION_PATH_PATTERN = '/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/D';
-
-    private const array GRAPH_REQUEST_KEYS = ['resource', 'id', 'relations', 'depth', 'node_detail'];
-
-    /**
-     * The most nodes and the most records per relation the graph is expanded with: the maximums of the graph tools.
-     */
-    private const int GRAPH_NODE_LIMIT = 25;
-
-    private const int GRAPH_RELATION_LIMIT = 10;
 
     /**
      * The answer to a failure nobody expected: the message of the exception never reaches the model.
@@ -134,8 +112,14 @@ final class WidgetObjectCollector
     private array $shown = [];
 
     /**
+     * How many graphs of the message reached the gateway, whatever it answered.
+     */
+    private int $expansions = 0;
+
+    /**
      * @param  bool  $graphs  the compiled policy of the run allows {@see self::GRAPH_TOOL}
      * @param  GraphToolGatewayInterface|null  $graph  the gateway a graph runs through; without it no graph is shown
+     * @param  bool  $figures  the acting person may summarize an entity in this run, so a figure or a chart may be shown
      */
     public function __construct(
         private readonly RenderableObjectTypes $types,
@@ -144,6 +128,7 @@ final class WidgetObjectCollector
         private readonly AggregateLimits $limits,
         private readonly bool $graphs = false,
         private readonly ?GraphToolGatewayInterface $graph = null,
+        private readonly bool $figures = true,
     ) {}
 
     /**
@@ -160,19 +145,20 @@ final class WidgetObjectCollector
     }
 
     /**
-     * The types the tool shows in this run: the figure and the chart, and the graph when the policy allows
-     * {@see self::GRAPH_TOOL}. The page narrows them further, call by call.
+     * The types the tool shows in this run, exactly the ones the model can use: those of the page that the run
+     * allows, the figure and the chart when the acting person may summarize, the graph when the policy allows
+     * {@see self::GRAPH_TOOL}. The tool offers the model these and nothing else.
      *
      * @return list<string>
      */
     public function types(): array
     {
-        return $this->showsGraphs() ? [...self::TYPES, WidgetObject::TYPE_GRAPH] : self::TYPES;
-    }
+        $allowed = [
+            ...$this->figures ? self::TYPES : [],
+            ...$this->graphs && $this->graph instanceof GraphToolGatewayInterface ? [WidgetObject::TYPE_GRAPH] : [],
+        ];
 
-    public function showsGraphs(): bool
-    {
-        return $this->graphs && $this->graph instanceof GraphToolGatewayInterface;
+        return array_values(array_filter($allowed, $this->types->has(...)));
     }
 
     public function show(mixed $type, mixed $title, mixed $request, mixed $variant, mixed $format): string
@@ -198,6 +184,10 @@ final class WidgetObjectCollector
             return $this->refusal('the request must be JSON text of an object with a resource written as module/entity');
         }
 
+        if ($this->limits->maxObjectsPerMessage <= count($this->objects)) {
+            return $this->refusal('a message shows at most ' . $this->limits->maxObjectsPerMessage . ' objects');
+        }
+
         if ($type === WidgetObject::TYPE_GRAPH) {
             return $this->showGraph($text, $resource, $decoded, $variant, $format);
         }
@@ -206,10 +196,6 @@ final class WidgetObjectCollector
 
         if ($offered === null) {
             return $this->refusal('the assistant may not show figures of that resource');
-        }
-
-        if ($this->limits->maxObjectsPerMessage <= count($this->objects)) {
-            return $this->refusal('a message shows at most ' . $this->limits->maxObjectsPerMessage . ' objects');
         }
 
         try {
@@ -268,23 +254,6 @@ final class WidgetObjectCollector
         Log::info('Assistant widget recorded', ['type' => $type, 'resource' => $resource, 'request' => $canonical]);
 
         return $this->recorded($result, $offered);
-    }
-
-    /**
-     * The graph request as one canonical JSON text: its keys sorted, the id as text and the relations sorted, so that
-     * two spellings of one map give one text.
-     *
-     * @param  array{kind: string, resource: string, id: int|string, relations: list<string>, depth: int, node_detail?: string}  $request
-     */
-    private static function canonicalGraph(array $request): string
-    {
-        $relations = $request['relations'];
-        sort($relations);
-        $canonical = [...$request, 'id' => (string) $request['id'], 'relations' => $relations];
-        unset($canonical['kind']);
-        ksort($canonical);
-
-        return json_encode($canonical, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     /**
@@ -352,8 +321,10 @@ final class WidgetObjectCollector
     }
 
     /**
-     * A graph object: the request is validated whole, the object is stored with the validated request and the
-     * default depth applied, and the graph is expanded once, so that the model can say what the map shows.
+     * A graph object: the request is validated whole, the object is stored with the validated request, its default
+     * depth and its limits, and the graph is expanded once, so that the model can say what the map shows. The first
+     * check only narrows the gateway for the analyser: {@see self::show()} has already refused a graph the run may
+     * not show.
      *
      * @param  array<array-key, mixed>  $decoded
      */
@@ -361,15 +332,11 @@ final class WidgetObjectCollector
     {
         $gateway = $this->graph;
 
-        if (! $this->graphs || ! $gateway instanceof GraphToolGatewayInterface) {
+        if (! $gateway instanceof GraphToolGatewayInterface) {
             return $this->refusal('the assistant may not show graph objects');
         }
 
-        if ($this->limits->maxObjectsPerMessage <= count($this->objects)) {
-            return $this->refusal('a message shows at most ' . $this->limits->maxObjectsPerMessage . ' objects');
-        }
-
-        $request = $this->graphRequest($resource, $decoded);
+        $request = GraphWidgetRequest::validated($resource, $decoded);
 
         if (is_string($request)) {
             return $this->refusal($request);
@@ -383,17 +350,21 @@ final class WidgetObjectCollector
             return $this->refusal('a graph takes no format');
         }
 
-        $canonical = self::canonicalGraph($request);
+        $canonical = $request->canonical();
         $shown = implode("\n", [WidgetObject::TYPE_GRAPH, '', $canonical]);
 
         if (in_array($shown, $this->shown, true)) {
             return $this->refusal('an object showing the same request is already in this message');
         }
 
-        [$module, $entity] = explode('/', $resource, 2);
+        if ($this->expansions >= GraphToolProvider::MAX_RUNS) {
+            return $this->refusal('a message expands at most ' . GraphToolProvider::MAX_RUNS . ' graphs');
+        }
+
+        $this->expansions++;
 
         try {
-            $graph = $gateway->expand(new GraphExpandToolInput($module, $entity, (string) $request['id'], $request['relations'], $request['depth'], self::GRAPH_NODE_LIMIT, self::GRAPH_RELATION_LIMIT));
+            $graph = $gateway->expand($request->toolInput());
         } catch (Throwable $exception) {
             report($exception);
 
@@ -401,114 +372,25 @@ final class WidgetObjectCollector
         }
 
         if (($graph['available'] ?? null) !== true) {
-            return $this->refusal('the graph cannot be shown: the record does not exist, the user may not read it, or a relation cannot be expanded');
+            return $this->refusal('the record does not exist, the user may not see it, or a relation cannot be expanded');
         }
 
-        $this->objects[] = new WidgetObject((string) Str::uuid(), WidgetObject::TYPE_GRAPH, $title, ['request' => $request]);
+        $this->objects[] = new WidgetObject((string) Str::uuid(), WidgetObject::TYPE_GRAPH, $title, ['request' => $request->toArray()]);
         $this->shown[] = $shown;
 
         Log::info('Assistant widget recorded', ['type' => WidgetObject::TYPE_GRAPH, 'resource' => $resource, 'request' => $canonical]);
 
-        return $this->recordedGraph($graph, $module . '.' . $entity);
+        return $this->recordedGraph(GraphWidgetRequest::counts($graph), $request->entity());
     }
 
     /**
-     * The graph request the model wrote, validated within the bounds of the graph tools, or why it is refused:
-     * `resource`, `id` (an integer or a text of 1 to 255 characters), `relations` (1 to 10 distinct paths of
-     * relation names joined by dots, none with more steps than the depth), `depth` (1 or 2, 1 by default) and
-     * `node_detail` (`minimal` or `summary`, optional), and nothing else.
+     * The answer of a recorded graph: its counts ({@see GraphWidgetRequest::counts()}), which hold no text people
+     * wrote. Counts that still read like an instruction are withheld; the object is still shown.
      *
-     * @param  array<array-key, mixed>  $decoded
-     * @return array{kind: string, resource: string, id: int|string, relations: list<string>, depth: int, node_detail?: string}|string
+     * @param  array<string, mixed>  $counts
      */
-    private function graphRequest(string $resource, array $decoded): array|string
+    private function recordedGraph(array $counts, string $entity): string
     {
-        if (array_diff(array_keys($decoded), self::GRAPH_REQUEST_KEYS) !== []) {
-            return 'a graph request holds only resource, id, relations, depth and node_detail';
-        }
-
-        $id = $decoded['id'] ?? null;
-
-        if (! is_int($id) && (! is_string($id) || mb_trim($id) === '' || self::MAX_RECORD_KEY_LENGTH < mb_strlen($id))) {
-            return 'the id must be an integer or a text of 1 to ' . self::MAX_RECORD_KEY_LENGTH . ' characters';
-        }
-
-        $relations = $decoded['relations'] ?? null;
-
-        if (! is_array($relations) || ! array_is_list($relations) || $relations === [] || self::MAX_GRAPH_RELATIONS < count($relations)) {
-            return 'the relations must be a list of 1 to ' . self::MAX_GRAPH_RELATIONS . ' relation paths';
-        }
-
-        $paths = [];
-
-        foreach ($relations as $relation) {
-            if (! is_string($relation) || self::MAX_RELATION_PATH_LENGTH < mb_strlen($relation) || preg_match(self::RELATION_PATH_PATTERN, $relation) !== 1) {
-                return 'each relation must be a path of relation names joined by dots, of at most ' . self::MAX_RELATION_PATH_LENGTH . ' characters';
-            }
-
-            $paths[] = $relation;
-        }
-
-        if (count(array_unique($paths)) !== count($paths)) {
-            return 'each relation may appear only once';
-        }
-
-        $depth = $decoded['depth'] ?? 1;
-
-        if (! is_int($depth) || $depth < 1 || $depth > self::MAX_GRAPH_DEPTH) {
-            return 'the depth must be 1 or ' . self::MAX_GRAPH_DEPTH;
-        }
-
-        if (array_any($paths, static fn (string $path): bool => $depth < mb_substr_count($path, '.') + 1)) {
-            return 'a relation path may not have more steps than the depth';
-        }
-
-        $request = ['kind' => 'graph', 'resource' => $resource, 'id' => $id, 'relations' => $paths, 'depth' => $depth];
-
-        if (! array_key_exists('node_detail', $decoded)) {
-            return $request;
-        }
-
-        if (! in_array($decoded['node_detail'], self::NODE_DETAILS, true)) {
-            return 'node_detail must be ' . implode(' or ', self::NODE_DETAILS);
-        }
-
-        return [...$request, 'node_detail' => $decoded['node_detail']];
-    }
-
-    /**
-     * The answer of a recorded graph: how many nodes of each entity and how many edges of each relation it holds,
-     * and whether it was cut at its limits. Labels and attributes are text people wrote, so none of them reaches
-     * the model, and counts that still read like an instruction are withheld; the object is still shown.
-     *
-     * @param  array<array-key, mixed>  $graph
-     */
-    private function recordedGraph(array $graph, string $entity): string
-    {
-        $nodes = [];
-        $edges = [];
-
-        foreach (is_array($graph['nodes'] ?? null) ? $graph['nodes'] : [] as $node) {
-            if (is_array($node) && is_string($node['module'] ?? null) && is_string($node['entity'] ?? null)) {
-                $type = $node['module'] . '/' . $node['entity'];
-                $nodes[$type] = ($nodes[$type] ?? 0) + 1;
-            }
-        }
-
-        foreach (is_array($graph['edges'] ?? null) ? $graph['edges'] : [] as $edge) {
-            if (is_array($edge) && is_string($edge['relation'] ?? null)) {
-                $edges[$edge['relation']] = ($edges[$edge['relation']] ?? 0) + 1;
-            }
-        }
-
-        ksort($nodes);
-        ksort($edges);
-
-        $counts = [
-            'nodes' => ['total' => array_sum($nodes), 'by_type' => $nodes],
-            'edges' => ['total' => array_sum($edges), 'by_relation' => $edges],
-            'truncated' => ($graph['truncated'] ?? false) === true,
-        ];
         $encoded = json_encode($counts, JSON_FORCE_OBJECT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
         $encoded = $encoded === false ? '{}' : $encoded;
 
