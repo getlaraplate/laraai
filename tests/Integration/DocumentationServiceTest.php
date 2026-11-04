@@ -14,6 +14,7 @@ use Modules\AI\Tests\Stubs\Documentation\EmptySplitter;
 use Modules\AI\Tests\Stubs\Documentation\ManyChunksSplitter;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Splitter\SentenceTextSplitter;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\FakeEmbeddingsProvider;
 use NeuronAI\Testing\FakeVectorStore;
@@ -819,4 +820,144 @@ it('gives every documentation agent its own workflow id', function (): void {
 
     expect($first->getWorkflowId())->toBeString()->not->toBeEmpty()
         ->and($second->getWorkflowId())->toBeString()->not->toBe($first->getWorkflowId());
+});
+
+it('stores every user corpus chunk with its position and the key of its document', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-user-positions-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+
+    $front_matter = static fn (string $locale): string => <<<MARKDOWN
+---
+audience: user
+module: CMS
+locale: {$locale}
+canonical_source: cms/content/editing
+safe_source_label: Editing
+required_permissions: []
+tenant_scope: global
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+---
+# Editing
+
+First part of the guide that has to be long enough to be cut.
+
+## Saving
+
+Second part of the guide that has to be long enough to be cut.
+MARKDOWN;
+    file_put_contents($tmp_dir . '/en.md', $front_matter('en'));
+    file_put_contents($tmp_dir . '/it.md', $front_matter('it'));
+
+    config()->set('ai.features.faq.vector_store', 'memory');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    /** @var list<Document> $stored */
+    $stored = [];
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldReceive('reindexBySource')
+        ->andReturnUsing(function (array $documents) use (&$stored): void {
+            array_push($stored, ...$documents);
+        });
+
+    $service = new DocumentationService(fn (): DocumentationAgent => $agent_mock, new SentenceTextSplitter(8, 0));
+
+    try {
+        $service->indexDocuments($tmp_dir, false, DocumentationIndexProfile::User);
+
+        $by_locale = [];
+
+        foreach ($stored as $chunk) {
+            $by_locale[$chunk->getMetadata()['locale']][] = $chunk->getMetadata();
+        }
+
+        expect(array_keys($by_locale))->toEqualCanonicalizing(['en', 'it']);
+
+        $keys = [];
+
+        foreach ($by_locale as $locale => $metadata_list) {
+            expect(count($metadata_list))->toBeGreaterThan(1)
+                ->and(array_column($metadata_list, 'section'))->toBe(range(0, count($metadata_list) - 1));
+
+            $keys[$locale] = array_unique(array_column($metadata_list, 'document_key'));
+
+            expect($keys[$locale])->toHaveCount(1)
+                ->and(array_values($keys[$locale])[0])->toMatch('/\Ad_[0-9a-f]{32}\z/');
+        }
+
+        expect($keys['en'])->not->toEqual($keys['it']);
+    } finally {
+        File::deleteDirectory($tmp_dir);
+    }
+});
+
+it('writes the position and the key of every user corpus chunk on a full rebuild too', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-user-positions-full-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+
+    $front_matter = static fn (string $locale): string => <<<MARKDOWN
+---
+audience: user
+module: CMS
+locale: {$locale}
+canonical_source: cms/content/editing
+safe_source_label: Editing
+required_permissions: []
+tenant_scope: global
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+---
+# Editing
+
+First part of the guide that has to be long enough to be cut.
+
+## Saving
+
+Second part of the guide that has to be long enough to be cut.
+MARKDOWN;
+    file_put_contents($tmp_dir . '/en.md', $front_matter('en'));
+    file_put_contents($tmp_dir . '/it.md', $front_matter('it'));
+
+    config()->set('ai.features.faq.vector_store', 'memory');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    /** @var list<Document> $stored */
+    $stored = [];
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldReceive('addDocuments')
+        ->andReturnUsing(function (array $documents) use (&$stored): void {
+            array_push($stored, ...$documents);
+        });
+
+    $service = new DocumentationService(fn (): DocumentationAgent => $agent_mock, new SentenceTextSplitter(8, 0));
+
+    try {
+        $service->indexDocuments($tmp_dir, true, DocumentationIndexProfile::User);
+
+        $by_locale = [];
+
+        foreach ($stored as $chunk) {
+            $by_locale[$chunk->getMetadata()['locale']][] = $chunk->getMetadata();
+        }
+
+        expect(array_keys($by_locale))->toEqualCanonicalizing(['en', 'it']);
+
+        $keys = [];
+
+        foreach ($by_locale as $locale => $metadata_list) {
+            expect(count($metadata_list))->toBeGreaterThan(1)
+                ->and(array_column($metadata_list, 'section'))->toBe(range(0, count($metadata_list) - 1));
+
+            $keys[$locale] = array_unique(array_column($metadata_list, 'document_key'));
+
+            expect($keys[$locale])->toHaveCount(1)
+                ->and(array_values($keys[$locale])[0])->toMatch('/\Ad_[0-9a-f]{32}\z/');
+        }
+
+        expect($keys['en'])->not->toEqual($keys['it']);
+    } finally {
+        File::deleteDirectory($tmp_dir);
+    }
 });

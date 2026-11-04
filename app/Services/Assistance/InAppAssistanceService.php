@@ -16,6 +16,7 @@ use Modules\AI\Ai\Rag\Judge\RelevanceJudgeStage;
 use Modules\AI\Data\UiProposal;
 use Modules\AI\Data\WidgetObject;
 use Modules\AI\Enums\AssistantProfile;
+use Modules\AI\Enums\ReferenceKind;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use Modules\AI\Http\Resources\WriteProposalResource;
 use Modules\AI\Jobs\GenerateConversationTitleJob;
@@ -40,6 +41,7 @@ use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\ChatService;
 use Modules\AI\Services\Documentation\Analytics\RagQueryRecorder;
 use Modules\AI\Services\Documentation\HeadingBreadcrumb;
+use Modules\AI\Services\Documentation\Search\DocumentationPassage;
 use Modules\AI\Services\DocumentationService;
 use Modules\AI\Services\Tools\CompositeContextualToolProvider;
 use Modules\AI\Services\Tools\ContextualToolProviderInterface;
@@ -491,8 +493,14 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             }
 
             $excerpt = Str::limit($document->getContent(), 1000);
+            $passage = DocumentationPassage::fromDocument($document);
             $citations[] = [
-                'label' => $label,
+                ...array_filter([
+                    'kind' => ReferenceKind::Documentation->value,
+                    'label' => $label,
+                    'reference' => $passage?->documentKey(),
+                    'section' => $passage?->section,
+                ], static fn (mixed $value): bool => $value !== null),
                 'excerpt' => Str::limit($excerpt, 300),
                 'score' => $document->getScore(),
             ];

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Modules\AI\Services\Assistance\Policies;
 
+use Modules\AI\Enums\ReferenceKind;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use Modules\AI\Services\Assistance\AssistantPromptContext;
 use Modules\AI\Services\Assistance\Contracts\AssistanceSafetyClassifierInterface;
+use Modules\AI\Services\Documentation\DocumentationMetadata;
 use Throwable;
 
 final readonly class AssistanceContextPolicy
@@ -14,7 +16,7 @@ final readonly class AssistanceContextPolicy
     /**
      * @var list<string>
      */
-    private const array CITATION_KEYS = ['excerpt', 'label', 'reference', 'score'];
+    private const array CITATION_KEYS = ['excerpt', 'kind', 'label', 'reference', 'score', 'section'];
 
     /**
      * @var list<string>
@@ -65,9 +67,19 @@ final readonly class AssistanceContextPolicy
                 throw new AssistancePolicyViolationException('unsafe_citation');
             }
 
+            $kind = $citation['kind'] ?? null;
+
+            if ($kind !== null && ! in_array($kind, [ReferenceKind::Documentation->value, ReferenceKind::Content->value], true)) {
+                throw new AssistancePolicyViolationException('unsafe_citation_schema');
+            }
+
             if ($reference !== null
-                && (! is_string($reference) || ! $this->isSafeApplicationReference($reference))) {
+                && (! is_string($reference) || ! $this->isSafeReference($reference, $kind))) {
                 throw new AssistancePolicyViolationException('unsafe_citation');
+            }
+
+            if (isset($citation['section']) && (! is_int($citation['section']) || $citation['section'] < 0)) {
+                throw new AssistancePolicyViolationException('unsafe_citation_schema');
             }
 
             if (isset($citation['excerpt']) && ! is_string($citation['excerpt'])) {
@@ -208,6 +220,16 @@ final readonly class AssistanceContextPolicy
         $normalized = str_replace('\\', '/', $value);
 
         return preg_match('#(?:^|/)(?:srv|home|var|Modules|app)/|\.(?:php|env|sql)$#iu', $normalized) === 1;
+    }
+
+    /**
+     * A documentation reference is the opaque key of a document, anything else a canonical application path.
+     */
+    private function isSafeReference(string $reference, mixed $kind): bool
+    {
+        return $kind === ReferenceKind::Documentation->value
+            ? DocumentationMetadata::isDocumentKey($reference)
+            : $this->isSafeApplicationReference($reference);
     }
 
     private function isSafeApplicationReference(string $reference): bool

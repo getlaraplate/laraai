@@ -90,6 +90,7 @@ it('maps a document to a passage', function (): void {
         ->and($passages[0]->headingBreadcrumb)->toBe('Approvals > Approve')
         ->and($passages[0]->module)->toBe('cms')
         ->and($passages[0]->toArray())->toBe([
+            'kind' => 'documentation',
             'label' => 'Approve a modification',
             'reference' => 'Approve a modification',
             'excerpt' => $passages[0]->excerpt,
@@ -109,6 +110,7 @@ it('omits breadcrumb and module when the document does not carry them', function
         ->and($passage->headingBreadcrumb)->toBeNull()
         ->and($passage->module)->toBeNull()
         ->and($passage->toArray())->toBe([
+            'kind' => 'documentation',
             'label' => 'Plain',
             'reference' => 'Plain',
             'excerpt' => 'Plain text.',
@@ -181,4 +183,45 @@ it('turns a Markdown chunk into plain text before cutting the excerpt', function
         ->toContain('Approvals')
         ->toContain('Editor')
         ->toContain('See the guide for details.');
+});
+
+it('names the document by its opaque key and gives the position of the passage', function (): void {
+    $key = 'd_' . str_repeat('b', 32);
+    $search = doc_search_service(static fn (): array => [
+        doc_search_hit('Approve a modification', 'Body.', ['document_key' => $key, 'section' => 4]),
+    ]);
+
+    $passage = $search->search(doc_search_user(1, []), 'cms', 'approve')[0];
+
+    expect($passage->reference)->toBe($key)
+        ->and($passage->documentKey())->toBe($key)
+        ->and($passage->section)->toBe(4)
+        ->and($passage->toArray())->toMatchArray([
+            'kind' => 'documentation',
+            'label' => 'Approve a modification',
+            'reference' => $key,
+            'section' => 4,
+        ]);
+});
+
+it('keeps the label as reference for a passage indexed before the key existed', function (): void {
+    $search = doc_search_service(static fn (): array => [doc_search_hit('Approve a modification', 'Body.')]);
+
+    $passage = $search->search(doc_search_user(1, []), 'cms', 'approve')[0];
+
+    expect($passage->documentKey())->toBeNull()
+        ->and($passage->section)->toBeNull()
+        ->and($passage->toArray())->toMatchArray(['kind' => 'documentation', 'reference' => 'Approve a modification'])
+        ->and($passage->toArray())->not->toHaveKey('section');
+});
+
+it('ignores a document key and a section that are malformed', function (): void {
+    $search = doc_search_service(static fn (): array => [
+        doc_search_hit('Approve a modification', 'Body.', ['document_key' => '/internal/path.md', 'section' => -1]),
+    ]);
+
+    $passage = $search->search(doc_search_user(1, []), 'cms', 'approve')[0];
+
+    expect($passage->reference)->toBe('Approve a modification')
+        ->and($passage->section)->toBeNull();
 });

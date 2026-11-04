@@ -104,6 +104,12 @@ it('enforces closed schemas for citations and authorized results', function (arr
     'relative route traversal' => [[['label' => 'Guida', 'reference' => '/app/../../.env']], []],
     'encoded route traversal' => [[['label' => 'Guida', 'reference' => '/app/%2e%2e/.env']], []],
     'ambiguous route slash' => [[['label' => 'Guida', 'reference' => '/app//dashboard']], []],
+    'documentation reference that is a path' => [[['kind' => 'documentation', 'label' => 'Guida', 'reference' => '/srv/app/guide.md']], []],
+    'documentation reference that is the label' => [[['kind' => 'documentation', 'label' => 'Guida', 'reference' => 'Guida']], []],
+    'content reference that is a document key' => [[['kind' => 'content', 'label' => 'Guida', 'reference' => 'd_' . '0123456789abcdef0123456789abcdef']], []],
+    'unknown kind' => [[['kind' => 'file', 'label' => 'Guida']], []],
+    'negative section' => [[['kind' => 'documentation', 'label' => 'Guida', 'section' => -1]], []],
+    'non integer section' => [[['kind' => 'documentation', 'label' => 'Guida', 'section' => '3']], []],
     'extra result path' => [[], [['excerpt' => 'Testo', 'source_path' => '/home/app/secret.php']]],
 ]);
 
@@ -119,6 +125,24 @@ it('accepts a safe citation that references an application route', function (): 
         safeCitations: [[
             'label' => 'Guida dashboard',
             'reference' => '/app/dashboard',
+            'excerpt' => 'Apri la dashboard.',
+            'score' => 0.9,
+        ]],
+        authorizedResults: [['excerpt' => 'Apri la dashboard.']],
+    );
+
+    expect(AssistanceGuardrailPipeline::defaults()->validateContext($context))->toBe($context);
+});
+
+it('accepts a documentation citation that names its document by an opaque key', function (): void {
+    $context = new AssistantPromptContext(
+        policyVersion: 'in-app-v1',
+        presentationPreferences: [],
+        safeCitations: [[
+            'kind' => 'documentation',
+            'label' => 'Guida dashboard',
+            'reference' => 'd_0123456789abcdef0123456789abcdef',
+            'section' => 3,
             'excerpt' => 'Apri la dashboard.',
             'score' => 0.9,
         ]],

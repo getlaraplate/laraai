@@ -170,6 +170,8 @@ its AG-UI `type`, with the event as JSON in `data`:
 | `RunFinished` | last, on success | `outcome`: `success`, or `interrupt` with one interrupt per proposal (`reason: confirm_proposal`); an object never interrupts |
 | `RunError` | last, on refusal or failure | `code`: `POLICY_DENIED` or `PROVIDER_ERROR`, a fixed `message` |
 
+A citation in `delta.citations` and in `message.metadata.citations` is `{kind, label, reference?, section?, excerpt, score}`. `kind` is `documentation` (the `reference` is the opaque key of a documentation document, read through `GET /app/crud/detail/{module}/documentation`, and `section` the position of the passage) or `content` (the `reference` is a canonical `/app/...` path of application content). A documentation citation of a passage indexed before the key existed has no `reference` and no `section`. A client without a `kind` treats a `reference` starting with `/app/` as `content` and anything else as `documentation`.
+
 No event carries a token of the model: the protected profile validates the complete output before it
 delivers any of it. A refusal sends the stored generic refusal message and then `RunError`; the code is
 coarse and is not stored, so the message in the conversation still carries only `refused`. The interrupt is

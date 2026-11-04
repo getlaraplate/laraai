@@ -10,9 +10,12 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Modules\AI\Http\Requests\DocumentationReadRequest;
 use Modules\AI\Http\Requests\DocumentationSearchRequest;
 use Modules\AI\Services\Assistance\AssistantCapabilities;
 use Modules\AI\Services\Documentation\Search\DocumentationPassage;
+use Modules\AI\Services\Documentation\Search\DocumentationRead;
+use Modules\AI\Services\Documentation\Search\DocumentationReader;
 use Modules\AI\Services\Documentation\Search\DocumentationSearch;
 use Modules\Core\Helpers\ResponseBuilder;
 use Modules\Core\Models\User;
@@ -21,8 +24,9 @@ use Nwidart\Modules\Facades\Module;
 use RuntimeException;
 
 /**
- * Passages of the end-user documentation of one module, for the command palette. It calls no
- * language model: it returns what the assistant would cite, as the signed-in user may read it.
+ * Passages of the end-user documentation of one module, for the command palette, and the reading of
+ * one document of it. Neither calls a language model: they return what the assistant would cite, as
+ * the signed-in user may read it.
  */
 final class DocumentationSearchController extends Controller
 {
@@ -35,6 +39,72 @@ final class DocumentationSearchController extends Controller
      * so a refused caller learns nothing about its input. The search runs only once all pass.
      */
     public function search(Request $request, string $module): JsonResponse
+    {
+        $user = $this->allowedUser($module);
+
+        if ($user instanceof JsonResponse) {
+            return $user;
+        }
+
+        $query = resolve(DocumentationSearchRequest::class)->searchText();
+
+        try {
+            $passages = resolve(DocumentationSearch::class)->search($user, $module, $query);
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return new ResponseBuilder($request)
+                ->setError('The documentation search is not available.')
+                ->setStatus(Response::HTTP_SERVICE_UNAVAILABLE)
+                ->json();
+        }
+
+        return new ResponseBuilder($request)
+            ->setData(array_map(static fn (DocumentationPassage $passage): array => $passage->toArray(), $passages))
+            ->json();
+    }
+
+    /**
+     * One document of the module, or the section of it a search found, as the signed-in user may
+     * retrieve it. The checks are those of {@see self::search()}; a document the person cannot read
+     * answers like one that does not exist (404), so the route does not tell that it is there.
+     */
+    public function read(Request $request, string $module): JsonResponse
+    {
+        $user = $this->allowedUser($module);
+
+        if ($user instanceof JsonResponse) {
+            return $user;
+        }
+
+        $input = resolve(DocumentationReadRequest::class);
+
+        try {
+            $document = resolve(DocumentationReader::class)->read($user, $module, $input->reference(), $input->section());
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return new ResponseBuilder($request)
+                ->setError('The documentation is not available.')
+                ->setStatus(Response::HTTP_SERVICE_UNAVAILABLE)
+                ->json();
+        }
+
+        if (! $document instanceof DocumentationRead) {
+            return new ResponseBuilder($request)
+                ->setError('The document was not found.')
+                ->setStatus(Response::HTTP_NOT_FOUND)
+                ->json();
+        }
+
+        return new ResponseBuilder($request)->setData($document->toArray())->json();
+    }
+
+    /**
+     * The signed-in user the routes serve, or the refusal for a feature that is off. An anonymous
+     * caller is 401, the guest account 403 and a module that is not installed and enabled 404.
+     */
+    private function allowedUser(string $module): User|JsonResponse
     {
         $user = Auth::user();
 
@@ -54,22 +124,7 @@ final class DocumentationSearchController extends Controller
             abort(Response::HTTP_NOT_FOUND);
         }
 
-        $query = resolve(DocumentationSearchRequest::class)->searchText();
-
-        try {
-            $passages = resolve(DocumentationSearch::class)->search($user, $module, $query);
-        } catch (RuntimeException $exception) {
-            report($exception);
-
-            return new ResponseBuilder($request)
-                ->setError('The documentation search is not available.')
-                ->setStatus(Response::HTTP_SERVICE_UNAVAILABLE)
-                ->json();
-        }
-
-        return new ResponseBuilder($request)
-            ->setData(array_map(static fn (DocumentationPassage $passage): array => $passage->toArray(), $passages))
-            ->json();
+        return $user;
     }
 
     /**

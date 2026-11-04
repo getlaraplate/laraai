@@ -181,6 +181,11 @@ return [
             'search' => [
                 'rate_per_minute' => 60,
             ],
+            // The reading of one documentation document (`GET /app/crud/detail/{module}/documentation`): an
+            // index query and no embedding, so each signed-in user has more of these per minute.
+            'read' => [
+                'rate_per_minute' => 120,
+            ],
             // Analytics of answered in-app documentation questions (docs/rag/query-analytics-privacy-review.md).
             // `enabled`, `query_text_mode` (raw or off) and `retention_days` are the settings
             // `features.faq.query_logging.*`; the index name is deployment.

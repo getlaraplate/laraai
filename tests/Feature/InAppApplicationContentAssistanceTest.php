@@ -95,6 +95,7 @@ it('grounds a contextual answer and persists only safe application citations', f
     expect($provider->calls)->toBe(1)
         ->and($message->content)->toBe('Use the publishing controls shown in the application.')
         ->and($message->metadata['citations'])->toBe([[
+            'kind' => 'content',
             'label' => 'Publishing guide',
             'reference' => '/app/cms/contents/5',
             'excerpt' => 'Use the visible publishing controls.',

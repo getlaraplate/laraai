@@ -343,3 +343,30 @@ it('binds a composite contextual provider so graph and application tools remain 
         'name',
     ))->toBe(['graph_search', 'application_content_search']);
 });
+
+it('marks an application content citation as content and keeps its canonical reference', function (): void {
+    $result = new ApplicationContentResult('cms.contents', [
+        new ApplicationContentHit(
+            id: 'cms.contents:5',
+            source: 'cms.contents',
+            module: 'cms',
+            entity: 'contents',
+            recordKey: 5,
+            excerpt: 'Open the visible content editor.',
+            label: 'Visible content',
+            canonicalReference: '/app/cms/contents/5',
+            locale: 'en',
+            strategy: 'lexical',
+            score: 0.9,
+            revision: 'rev-1',
+            truncated: false,
+        ),
+    ], 'lexical', false);
+
+    expect((new ApplicationContentCitationMapper)->citationsFor($result))->toBe([[
+        'kind' => 'content',
+        'label' => 'Visible content',
+        'reference' => '/app/cms/contents/5',
+        'excerpt' => 'Open the visible content editor.',
+    ]]);
+});
