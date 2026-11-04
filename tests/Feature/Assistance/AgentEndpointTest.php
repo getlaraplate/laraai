@@ -174,6 +174,33 @@ it('sends a show_widget event for each object before RunFinished, and the run en
     $provider->assertCallCount(2);
 });
 
+it('sends the proposal before the object of the same message and interrupts the run for the proposal only', function (): void {
+    config(['ai.features.tools.crud.entities' => ['core.setting' => ['summarize']]]);
+    $permission = PermissionName::forModel(DynamicEntity::resolve('setting', module: 'core'), 'select');
+    Permission::findOrCreate($permission, 'web');
+    $this->user->givePermissionTo($permission);
+    agentFakeModel(new ToolCallingFakeProvider([
+        ['show_widget', ['type' => 'kpi', 'title' => 'Settings', 'request' => '{"resource":"core/setting","measures":[{"fn":"count"}]}']],
+        ['propose_preference_change', ['namespace' => 'ui', 'key' => 'defaultListLayout', 'proposed' => '"cards"', 'reason' => 'You open lists on a phone most of the time.']],
+    ], new AssistantMessage('Here is the count; I also suggest cards, accept it below.')));
+
+    $events = agentEvents(($this->run)(['context' => ['page' => ['proposable' => [agentLayoutTarget()], 'objects' => ['kpi']]]])->streamedContent());
+    $metadata = $this->conversation->messages()->where('role', 'assistant')->first()->metadata;
+    $toolCalls = array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'ToolCall'));
+
+    expect(array_map(static fn (array $event): array => [$event['toolCallName'], $event['toolCallId']], $toolCalls))->toBe([
+        ['propose_preference_change', $metadata['proposals'][0]['id']],
+        ['show_widget', $metadata['objects'][0]['id']],
+    ])
+        ->and(end($events))->toMatchArray([
+            'type' => 'RunFinished',
+            'outcome' => [
+                'type' => 'interrupt',
+                'interrupts' => [['id' => $metadata['proposals'][0]['id'], 'reason' => 'confirm_proposal', 'payload' => ['kind' => 'preference', 'target' => ['namespace' => 'ui', 'key' => 'defaultListLayout']]]],
+            ],
+        ]);
+});
+
 it('completes the turn when the model calls a tool without a required argument, and tells it so without the exception text', function (): void {
     Log::spy();
     agentFakeModel($provider = new ToolCallingFakeProvider([['propose_preference_change', []]], new AssistantMessage('I could not suggest a change, but you can pick the layout in Settings.')));

@@ -148,7 +148,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $tools = $this->tool_registry->getNeuronToolsForDefinitions(array_map($guard->wrap(...), $definitions));
             $proposals = $this->proposalCollector($policy);
             $tools = [...$tools, ...$this->proposalTools($policy, $proposals)];
-            $widgets = $this->widgetCollector($policy);
+            $widgets = $this->widgetCollector($policy, $scope);
             $tools = [...$tools, ...$this->widgetTools($widgets)];
             $this->report($progress, RunProgress::FINISHED, RunProgress::STEP_RETRIEVE);
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_ANSWER);
@@ -322,24 +322,29 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
     }
 
     /**
-     * The objects of this message, when the compiled policy allows the widget tool, the page declared an
-     * object type it renders (`context.page.objects`, a hint that narrows what may be shown and grants
-     * nothing) and the instance opted an entity into `summarize`. Without all three the assistant has no
-     * widget tool at all; which entity the acting person may summarize is decided when the tool runs.
+     * The objects of this message, when the scope reaches data, the compiled policy allows the widget tool,
+     * the page declared an object type that the tool shows (`context.page.objects`, a hint that narrows what
+     * may be shown and grants nothing), the instance opted an entity into `summarize` and the acting person
+     * is offered `summarize` on at least one of them. Without all of them the assistant has no widget tool
+     * at all; which entity a call may show is decided again when the tool runs.
      */
-    private function widgetCollector(CompiledAssistantPolicy $policy): ?WidgetObjectCollector
+    private function widgetCollector(CompiledAssistantPolicy $policy, AssistantScope $scope): ?WidgetObjectCollector
     {
-        if (! $policy->allowsTool(ShowWidgetTool::NAME)) {
+        if ($scope->dataAccess === DataAccess::None || ! $policy->allowsTool(ShowWidgetTool::NAME)) {
             return null;
         }
 
         $types = RenderableObjectTypes::fromPageContext($this->request->input('context.page.objects'));
+        $shown = array_any(WidgetObjectCollector::TYPES, static fn (string $type): bool => $types->has($type));
 
-        if ($types->isEmpty() || ! app(AssistantCapabilities::class)->summaries()) {
+        if (! $shown || ! app(AssistantCapabilities::class)->summaries()) {
             return null;
         }
 
-        return new WidgetObjectCollector($types, app(CrudToolProvider::class), $this->guardrails, AggregateLimits::fromConfig());
+        $crud = app(CrudToolProvider::class);
+        $summarizes = array_any($crud->offeredOperations(), static fn (array $offered): bool => $offered['operation'] === 'summarize');
+
+        return $summarizes ? new WidgetObjectCollector($types, $crud, $this->guardrails, AggregateLimits::fromConfig()) : null;
     }
 
     /**

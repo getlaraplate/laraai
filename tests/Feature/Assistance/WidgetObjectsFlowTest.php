@@ -10,9 +10,11 @@ use Modules\AI\Services\Assistance\InAppAssistanceService;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCatalog;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCompiler;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyRuleSet;
+use Modules\AI\Services\Tools\CrudToolProvider;
 use Modules\AI\Tests\Stubs\Assistance\ScriptedAssistantFixtures;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\Permission;
+use Modules\Core\Models\Role;
 use Modules\Core\Models\User;
 use Modules\Core\Support\PermissionName;
 use NeuronAI\Tools\Tool;
@@ -23,11 +25,19 @@ use NeuronAI\Tools\Tool;
 function widgetFlowReader(): User
 {
     $user = User::factory()->create();
-    $name = PermissionName::forModel(DynamicEntity::resolve('setting', module: 'core'), 'select');
-    Permission::findOrCreate($name, 'web');
-    $user->givePermissionTo($name);
+    widgetFlowGrant($user, 'setting', 'select');
 
     return $user;
+}
+
+/**
+ * Gives the user one ability on a core entity.
+ */
+function widgetFlowGrant(User $user, string $entity, string $ability): void
+{
+    $name = PermissionName::forModel(DynamicEntity::resolve($entity, module: 'core'), $ability);
+    Permission::findOrCreate($name, 'web');
+    $user->givePermissionTo($name);
 }
 
 /**
@@ -163,9 +173,28 @@ it('offers show_widget only when the page declares an object type and an entity 
     'an empty list' => [[], ['core.setting' => ['summarize']], []],
     'no objects key' => [null, ['core.setting' => ['summarize']], []],
     'only types the backend does not know' => [['table', 'map'], ['core.setting' => ['summarize']], []],
+    'only graph, which the tool does not show yet' => [['graph'], ['core.setting' => ['summarize']], []],
+    'graph beside a type the tool shows' => [['graph', 'kpi'], ['core.setting' => ['summarize']], ['show_widget']],
     'a text instead of a list' => ['kpi', ['core.setting' => ['summarize']], []],
     'no entity offers summarize' => [['kpi', 'chart'], ['core.setting' => ['list', 'detail']], []],
     'no entity opted in' => [['kpi', 'chart'], [], []],
+]);
+
+it('offers show_widget only to a user who may summarize one of the entities opted into summarize', function (bool $reads, array $expected): void {
+    $user = User::factory()->create();
+
+    if ($reads) {
+        widgetFlowGrant($user, 'setting', 'select');
+    }
+
+    $conversation = Conversation::query()->create(['user_id' => $user->id, 'system_message' => null]);
+
+    $names = widgetFlowOfferedTools(widgetFlowRequest($user, ['kpi', 'chart']), $conversation, $user);
+
+    expect(array_values(array_intersect($names, ['show_widget'])))->toBe($expected);
+})->with([
+    'a user who may read the entity' => [true, ['show_widget']],
+    'a user who may read no entity opted into summarize' => [false, []],
 ]);
 
 it('offers no show_widget when the policy of the in-app profile does not allow it', function (): void {
@@ -219,7 +248,14 @@ it('puts each object the model shows through the tool in message.metadata.object
         ->and($reply->content)->toBe('Here is how many settings there are, and how they split by group.');
 });
 
-it('keeps the objects after the proposals of the same message', function (): void {
+it('keeps the objects after the proposals and the writes of the same message', function (): void {
+    config([
+        'ai.features.tools.crud.entities' => ['core.setting' => ['summarize'], 'core.role' => ['update']],
+        'ai.features.tools.crud.unmoderated_writes' => ['core.role'],
+    ]);
+    widgetFlowGrant($this->user, 'role', 'select');
+    widgetFlowGrant($this->user, 'role', 'update');
+    $role = Role::factory()->create(['name' => 'before']);
     $layout = [
         'kind' => 'preference',
         'target' => ['namespace' => 'ui', 'key' => 'defaultListLayout'],
@@ -230,17 +266,21 @@ it('keeps the objects after the proposals of the same message', function (): voi
 
     $reply = ScriptedAssistantFixtures::inAppService(
         widgetFlowRequest($this->user, ['kpi'], [$layout]),
-        function (string $input, string $system, mixed $context, array $tools): string {
-            widgetFlowToolCall($tools, 'propose_preference_change', ['namespace' => 'ui', 'key' => 'defaultListLayout', 'proposed' => '"cards"', 'reason' => 'Cards read better on a phone.']);
+        function (string $input, string $system, mixed $context, array $tools) use ($role): string {
             widgetFlowToolCall($tools, 'show_widget', widgetFlowKpi());
+            expect(widgetFlowToolCall($tools, 'crud_update_core_role', ['id' => (string) $role->getKey(), 'attributes' => ['name' => 'after']]))->not->toContain('error');
+            widgetFlowToolCall($tools, 'propose_preference_change', ['namespace' => 'ui', 'key' => 'defaultListLayout', 'proposed' => '"cards"', 'reason' => 'Cards read better on a phone.']);
 
-            return 'Here is the count; I also suggest cards, accept it below if you like.';
+            return 'Here is the count. I also propose renaming the role and suggest cards: confirm them below if you like.';
         },
+        tools: app(CrudToolProvider::class),
     )->respond($this->conversation, $this->user, 'How many settings are there?');
 
-    expect(array_keys($reply->metadata))->toBe(['citations', 'proposals', 'objects'])
+    expect(array_keys($reply->metadata))->toBe(['citations', 'proposals', 'writes', 'objects'])
         ->and($reply->metadata['proposals'])->toHaveCount(1)
-        ->and($reply->metadata['objects'])->toHaveCount(1);
+        ->and($reply->metadata['writes'])->toHaveCount(1)
+        ->and($reply->metadata['objects'])->toHaveCount(1)
+        ->and($role->fresh()->name)->toBe('before');
 });
 
 it('adds no objects key to a message that shows no object', function (?array $call): void {
