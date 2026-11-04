@@ -5,6 +5,10 @@ declare(strict_types=1);
 use Elastic\Elasticsearch\Client;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
+use Modules\AI\Ai\Rag\Retrieval\DocumentationRetrievalContext;
+use Modules\AI\Enums\AssistantProfile;
+use Modules\AI\Enums\AssistantTenantScope;
+use Modules\AI\Services\Assistance\AssistantAccessContext;
 use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Schema\DocumentSchema;
@@ -266,4 +270,74 @@ test('similarity search fails fast on elasticsearch errors', function (): void {
 
     expect(fn () => iterator_to_array($store->search(new SearchRequest([0.1, 0.2, 0.3])), false))
         ->toThrow(VectorStoreException::class, 'Elasticsearch RAG similarity search failed');
+});
+
+function document_read_context(): DocumentationRetrievalContext
+{
+    return DocumentationRetrievalContext::fromAccessContext(new AssistantAccessContext(
+        profile: AssistantProfile::InAppAssistance,
+        userId: '7',
+        tenantScope: AssistantTenantScope::Global,
+        tenantId: null,
+        locale: 'it',
+        effectivePermissions: ['cms.content.view'],
+        conversationId: '11',
+    ));
+}
+
+test('a document read filters on the access rules of the search and the document key, in section order', function (): void {
+    $key = 'd_' . str_repeat('a', 32);
+    $context = document_read_context();
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('search')
+        ->once()
+        ->with(Mockery::on(function (array $params) use ($key, $context): bool {
+            $filter = $params['body']['query']['bool']['filter'];
+
+            return $params['index'] === 'laraplate_rag_user_docs_test'
+                && $filter[0] === $context->elasticsearchFilter('in-app-docs-v1')
+                && $filter[1] === ['term' => ['metadata.document_key' => $key]]
+                && $params['body']['size'] === ElasticsearchRagVectorStore::MAX_READ_SECTIONS
+                && $params['body']['sort'][0]['metadata.section']['order'] === 'asc'
+                && $params['body']['post_filter'] === ['range' => ['metadata.section' => ['gte' => 3, 'lte' => 5]]]
+                && $params['body']['aggs']['last_section']['max']['field'] === 'metadata.section'
+                && ! isset($params['body']['knn']);
+        }))
+        ->andReturn(make_elasticsearch_response([
+            'hits' => ['hits' => [
+                ['_id' => 'a', '_source' => ['content' => 'Third.', 'sourceType' => 'files', 'sourceName' => 'Guide', 'metadata' => ['section' => 3], 'neuron_id' => 'a']],
+                ['_id' => 'b', '_source' => ['content' => 'Fourth.', 'sourceType' => 'files', 'sourceName' => 'Guide', 'metadata' => ['section' => 4], 'neuron_id' => 'b']],
+            ]],
+            'aggregations' => ['last_section' => ['value' => 8.0]],
+        ]));
+
+    $result = make_rag_vector_store($client, DocumentationIndexProfile::User)->chunksOfDocument($key, $context, 3, 5);
+
+    expect($result['total'])->toBe(9)
+        ->and(array_map(static fn (Document $document): string => $document->getContent(), $result['documents']))->toBe(['Third.', 'Fourth.']);
+});
+
+test('a document read without bounds asks for the whole document', function (): void {
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('search')
+        ->once()
+        ->with(Mockery::on(fn (array $params): bool => ! isset($params['body']['post_filter'])))
+        ->andReturn(make_elasticsearch_response(['hits' => ['hits' => []]]));
+
+    $result = make_rag_vector_store($client, DocumentationIndexProfile::User)->chunksOfDocument('d_' . str_repeat('a', 32), document_read_context());
+
+    expect($result)->toBe(['documents' => [], 'total' => null]);
+});
+
+test('a document read is only for the user index and reports a failing search', function (): void {
+    $key = 'd_' . str_repeat('a', 32);
+
+    expect(fn () => make_rag_vector_store(Mockery::mock(Client::class))->chunksOfDocument($key, document_read_context()))
+        ->toThrow(InvalidArgumentException::class);
+
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('search')->once()->andThrow(new RuntimeException('down'));
+
+    expect(fn () => make_rag_vector_store($client, DocumentationIndexProfile::User)->chunksOfDocument($key, document_read_context()))
+        ->toThrow(VectorStoreException::class);
 });

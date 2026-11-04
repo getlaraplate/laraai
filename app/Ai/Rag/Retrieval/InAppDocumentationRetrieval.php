@@ -24,10 +24,12 @@ final readonly class InAppDocumentationRetrieval
 
     /**
      * @param  (Closure(array<float>, DocumentationRetrievalContext): array<Document>)|null  $search
+     * @param  (Closure(string, DocumentationRetrievalContext, int|null, int|null): array{documents: array<Document>, total: int|null})|null  $read
      */
     public function __construct(
         private IEmbeddingService $embedding_service,
         private ?Closure $search = null,
+        private ?Closure $read = null,
     ) {}
 
     /**
@@ -56,6 +58,54 @@ final readonly class InAppDocumentationRetrieval
         } catch (Throwable) {
             throw new RuntimeException('In-app documentation retrieval is unavailable.');
         }
+    }
+
+    /**
+     * The chunks of one document, in section order, that the person may retrieve: the access context and
+     * scope of {@see self::retrieve()}, the same safe projection, and a term on the document key. An empty
+     * list means no such document for this person, whatever the reason. `$from` and `$to` bound the
+     * sections (inclusive); `total` is the section count of the document when the index knows it.
+     *
+     *
+     * @throws RuntimeException when retrieval is unavailable
+     *
+     * @return array{documents: list<Document>, total: int|null}
+     */
+    public function readDocument(
+        string $document_key,
+        AssistantAccessContext $access,
+        ?AssistantScope $scope = null,
+        ?int $from = null,
+        ?int $to = null,
+    ): array {
+        $context = $scope === null
+            ? DocumentationRetrievalContext::fromAccessContext($access)
+            : DocumentationRetrievalContext::fromAccessContextAndScope($access, $scope);
+
+        try {
+            $result = $this->read !== null
+                ? ($this->read)($document_key, $context, $from, $to)
+                : $this->readUserIndex($document_key, $context, $from, $to);
+
+            return ['documents' => $this->safeDocuments($result['documents']), 'total' => $result['total']];
+        } catch (Throwable) {
+            throw new RuntimeException('In-app documentation retrieval is unavailable.');
+        }
+    }
+
+    /**
+     * @return array{documents: list<Document>, total: int|null}
+     */
+    private function readUserIndex(string $document_key, DocumentationRetrievalContext $context, ?int $from, ?int $to): array
+    {
+        $store = ElasticsearchRagVectorStore::fromConfig(DocumentationIndexProfile::User, $context->topK);
+        $result = $store->chunksOfDocument($document_key, $context, $from, $to);
+
+        if ($result['documents'] === [] && ! $store->hasDocuments()) {
+            throw new RuntimeException;
+        }
+
+        return ['documents' => array_values($result['documents']), 'total' => $result['total']];
     }
 
     /**

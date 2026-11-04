@@ -184,6 +184,24 @@ final readonly class DocumentationService
     }
 
     /**
+     * The chunks of one document of the user corpus, in section order, that the person behind `$access`
+     * may retrieve ({@see InAppDocumentationRetrieval::readDocument()}).
+     *
+     * @return array{documents: list<Document>, total: int|null}
+     */
+    public function readForInApp(
+        string $document_key,
+        AssistantAccessContext $access,
+        ?AssistantScope $scope = null,
+        ?int $from = null,
+        ?int $to = null,
+    ): array {
+        $retrieval = $this->in_app_retrieval ?? app(InAppDocumentationRetrieval::class);
+
+        return $retrieval->readDocument($document_key, $access, $scope, $from, $to);
+    }
+
+    /**
      * Check if FAQ/RAG is enabled and documentation is indexed.
      */
     public function isAvailable(): bool

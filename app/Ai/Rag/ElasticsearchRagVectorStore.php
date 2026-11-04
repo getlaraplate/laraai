@@ -42,6 +42,12 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
 {
     use HasDocumentSchema;
 
+    /**
+     * The most sections of one document a read returns, so a wrong key or a huge document cannot return
+     * an unbounded body.
+     */
+    public const int MAX_READ_SECTIONS = 200;
+
     public function __construct(
         private readonly Client $client,
         private readonly DocumentationIndexProfile $indexProfile,
@@ -285,6 +291,68 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             ),
             $this->topK,
         );
+    }
+
+    /**
+     * The chunks of one document in section order, under the access filter of the scoped search plus a
+     * term on the document key. `$from` and `$to` bound the sections returned (both inclusive); the
+     * document's own section count is the maximum `section` of the document plus one, read from an
+     * aggregation that the range does not narrow, and null when no chunk carries a position.
+     *
+     * @return array{documents: list<Document>, total: int|null}
+     */
+    public function chunksOfDocument(
+        string $document_key,
+        DocumentationRetrievalContext $context,
+        ?int $from = null,
+        ?int $to = null,
+    ): array {
+        if ($this->indexProfile !== DocumentationIndexProfile::User) {
+            throw new InvalidArgumentException('Reading a documentation document requires the user documentation index.');
+        }
+
+        $body = [
+            'size' => self::MAX_READ_SECTIONS,
+            'query' => [
+                'bool' => [
+                    'filter' => [
+                        $context->elasticsearchFilter(
+                            ai_config_string('ai.features.faq.policy_classification_version', 'in-app-docs-v1'),
+                        ),
+                        ['term' => ['metadata.document_key' => $document_key]],
+                    ],
+                ],
+            ],
+            'sort' => [['metadata.section' => ['order' => 'asc', 'unmapped_type' => 'long']]],
+            'aggs' => ['last_section' => ['max' => ['field' => 'metadata.section']]],
+        ];
+
+        if ($from !== null || $to !== null) {
+            $body['post_filter'] = ['range' => ['metadata.section' => array_filter(
+                ['gte' => $from, 'lte' => $to],
+                static fn (?int $bound): bool => $bound !== null,
+            )]];
+        }
+
+        try {
+            $response = $this->client->search([
+                'index' => $this->indexProfile->indexName(),
+                'body' => $body,
+            ])->asArray();
+        } catch (Throwable $throwable) {
+            throw new VectorStoreException(
+                'Elasticsearch RAG document read failed: ' . $throwable->getMessage(),
+                (int) $throwable->getCode(),
+                $throwable,
+            );
+        }
+
+        $last = $response['aggregations']['last_section']['value'] ?? null;
+
+        return [
+            'documents' => $this->mapHitsToDocuments($response),
+            'total' => is_numeric($last) ? (int) $last + 1 : null,
+        ];
     }
 
     /**
