@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\Message;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
@@ -16,6 +17,7 @@ use Modules\Core\Graph\Contracts\GraphToolGatewayInterface;
 use Modules\Core\Models\DynamicEntity;
 use Modules\Core\Models\Permission;
 use Modules\Core\Models\Role;
+use Modules\Core\Models\Setting;
 use Modules\Core\Models\User;
 use Modules\Core\Support\PermissionName;
 use NeuronAI\Tools\Tool;
@@ -196,6 +198,47 @@ function widgetFlowCompilerWithout(array $tools): AssistantPolicyCompiler
         capabilities: $defaults->capabilities,
         modules: $defaults->modules,
     ));
+}
+
+/**
+ * The stored aggregate request of an object as a client sends it to the route: the route of its resource, and the
+ * request without `kind` and `resource`, unchanged.
+ *
+ * @param  array<string, mixed>  $object
+ * @return array{0: string, 1: array<string, mixed>}
+ */
+function widgetFlowAggregateCall(array $object): array
+{
+    $request = $object['ref']['request'];
+    [$module, $entity] = explode('/', $request['resource'], 2);
+
+    return [route('core.crud.aggregate', ['module' => $module, 'entity' => $entity]), Arr::except($request, ['kind', 'resource'])];
+}
+
+/**
+ * A request body as a `GET` caller of the aggregate route sends it: the objects and lists as JSON text, a flag as
+ * text, the rest as it is.
+ *
+ * @param  array<string, mixed>  $body
+ * @return array<string, mixed>
+ */
+function widgetFlowQueryString(array $body): array
+{
+    return array_map(static fn (mixed $value): mixed => match (true) {
+        is_array($value) => json_encode($value, JSON_THROW_ON_ERROR),
+        is_bool($value) => $value ? 'true' : 'false',
+        default => $value,
+    }, $body);
+}
+
+/**
+ * A filter on the group name of the settings.
+ *
+ * @return array{property: string, operator: string, value: string}
+ */
+function widgetFlowGroupFilter(string $group, string $operator = '='): array
+{
+    return ['property' => 'group_name', 'operator' => $operator, 'value' => $group];
 }
 
 beforeEach(function (): void {
@@ -472,4 +515,122 @@ it('returns the objects of a message wherever it is read: the answer, the messag
         ->and($listed['metadata']['objects'])->toBe($objects)
         ->and($detailed['metadata']['objects'])->toBe($objects)
         ->and($generic['metadata']['objects'])->toBe($objects);
+});
+
+it('records aggregate objects whose stored request the route answers unchanged, as a body and as a query string', function (): void {
+    foreach (['round_trip_alpha', 'round_trip_alpha', 'round_trip_beta', 'round_trip_gamma', 'round_trip_hidden'] as $index => $group) {
+        Setting::factory()->persistedWithoutApprovalCapture()->create(['name' => 'round_trip_' . $index, 'group_name' => $group]);
+    }
+
+    $filters = [
+        widgetFlowGroupFilter('round_trip_%', 'like'),
+        ['operator' => 'or', 'filters' => [widgetFlowGroupFilter('round_trip_alpha'), widgetFlowGroupFilter('round_trip_beta'), widgetFlowGroupFilter('round_trip_gamma')]],
+    ];
+    $chart = [
+        'type' => 'chart',
+        'title' => 'Settings by group',
+        'variant' => 'bar',
+        'request' => json_encode([
+            'resource' => 'core/setting',
+            'measures' => [['fn' => 'count']],
+            'group_by' => ['field' => 'group_name'],
+            'period' => ['field' => 'created_at', 'last' => ['n' => 6, 'unit' => 'month']],
+            'compare' => 'previous_period',
+            'limit' => 2,
+            'other' => true,
+            'filters' => $filters,
+        ], JSON_THROW_ON_ERROR),
+    ];
+    $trend = [
+        'type' => 'kpi',
+        'title' => 'Settings this year',
+        'request' => json_encode([
+            'resource' => 'core/setting',
+            'measures' => [['fn' => 'count']],
+            'group_by' => ['field' => 'created_at', 'bucket' => 'month'],
+            'period' => ['field' => 'created_at', 'preset' => 'this_year'],
+            'compare' => 'previous_period',
+            'filters' => $filters,
+        ], JSON_THROW_ON_ERROR),
+    ];
+    $answers = [];
+
+    $reply = ScriptedAssistantFixtures::inAppService(
+        widgetFlowRequest($this->user, ['kpi', 'chart']),
+        function (string $input, string $system, mixed $context, array $tools) use ($chart, $trend, &$answers): string {
+            $answers[] = widgetFlowToolCall($tools, 'show_widget', $chart);
+            $answers[] = widgetFlowToolCall($tools, 'show_widget', $trend);
+
+            return 'Here is how the settings split by group, and how they grew this year.';
+        },
+    )->respond($this->conversation, $this->user, 'How do the settings split by group?');
+
+    $objects = $reply->fresh()->metadata['objects'];
+
+    expect($answers)->each->toStartWith('Widget recorded.')
+        ->and($objects)->toHaveCount(2);
+
+    $answered = [];
+
+    foreach ($objects as $object) {
+        [$url, $body] = widgetFlowAggregateCall($object);
+
+        $post = $this->actingAs($this->user)->postJson($url, $body);
+        $get = $this->actingAs($this->user)->getJson($url . '?' . http_build_query(widgetFlowQueryString($body)));
+
+        foreach ([$post, $get] as $response) {
+            $response->assertOk()->assertJsonStructure([
+                'data' => ['series', 'total' => ['count'], 'compare' => ['total' => ['count']]],
+                'meta' => ['resolved_period' => ['field', 'from', 'to', 'timezone'], 'row_count', 'group_count', 'truncated', 'generated_at'],
+            ]);
+        }
+
+        expect($get->json('data'))->toBe($post->json('data'));
+        $answered[] = $post->json('data');
+    }
+
+    expect($answered[0]['series'])->toBe([
+        ['key' => 'round_trip_alpha', 'label' => null, 'values' => ['count' => 2]],
+        ['key' => 'round_trip_beta', 'label' => null, 'values' => ['count' => 1]],
+    ])
+        ->and($answered[0]['total'])->toBe(['count' => 4])
+        ->and($answered[0]['other'])->toBe(['count' => 1, 'groups' => 1])
+        ->and($answered[0]['compare']['total'])->toBe(['count' => 0])
+        ->and($answers[0])->toContain('"total":{"count":4}')
+        ->and($answered[1]['total'])->toBe(['count' => 4])
+        ->and($answered[1]['series'])->toHaveCount(12)
+        ->and($answered[1]['compare']['series'])->toHaveCount(12);
+});
+
+it('records a graph object whose stored request the graph expand route answers unchanged', function (): void {
+    config(['ai.features.tools.crud.entities' => []]);
+    widgetFlowGrant($this->user, 'user', 'select');
+    widgetFlowGrant($this->user, 'role', 'select');
+    $member = User::factory()->create();
+    $member->assignRole(Role::factory()->create(['name' => 'round-trip-editors']));
+    $answer = null;
+
+    $reply = ScriptedAssistantFixtures::inAppService(
+        widgetFlowRequest($this->user, ['graph']),
+        function (string $input, string $system, mixed $context, array $tools) use ($member, &$answer): string {
+            $answer = widgetFlowToolCall($tools, 'show_widget', [
+                'type' => 'graph',
+                'title' => 'Roles of a member',
+                'request' => json_encode(['resource' => 'core/users', 'id' => $member->getKey(), 'relations' => ['roles'], 'node_detail' => 'minimal'], JSON_THROW_ON_ERROR),
+            ]);
+
+            return 'Here is how the roles of the member relate.';
+        },
+    )->respond($this->conversation, $this->user, 'How are the roles of the member related?');
+
+    $request = $reply->fresh()->metadata['objects'][0]['ref']['request'];
+    [$module, $entity] = explode('/', $request['resource'], 2);
+    $query = Arr::only($request, ['relations', 'depth', 'node_detail', 'limit', 'relation_limit']);
+
+    $response = $this->actingAs($this->user)->getJson('/app/crud/graph/expand/' . $module . '/' . $entity . '/' . $request['id'] . '?' . http_build_query($query));
+
+    $response->assertOk();
+
+    expect($answer)->toStartWith('Widget recorded.')
+        ->and($query)->toBe(['relations' => ['roles'], 'depth' => 1, 'node_detail' => 'minimal', 'limit' => 25, 'relation_limit' => 10]);
 });
