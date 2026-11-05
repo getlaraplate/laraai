@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
+use Modules\Core\Search\Support\ScoutWheres;
 use Laravel\Scout\Engines\Engine;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ISearchEngine;
@@ -88,7 +89,7 @@ final class RecordingSwitchSearchEngine extends Engine implements IReportsVector
     public function search(Builder $builder): array
     {
         $index = $builder->model->searchableAs();
-        $vector = $builder->wheres['vector'] ?? null;
+        $vector = ScoutWheres::map($builder)['vector'] ?? null;
 
         if (is_array($vector)) {
             if ($this->failVectorQueries !== null) {

@@ -48,8 +48,9 @@ final readonly class SearchIndexInspector
      */
     public function vectorQuery(Model $model, array $vector): void
     {
-        $builder = $model::search('')->take(1);
-        $builder->wheres['vector'] = $vector;
+        // Through the public API rather than writing into Builder::$wheres: Scout 11 changed that array's
+        // shape from a field => value map to a list of field/operator/value triples.
+        $builder = $model::search('')->take(1)->where('vector', $vector);
 
         $model->searchableUsing()->search($builder);
     }
