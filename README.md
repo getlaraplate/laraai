@@ -6,7 +6,7 @@
 </p>
 <p>&nbsp;</p>
 <p align="center">
-    <img src="https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white" alt="Laravel 12">
+    <img src="https://img.shields.io/badge/Laravel-13.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white" alt="Laravel 13">
     <img src="https://img.shields.io/badge/PHP-8.5+-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP 8.2+">
     <img src="https://img.shields.io/badge/License-GNU_AGPL_v3-green?style=for-the-badge" alt="GNU AGPL v3 License">
 </p>
@@ -271,7 +271,7 @@ conversations and suggestions. Details, the wire contract and the purge rules:
 ### Requirements
 
 -   PHP >= 8.5
--   Laravel 12.0+
+-   Laravel 13.0+
 -   **Core Module** (mandatory dependency)
 -   **PHP Extensions:**
     -   `ext-curl`: For HTTP requests to AI providers
