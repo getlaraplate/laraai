@@ -339,7 +339,7 @@ The AI Module includes built-in features such as:
         - **Developers** — terminal assistant: `php artisan ai:help` (interactive REPL or `--question="..."` one-shot), with access to the developer documentation corpus and no application-content tool.
     - Citations with source attribution in answers
     - **Commands:**
-        - `php artisan ai:index-rag-docs` — build or update a profile corpus (`--profile=developer|user|all`, `--path=`, `--full`)
+        - `php artisan ai:index-rag-docs` — build or update a profile corpus (`--profile=developer|user|all`, `--path=`, `--full`) A progress bar shows the chunks written and the file being indexed; a console that is not interactive (a pipe, a log, `--no-interaction`) gets one plain line per batch instead.
         - `php artisan ai:create-rag-es-index` — create Elasticsearch index when the setting `features.faq.vector_store` is `elasticsearch`
         - `php artisan ai:help` — developer documentation assistant in the terminal
         - `php artisan test:ai:evaluate-application-content --dataset=... --source=... --output=...` — provider retrieval evaluation without chat generation

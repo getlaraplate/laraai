@@ -6,8 +6,11 @@ namespace Modules\AI\Console;
 
 use function ai_config_bool;
 
+use Closure;
 use Exception;
 use Illuminate\Console\Command;
+use Laravel\Prompts\Progress;
+use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
 use Modules\AI\Console\Concerns\ResolvesDocumentationProfiles;
 use Modules\AI\Services\DocumentationService;
@@ -25,6 +28,13 @@ final class IndexDocumentationCommand extends Command
 
     #[Override]
     protected $description = 'Index documentation for FAQ/RAG <fg=magenta>(✨ Modules\AI)</fg=magenta>';
+
+    /**
+     * The progress bar of the profile being indexed, while it is on screen.
+     *
+     * @var Progress<int>|null
+     */
+    private ?Progress $bar = null;
 
     /**
      * Index documentation for FAQ/RAG
@@ -61,16 +71,83 @@ final class IndexDocumentationCommand extends Command
             $count = 0;
 
             foreach ($profiles as $profile) {
-                $count += $documentationService->indexDocuments($path, $full, $profile);
+                $count += $documentationService->indexDocuments($path, $full, $profile, $this->progressReporter($profile));
             }
 
             $this->info("Indexed {$count} document chunks.");
 
             return self::SUCCESS;
         } catch (Exception $e) {
+            $this->failProgressBar();
             $this->error('Indexing failed: ' . $e->getMessage());
 
             return self::FAILURE;
         }
+    }
+
+    /**
+     * The callback that shows where the indexing is: a Laravel Prompts progress bar over the chunks, with
+     * the file being written as hint, or one plain line per batch when the console is not interactive
+     * (a pipe, a log, `--no-interaction`), where a bar would only write control codes.
+     *
+     * @return Closure(int, int, list<string>): void
+     */
+    private function progressReporter(DocumentationIndexProfile $profile): Closure
+    {
+        $label = sprintf('Indexing the %s documentation', $profile->value);
+
+        return function (int $done, int $total, array $sources) use ($label): void {
+            if (! $this->input->isInteractive()) {
+                if ($sources !== []) {
+                    $this->line(sprintf('%s: %d/%d chunks, %s', $label, $done, $total, $this->describeSources($sources)));
+                }
+
+                return;
+            }
+
+            if (! $this->bar instanceof Progress) {
+                $this->bar = new Progress($label, $total);
+                $this->bar->start();
+            }
+
+            $this->bar->hint($this->describeSources($sources));
+            $this->bar->advance($done - $this->bar->progress);
+
+            if ($done >= $total) {
+                $this->bar->finish();
+                $this->bar = null;
+            }
+        };
+    }
+
+    /**
+     * Leaves the bar that was running when the indexing failed drawn in the error state, so the failure
+     * message below it reads as the end of that bar and not as an interruption.
+     */
+    private function failProgressBar(): void
+    {
+        if (! $this->bar instanceof Progress) {
+            return;
+        }
+
+        $this->bar->state = 'error';
+        $this->bar->render();
+        $this->bar = null;
+    }
+
+    /**
+     * The sources of a batch in a line: the first two, and how many more follow.
+     *
+     * @param  list<string>  $sources
+     */
+    private function describeSources(array $sources): string
+    {
+        if ($sources === []) {
+            return '';
+        }
+
+        $line = implode(', ', array_slice($sources, 0, 2));
+
+        return count($sources) > 2 ? sprintf('%s (+%d more)', $line, count($sources) - 2) : $line;
     }
 }
