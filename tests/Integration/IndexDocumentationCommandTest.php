@@ -45,7 +45,7 @@ it('calls documentationService indexDocuments and shows count', function (): voi
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('indexDocuments')
         ->once()
-        ->with(null, false, DocumentationIndexProfile::Developer)
+        ->with(null, false, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
         ->andReturn(42);
     app()->instance(DocumentationService::class, $mock);
 
@@ -63,7 +63,7 @@ it('passes full flag to documentationService', function (): void {
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('indexDocuments')
         ->once()
-        ->with(null, true, DocumentationIndexProfile::Developer)
+        ->with(null, true, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
         ->andReturn(3);
     app()->instance(DocumentationService::class, $mock);
 
@@ -83,7 +83,7 @@ it('warns that full indexing resets the in-process memory store', function (): v
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('indexDocuments')
         ->once()
-        ->with(null, true, DocumentationIndexProfile::Developer)
+        ->with(null, true, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
         ->andReturn(3);
     app()->instance(DocumentationService::class, $mock);
 
@@ -102,7 +102,7 @@ it('returns failure on exception', function (): void {
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('indexDocuments')
         ->once()
-        ->with(null, false, DocumentationIndexProfile::Developer)
+        ->with(null, false, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
         ->andThrow(new Exception('Indexing error'));
     app()->instance(DocumentationService::class, $mock);
 
@@ -120,7 +120,7 @@ it('indexes the explicitly selected user corpus', function (): void {
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('indexDocuments')
         ->once()
-        ->with(null, false, DocumentationIndexProfile::User)
+        ->with(null, false, DocumentationIndexProfile::User, Mockery::type(Closure::class))
         ->andReturn(2);
     app()->instance(DocumentationService::class, $mock);
 
@@ -171,4 +171,79 @@ it('stops with a readable error naming the file and the value of an unknown audi
     } finally {
         File::deleteDirectory($tmp_dir);
     }
+});
+
+it('prints one plain line per batch when the console is not interactive', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')
+        ->once()
+        ->andReturnUsing(function (?string $path, bool $full, DocumentationIndexProfile $profile, Closure $onProgress): int {
+            $onProgress(0, 150, ['docs/a.md', 'docs/b.md', 'docs/c.md', 'docs/d.md']);
+            $onProgress(100, 150, ['docs/e.md']);
+            $onProgress(150, 150, []);
+
+            return 150;
+        });
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute([], ['interactive' => false]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('Indexing the developer documentation: 0/150 chunks, docs/a.md, docs/b.md (+2 more)')
+        ->and($tester->getDisplay())->toContain('Indexing the developer documentation: 100/150 chunks, docs/e.md')
+        ->and(mb_substr_count($tester->getDisplay(), 'chunks,'))->toBe(2);
+});
+
+it('draws a progress bar with the file being indexed when the console is interactive', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')
+        ->once()
+        ->andReturnUsing(function (?string $path, bool $full, DocumentationIndexProfile $profile, Closure $onProgress): int {
+            $onProgress(0, 150, ['docs/a.md']);
+            $onProgress(100, 150, ['docs/b.md']);
+            $onProgress(150, 150, []);
+
+            return 150;
+        });
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute([], ['interactive' => true]);
+
+    $drawn = $tester->getDisplay();
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($drawn)->toContain('Indexing the developer documentation')
+        ->and($drawn)->toContain('docs/a.md')
+        ->and($drawn)->toContain('docs/b.md')
+        ->and($drawn)->toContain('150 / 150');
+});
+
+it('draws the bar in the error state and reports the failure when the indexing stops midway', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')
+        ->once()
+        ->andReturnUsing(function (?string $path, bool $full, DocumentationIndexProfile $profile, Closure $onProgress): never {
+            $onProgress(0, 150, ['docs/a.md']);
+
+            throw new Exception('Elasticsearch said no');
+        });
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute([], ['interactive' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
+        ->and($tester->getDisplay())->toContain('Indexing failed: Elasticsearch said no')
+        ->and($tester->getDisplay())->toContain('0 / 150');
 });

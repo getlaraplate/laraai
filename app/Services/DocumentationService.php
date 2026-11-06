@@ -54,13 +54,20 @@ final readonly class DocumentationService
      * When the vector store already has data (filesystem file non-empty, or memory driver), uses
      * {@see DocumentationAgent::reindexBySource()} so repeated runs update each logical file instead of duplicating chunks.
      * Pass {@code $fullRebuild} true to wipe the store and rebuild from scratch (filesystem: deletes store file; memory: resets shared store).
+     *
+     * `$onProgress` is told where the run is: before each batch it receives the chunks written so far, the
+     * chunks in all and the sources of the batch about to be written, and once more at the end with every
+     * chunk done and no sources. It is never called when there is nothing to index.
+     *
+     * @param  (Closure(int, int, list<string>): void)|null  $onProgress
      */
     public function indexDocuments(
         ?string $path = null,
         bool $fullRebuild = false,
         DocumentationIndexProfile $profile = DocumentationIndexProfile::Developer,
+        ?Closure $onProgress = null,
     ): int {
-        return $this->indexFromRoots($this->roots($path), $fullRebuild, $profile);
+        return $this->indexFromRoots($this->roots($path), $fullRebuild, $profile, $onProgress);
     }
 
     /**
@@ -340,6 +347,7 @@ final readonly class DocumentationService
         array $roots,
         bool $fullRebuild,
         DocumentationIndexProfile $profile,
+        ?Closure $onProgress = null,
     ): int {
         $documents = $this->profileDocuments($roots, $profile);
         $driver = FaqVectorStoreConfig::driver();
@@ -358,6 +366,7 @@ final readonly class DocumentationService
             $split_documents,
             $profile,
             replaceSources: ! $fullRebuild && $this->shouldUseIncrementalReindex($driver, $profile),
+            onProgress: $onProgress,
         );
 
         return count($split_documents);
@@ -434,22 +443,41 @@ final readonly class DocumentationService
      * source; with `$replaceSources` each source already stored is deleted first.
      *
      * @param  list<Document>  $split_documents
+     * @param  (Closure(int, int, list<string>): void)|null  $onProgress  see {@see self::indexDocuments()}
      */
-    private function storeDocuments(array $split_documents, DocumentationIndexProfile $profile, bool $replaceSources): void
-    {
+    private function storeDocuments(
+        array $split_documents,
+        DocumentationIndexProfile $profile,
+        bool $replaceSources,
+        ?Closure $onProgress = null,
+    ): void {
         /** @var DocumentationAgent $agent */
         $agent = $this->agentFactory !== null
             ? ($this->agentFactory)($profile)
             : DocumentationAgent::make(indexProfile: $profile);
 
-        foreach ($this->batchBySource($split_documents) as $batch) {
-            if ($replaceSources) {
-                $agent->reindexBySource($batch);
+        $total = count($split_documents);
+        $done = 0;
 
-                continue;
+        foreach ($this->batchBySource($split_documents) as $batch) {
+            if ($onProgress instanceof Closure) {
+                $onProgress($done, $total, array_values(array_unique(array_map(
+                    static fn (Document $document): string => $document->getSourceName(),
+                    $batch,
+                ))));
             }
 
-            $agent->addDocuments($batch);
+            if ($replaceSources) {
+                $agent->reindexBySource($batch);
+            } else {
+                $agent->addDocuments($batch);
+            }
+
+            $done += count($batch);
+        }
+
+        if ($onProgress instanceof Closure) {
+            $onProgress($total, $total, []);
         }
     }
 

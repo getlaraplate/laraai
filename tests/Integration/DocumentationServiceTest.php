@@ -140,6 +140,91 @@ MARKDOWN);
     }
 });
 
+function writeUserDocument(string $dir, string $name, string $canonical): void
+{
+    file_put_contents($dir . '/' . $name, <<<MARKDOWN
+---
+audience: user
+module: CMS
+locale: it
+canonical_source: {$canonical}
+safe_source_label: {$canonical}
+required_permissions: []
+tenant_scope: global
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+---
+# {$canonical}
+
+Apri il contenuto e seleziona Modifica.
+MARKDOWN);
+}
+
+it('tells the progress callback which sources are about to be written and when everything is done', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-progress-docs-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    writeUserDocument($tmp_dir, 'first.md', 'cms/first');
+    writeUserDocument($tmp_dir, 'second.md', 'cms/second');
+
+    config()->set('ai.features.faq.vector_store', 'memory');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldReceive('addDocuments')->once();
+
+    $calls = [];
+    $service = new DocumentationService(fn () => $agent_mock);
+
+    try {
+        $count = $service->indexDocuments(
+            $tmp_dir,
+            true,
+            DocumentationIndexProfile::User,
+            function (int $done, int $total, array $sources) use (&$calls): void {
+                $calls[] = [$done, $total, $sources];
+            },
+        );
+
+        expect($calls)->toHaveCount(2)
+            ->and($calls[0][0])->toBe(0)
+            ->and($calls[0][1])->toBe($count)
+            ->and($calls[0][2])->toHaveCount(2)
+            ->and($calls[1])->toBe([$count, $count, []]);
+    } finally {
+        unlink($tmp_dir . '/first.md');
+        unlink($tmp_dir . '/second.md');
+        rmdir($tmp_dir);
+    }
+});
+
+it('does not call the progress callback when there is nothing to index', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-progress-empty-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    file_put_contents($tmp_dir . '/unclassified.md', "# Internal\n\nUnclassified details.");
+
+    config()->set('ai.features.faq.vector_store', 'memory');
+
+    $called = false;
+
+    try {
+        $count = (new DocumentationService)->indexDocuments(
+            $tmp_dir,
+            false,
+            DocumentationIndexProfile::User,
+            function () use (&$called): void {
+                $called = true;
+            },
+        );
+
+        expect($count)->toBe(0)
+            ->and($called)->toBeFalse();
+    } finally {
+        unlink($tmp_dir . '/unclassified.md');
+        rmdir($tmp_dir);
+    }
+});
+
 it('clears a stale user store during a full rebuild with no eligible documents', function (): void {
     $tmp_dir = sys_get_temp_dir() . '/ai-user-docs-empty-' . uniqid();
     mkdir($tmp_dir, 0755, true);
