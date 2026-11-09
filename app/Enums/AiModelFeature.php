@@ -22,6 +22,12 @@ enum AiModelFeature: string
     case Vision = 'vision';
     case Transcription = 'transcription';
 
+    /**
+     * The value of a feature that may run without a model: the documentation help then shows the
+     * passages it retrieves instead of an answer written by a model.
+     */
+    public const string NONE = 'none';
+
     private const array CHAT_PROVIDERS = ['openai', 'ollama', 'mistral', 'anthropic'];
 
     public static function fromSettingName(string $name): ?self
@@ -83,8 +89,18 @@ enum AiModelFeature: string
             self::Translation => 'deepl',
             self::Vision => 'anthropic:claude-sonnet-5',
             self::Transcription => 'openai_compatible:Systran/faster-whisper-base',
+            self::Faq => self::NONE,
             default => 'ollama:llama3.2:3b',
         };
+    }
+
+    /**
+     * Whether Settings may hold {@see self::NONE} for the feature and the feature then works without
+     * a model. Only the documentation help does: every other feature has nothing to show without one.
+     */
+    public function allowsNone(): bool
+    {
+        return $this === self::Faq;
     }
 
     /**

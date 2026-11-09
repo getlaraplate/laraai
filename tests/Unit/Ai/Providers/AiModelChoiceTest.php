@@ -38,9 +38,37 @@ it('reads the overlaid choice of a feature', function (): void {
 it('falls back to the default choice when nothing is overlaid', function (AiModelFeature $feature): void {
     config()->set('ai.' . $feature->settingName(), null);
 
-    expect(AiModelChoice::forFeature($feature)->value())->toBe($feature->defaultChoice())
-        ->and($feature->supportedProviders())->toContain(AiModelChoice::parse($feature->defaultChoice())->provider);
+    expect(AiModelChoice::forFeature($feature)->value())->toBe($feature->defaultChoice());
+
+    if (! $feature->allowsNone()) {
+        expect($feature->supportedProviders())->toContain(AiModelChoice::parse($feature->defaultChoice())->provider);
+    }
 })->with(AiModelFeature::cases());
+
+it('lets only the documentation help work without a model, and starts it without one', function (): void {
+    $allowing = array_values(array_filter(AiModelFeature::cases(), static fn (AiModelFeature $feature): bool => $feature->allowsNone()));
+
+    expect($allowing)->toBe([AiModelFeature::Faq])
+        ->and(AiModelFeature::Faq->defaultChoice())->toBe('none');
+});
+
+it('reads no choice for a feature that works without a model when Settings holds none, or nothing', function (mixed $value): void {
+    config()->set('ai.features.faq.model', $value);
+
+    expect(AiModelChoice::forFeatureOrNone(AiModelFeature::Faq))->toBeNull();
+})->with(['none', '', '  ', null]);
+
+it('reads the choice of a feature that works without a model once Settings names one', function (): void {
+    config()->set('ai.features.faq.model', 'openai:gpt-4o-mini');
+
+    expect(AiModelChoice::forFeatureOrNone(AiModelFeature::Faq)?->value())->toBe('openai:gpt-4o-mini');
+});
+
+it('never reads none for a feature that cannot do without a model', function (): void {
+    config()->set('ai.features.chat.model', 'none');
+
+    expect(AiModelChoice::forFeatureOrNone(AiModelFeature::Chat)?->provider)->toBe('none');
+});
 
 it('keeps today\'s defaults', function (): void {
     expect(AiModelFeature::Chat->defaultChoice())->toBe('ollama:llama3.2:3b')

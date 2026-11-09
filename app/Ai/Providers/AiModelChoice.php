@@ -47,6 +47,22 @@ final readonly class AiModelChoice
         return self::parse(ai_config_string('ai.' . $feature->settingName(), $feature->defaultChoice()));
     }
 
+    /**
+     * The choice of a feature that may run without a model ({@see AiModelFeature::allowsNone()}), or
+     * null when Settings holds none (or nothing) for it. A feature that cannot do without one is
+     * never null here: it has {@see self::forFeature()}.
+     */
+    public static function forFeatureOrNone(AiModelFeature $feature): ?self
+    {
+        $value = mb_trim(ai_config_string('ai.' . $feature->settingName(), $feature->defaultChoice()));
+
+        if ($feature->allowsNone() && ($value === '' || $value === AiModelFeature::NONE)) {
+            return null;
+        }
+
+        return self::forFeature($feature);
+    }
+
     public function value(): string
     {
         return $this->model === null ? $this->provider : $this->provider . ':' . $this->model;

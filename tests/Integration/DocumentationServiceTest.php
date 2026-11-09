@@ -6,18 +6,25 @@ use Illuminate\Support\Facades\File;
 use Modules\AI\Ai\Agents\DocumentationAgent;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
+use Modules\AI\Ai\Rag\Retrieval\DeveloperDocumentationRetrieval;
 use Modules\AI\Exceptions\UnknownDocumentAudienceException;
 use Modules\AI\Services\Documentation\Chunking\MarkdownAwareSplitter;
 use Modules\AI\Services\DocumentationService;
 use Modules\AI\Tests\Stubs\Documentation\CountingSplitter;
 use Modules\AI\Tests\Stubs\Documentation\EmptySplitter;
 use Modules\AI\Tests\Stubs\Documentation\ManyChunksSplitter;
+use Modules\AI\Tests\Stubs\Documentation\StubDocumentationEmbeddingService;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Splitter\SentenceTextSplitter;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\FakeEmbeddingsProvider;
 use NeuronAI\Testing\FakeVectorStore;
+
+beforeEach(function (): void {
+    // The answer of a model is what most of this file asserts; the help without one is tested apart.
+    config()->set('ai.features.faq.model', 'ollama:llama3.2:3b');
+});
 
 it('never splits one source across two reindexBySource batches', function (): void {
     $tmp_dir = sys_get_temp_dir() . '/ai-docs-batches-' . uniqid();
@@ -667,13 +674,6 @@ it('uses helper roots when indexing without an explicit path', function (): void
     }
 });
 
-it('clears elasticsearch index during full rebuild', function (): void {
-    $service = new DocumentationService;
-    $method = new ReflectionMethod($service, 'resetVectorStoreForFullRebuild');
-
-    expect(fn () => $method->invoke($service, 'elasticsearch'))->not->toThrow(Throwable::class);
-});
-
 it('checks elasticsearch store population for incremental reindex', function (): void {
     $service = new DocumentationService;
     $method = new ReflectionMethod($service, 'shouldUseIncrementalReindex');
@@ -1045,4 +1045,135 @@ MARKDOWN;
     } finally {
         File::deleteDirectory($tmp_dir);
     }
+});
+
+it('leaves the store as it is when a full rebuild finds that the embeddings do not answer', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-preflight-docs-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    writeUserDocument($tmp_dir, 'first.md', 'cms/first');
+    $store = $tmp_dir . '/store-user.store';
+    file_put_contents($store, 'previous index');
+
+    config()->set('ai.features.faq.vector_store', 'filesystem');
+    config()->set('ai.features.faq.vector_store_path', $tmp_dir . '/store.store');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldNotReceive('addDocuments');
+
+    $service = new DocumentationService(
+        fn () => $agent_mock,
+        embeddingsProbe: static fn () => throw new RuntimeException('connection refused'),
+    );
+
+    try {
+        expect(fn () => $service->indexDocuments($tmp_dir, true, DocumentationIndexProfile::User))
+            ->toThrow(RuntimeException::class, 'the index was left as it is: connection refused')
+            ->and(file_get_contents($store))->toBe('previous index');
+    } finally {
+        unlink($store);
+        unlink($tmp_dir . '/first.md');
+        rmdir($tmp_dir);
+    }
+});
+
+it('empties the store of a full rebuild once the embeddings answer', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-preflight-ok-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    writeUserDocument($tmp_dir, 'first.md', 'cms/first');
+    $store = $tmp_dir . '/store-user.store';
+    file_put_contents($store, 'previous index');
+
+    config()->set('ai.features.faq.vector_store', 'filesystem');
+    config()->set('ai.features.faq.vector_store_path', $tmp_dir . '/store.store');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldReceive('addDocuments')->once();
+
+    $probed = 0;
+    $service = new DocumentationService(fn () => $agent_mock, embeddingsProbe: static function () use (&$probed): array {
+        $probed++;
+
+        return [0.1];
+    });
+
+    try {
+        $service->indexDocuments($tmp_dir, true, DocumentationIndexProfile::User);
+
+        expect($probed)->toBe(1)
+            ->and(file_exists($store))->toBeFalse();
+    } finally {
+        unlink($tmp_dir . '/first.md');
+        rmdir($tmp_dir);
+    }
+});
+
+it('fails at once, without writing, when an incremental run finds that the embeddings do not answer', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-preflight-incremental-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    writeUserDocument($tmp_dir, 'first.md', 'cms/first');
+
+    config()->set('ai.features.faq.vector_store', 'filesystem');
+    config()->set('ai.features.faq.vector_store_path', $tmp_dir . '/store.store');
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    $agent_mock = Mockery::mock(DocumentationAgent::class);
+    $agent_mock->shouldNotReceive('addDocuments');
+    $agent_mock->shouldNotReceive('reindexBySource');
+
+    $service = new DocumentationService(
+        fn () => $agent_mock,
+        embeddingsProbe: static fn () => throw new RuntimeException('timed out'),
+    );
+
+    try {
+        expect(fn () => $service->indexDocuments($tmp_dir, false, DocumentationIndexProfile::User))
+            ->toThrow(RuntimeException::class, 'timed out');
+    } finally {
+        unlink($tmp_dir . '/first.md');
+        rmdir($tmp_dir);
+    }
+});
+
+it('answers with the passages found, and never calls a model, when no answer model is set', function (): void {
+    config()->set('ai.features.faq.model', 'none');
+
+    $agent_factory_called = false;
+    $first = (new Document('Run ai:index-rag-docs to build the index.'))->setSourceName('faq-module-AI/README.md')->setScore(0.91);
+    $second = (new Document('The index lives in Elasticsearch.'))->setSourceName('faq-module-AI/rag/MODULE.md')->setScore(0.84);
+
+    $service = new DocumentationService(
+        agentFactory: function () use (&$agent_factory_called): never {
+            $agent_factory_called = true;
+
+            throw new RuntimeException('a model must not be built');
+        },
+        developer_retrieval: new DeveloperDocumentationRetrieval(
+            new StubDocumentationEmbeddingService,
+            static fn (): array => [$first, $second],
+        ),
+    );
+
+    $result = $service->answerQuestion('How do I build the index?');
+
+    expect($agent_factory_called)->toBeFalse()
+        ->and($result['answer'])->toContain('No answer model is set (features.faq.model)')
+        ->and($result['answer'])->toContain("faq-module-AI/README.md\nRun ai:index-rag-docs to build the index.")
+        ->and($result['answer'])->toContain('faq-module-AI/rag/MODULE.md')
+        ->and($result['citations'])->toHaveCount(2)
+        ->and($result['citations'][0])->toMatchArray(['source' => 'faq-module-AI/README.md', 'score' => 0.91]);
+});
+
+it('says so when no passage matches and no answer model is set', function (): void {
+    config()->set('ai.features.faq.model', 'none');
+
+    $service = new DocumentationService(
+        developer_retrieval: new DeveloperDocumentationRetrieval(new StubDocumentationEmbeddingService, static fn (): array => []),
+    );
+
+    $result = $service->answerQuestion('Something unrelated');
+
+    expect($result['citations'])->toBe([])
+        ->and($result['answer'])->toContain('No passage of the documentation matches the question.');
 });

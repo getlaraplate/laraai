@@ -39,7 +39,7 @@ it('refreshes every model setting from the providers', function (): void {
     $this->artisan('ai:models:refresh')->assertExitCode(0);
 
     expect(refreshCommandSetting('features.chat.model')->choices)->toBe(['ollama:llama3.2:3b', 'ollama:qwen3:8b'])
-        ->and(refreshCommandSetting('features.faq.model')->choices)->toBe(['ollama:llama3.2:3b', 'ollama:qwen3:8b']);
+        ->and(refreshCommandSetting('features.faq.model')->choices)->toBe(['none', 'ollama:llama3.2:3b', 'ollama:qwen3:8b']);
 });
 
 it('refreshes only the named setting', function (): void {

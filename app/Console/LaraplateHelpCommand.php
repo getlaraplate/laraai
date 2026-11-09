@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\AI\Console;
 
-use function ai_config_bool;
-
 use Exception;
 use Illuminate\Console\Command;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Services\DocumentationService;
 use Override;
+
+use function ai_config_bool;
+use function Laravel\Prompts\text;
 
 final class LaraplateHelpCommand extends Command
 {
@@ -48,7 +49,7 @@ final class LaraplateHelpCommand extends Command
         $this->line('Laraplate help chat is ready. Type your question, or `exit` to quit.');
 
         while (true) {
-            $input = $this->ask('You');
+            $input = text('You');
 
             if (! is_string($input)) {
                 continue;

@@ -48,6 +48,20 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
      */
     public const int MAX_READ_SECTIONS = 200;
 
+    /**
+     * The metadata key that carries the fingerprint of the source a chunk belongs to: the same value on every
+     * chunk of one source, which is how a diff run learns that a source is unchanged
+     * ({@see self::sourceFingerprints()}).
+     */
+    public const string SOURCE_HASH = 'source_hash';
+
+    /**
+     * The most sources a fingerprint read returns; a larger index is refused instead of read in part.
+     */
+    private const int MAX_SOURCES = 10000;
+
+    private bool $sourceHashMapped = false;
+
     public function __construct(
         private readonly Client $client,
         private readonly DocumentationIndexProfile $indexProfile,
@@ -115,6 +129,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
                         'source_type' => ['type' => 'keyword'],
                         'policy_classification' => ['type' => 'keyword'],
                         'policy_classification_version' => ['type' => 'keyword'],
+                        self::SOURCE_HASH => ['type' => 'keyword'],
                     ],
                 ],
                 'neuron_id' => ['type' => 'keyword'],
@@ -184,6 +199,111 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
     }
 
+    /**
+     * The fingerprint of every source in the index, by source name: the hash its chunks carry and how many
+     * chunks it has. The hash is null when the chunks of a source disagree (a write that stopped midway) or
+     * carry none (written before fingerprints existed), so such a source reads as changed.
+     *
+     *
+     * @throws VectorStoreException when the index cannot be read, or holds more sources than a read returns
+     *
+     * @return array<string, array{hash: string|null, chunks: int}>
+     */
+    public function sourceFingerprints(): array
+    {
+        if (! $this->indexExists()) {
+            return [];
+        }
+
+        try {
+            $response = $this->client->search([
+                'index' => $this->indexProfile->indexName(),
+                'body' => [
+                    'size' => 0,
+                    'aggs' => [
+                        'sources' => [
+                            'terms' => ['field' => 'sourceName', 'size' => self::MAX_SOURCES],
+                            'aggs' => [
+                                'hashes' => ['terms' => ['field' => 'metadata.' . self::SOURCE_HASH, 'size' => 2]],
+                            ],
+                        ],
+                    ],
+                ],
+            ])->asArray();
+        } catch (Throwable $throwable) {
+            throw new VectorStoreException(
+                'Failed to read the indexed sources from Elasticsearch: ' . $throwable->getMessage(),
+                (int) $throwable->getCode(),
+                $throwable,
+            );
+        }
+
+        $aggregation = $response['aggregations']['sources'] ?? [];
+
+        if (! is_array($aggregation)) {
+            return [];
+        }
+
+        throw_if(
+            (int) ($aggregation['sum_other_doc_count'] ?? 0) > 0,
+            VectorStoreException::class,
+            sprintf('The index holds more than %d sources: a diff cannot read them all.', self::MAX_SOURCES),
+        );
+
+        $fingerprints = [];
+
+        foreach ((array) ($aggregation['buckets'] ?? []) as $bucket) {
+            if (! is_array($bucket) || ! is_string($bucket['key'] ?? null)) {
+                continue;
+            }
+
+            $chunks = (int) ($bucket['doc_count'] ?? 0);
+            $hashes = (array) ($bucket['hashes']['buckets'] ?? []);
+            $only = count($hashes) === 1 && is_array($hashes[0]) ? $hashes[0] : null;
+            $hash = $only !== null && is_string($only['key'] ?? null) && $chunks === (int) ($only['doc_count'] ?? 0)
+                ? $only['key']
+                : null;
+
+            $fingerprints[$bucket['key']] = ['hash' => $hash, 'chunks' => $chunks];
+        }
+
+        return $fingerprints;
+    }
+
+    /**
+     * Deletes the chunks of every source whose name is not in `$source_names`, and returns how many chunks
+     * went. An empty list is refused: it would empty the index, and a run that found no document at all is
+     * a mistake to report, not a library to wipe.
+     *
+     * @param  list<string>  $source_names
+     *
+     * @throws InvalidArgumentException when `$source_names` is empty
+     */
+    public function deleteSourcesNotIn(array $source_names): int
+    {
+        if ($source_names === []) {
+            throw new InvalidArgumentException('Refusing to delete the sources not in an empty list: it would empty the index.');
+        }
+
+        try {
+            $response = $this->client->deleteByQuery([
+                'index' => $this->indexProfile->indexName(),
+                'conflicts' => 'proceed',
+                'body' => [
+                    'query' => ['bool' => ['must_not' => [['terms' => ['sourceName' => array_values($source_names)]]]]],
+                ],
+            ])->asArray();
+        } catch (Throwable $throwable) {
+            throw new VectorStoreException(
+                'Failed to delete the removed sources from Elasticsearch: ' . $throwable->getMessage(),
+                (int) $throwable->getCode(),
+                $throwable,
+            );
+        }
+
+        return (int) ($response['deleted'] ?? 0);
+    }
+
     public function addDocument(Document $document): VectorStoreInterface
     {
         return $this->addDocuments([$document]);
@@ -199,6 +319,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         $this->validateDocuments($documents);
+        $this->ensureSourceHashMapping();
 
         $body = [];
 
@@ -353,6 +474,32 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             'documents' => $this->mapHitsToDocuments($response),
             'total' => is_numeric($last) ? (int) $last + 1 : null,
         ];
+    }
+
+    /**
+     * The fingerprint field is added to an index created before it existed, once per store, before the first
+     * write: left to dynamic mapping it would become a text field, which a terms aggregation cannot read.
+     */
+    private function ensureSourceHashMapping(): void
+    {
+        if ($this->sourceHashMapped) {
+            return;
+        }
+
+        try {
+            $this->client->indices()->putMapping([
+                'index' => $this->indexProfile->indexName(),
+                'body' => ['properties' => ['metadata' => ['properties' => [self::SOURCE_HASH => ['type' => 'keyword']]]]],
+            ]);
+        } catch (Throwable $throwable) {
+            throw new VectorStoreException(
+                'Failed to map the source fingerprint in Elasticsearch: ' . $throwable->getMessage(),
+                (int) $throwable->getCode(),
+                $throwable,
+            );
+        }
+
+        $this->sourceHashMapped = true;
     }
 
     /**

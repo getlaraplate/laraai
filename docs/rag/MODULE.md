@@ -111,7 +111,7 @@ flowchart TB
 
 - Reads documentation files from roots resolved by `rag_paths()` (or explicit CLI `--path`).
 - Splits documents into chunks and stores vectors in configured vector store backend.
-- Supports incremental reindex-by-source and full rebuild (`--full`) modes.
+- Supports incremental reindex-by-source, a diff (`--diff`) and a full rebuild (`--full`); see *Indexing modes* below.
 - Keeps source prefixes to improve citation traceability by module/path.
 
 For multi-instance deployments (shared corpus across replicas), see [`DEPLOYMENT.md`](DEPLOYMENT.md) (`filesystem` on a shared volume, or `elasticsearch` as the recommended production driver).
@@ -336,11 +336,28 @@ no longer exists: it controlled the hand-written retry that `structured()` repla
 - `php artisan ai:index-rag-docs`
 - `php artisan ai:index-rag-docs --profile=developer|user|all`
 - `php artisan ai:index-rag-docs --path=/some/path --full`
+- `php artisan ai:index-rag-docs --diff` (only what is new or changed; removes what is gone)
+
+#### Indexing modes
+
+`ai:index-rag-docs` has three modes. Each source (one documentation file) is replaced as a whole: its chunks are embedded first, then the old chunks of that source are deleted, then the new ones are written, so a run that fails midway leaves every source either old or new, never half.
+
+| Mode | Command | What it writes | Removes sources that are gone |
+|---|---|---|---|
+| Replace (default) | `ai:index-rag-docs` | every source, re-embedded | no |
+| Diff | `ai:index-rag-docs --diff` | only sources that are new or changed | yes |
+| Full | `ai:index-rag-docs --full` | every source, re-embedded | yes |
+
+- **Diff** (Elasticsearch store only; other stores refuse it). Every chunk carries `metadata.source_hash`, a SHA-256 of the chunks of its source (text and metadata) and of the active embedding model key. A run reads the hash and chunk count of each indexed source with one aggregation and compares them with the files on disk. A source that is absent, has no hash (indexed before fingerprints existed), whose chunks disagree, or whose hash or chunk count differs, is embedded and replaced. An unchanged source costs no embedding, and the embedding service is not even probed when nothing changed. Changing the embedding model changes every hash, so the next diff rewrites everything, as it should. The first diff after upgrading rewrites every source once, because the old chunks have no hash; the field is added to an existing index with a mapping update before the first write.
+- **Full** on Elasticsearch never calls a delete over the whole index. It replaces every source in place and, at the end, removes the sources whose name is no longer in the documentation. It used to empty the index first, which left the library empty for the whole run, and for good when the run failed. On the filesystem store `--full` still deletes the store file first, and on the memory store it resets the shared store.
+- **Removal** compares source names with the roots the run read. It happens only when the roots come from `rag_paths()`: with `--path` the run sees one file or directory and cannot tell what is gone from the rest, so nothing is removed. A module that is switched off drops out of `rag_paths(onlyActive: true)`, and its documents are removed by the next diff or full run. A run that finds no source at all removes nothing: an empty list is a mistake to report, not an index to empty.
+- `--full` and `--diff` exclude each other. `--path` gives sources the name `faq-cli-<hash of the path>`, different from the `faq-module-...` name of the same file in a run without `--path`: do not use it to update a file of the regular corpus.
 
 ### Terminal help assistant
 
 - `php artisan ai:help` opens interactive developer-documentation chat.
 - `php artisan ai:help --question="..."` executes a one-shot developer query.
+- With `features.faq.model` set to `none` (the default of a new install) `ai:help` runs the vector search only (`DeveloperDocumentationRetrieval`, the same one `test:ai:evaluate-documentation` measures) and prints the passages with their sources and scores; no chat model is called. An install that already holds a `provider:model` keeps it: to get the passages only, choose `none` in Settings (it is offered first by `ai:models:refresh`).
 
 ### Application content evaluation
 
@@ -831,6 +848,7 @@ To adopt a new release of a documented server, copy its OpenAPI document and wri
 ### When to reindex
 
 - Reindex after major docs updates, module feature changes, or terminology redesign.
+- Use `--diff` for the everyday update: it embeds only the files that changed and drops the ones that were deleted or renamed.
 - Use `--full` when source mapping changed significantly or stale vectors are suspected.
 - Reindex a model of application content (`scout:import`) after its embedding context header changed; `ai:embeddings:repair` does not re-embed it (see *Chunking and the context header*).
 
@@ -875,6 +893,8 @@ The documentation indexes (`ai:index-rag-docs`) need nothing: the context header
 - An embedding model switch failed: how do I resume or abandon it?
 - Which similarity values does an embedding profile accept on pgvector and on Elasticsearch?
 - How does `ai:index-rag-docs --full` differ from incremental indexing?
+- How do I update the RAG documentation after changing one file, without re-embedding everything?
+- Does `ai:index-rag-docs --full` empty the Elasticsearch index while it runs?
 - What is the relevance judge, is it on by default and what happens when it fails?
 - Which settings control the relevance judge, and does `ai:help` use it?
 - How do I compare the judge on and off before enabling it?
