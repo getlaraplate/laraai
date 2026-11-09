@@ -1165,6 +1165,30 @@ it('answers with the passages found, and never calls a model, when no answer mod
         ->and($result['citations'][0])->toMatchArray(['source' => 'faq-module-AI/README.md', 'score' => 0.91]);
 });
 
+it('shows the first passages whole and the others short when no answer model is set', function (): void {
+    config()->set('ai.features.faq.model', 'none');
+
+    $texts = array_map(static fn (string $letter): string => str_repeat($letter, 500), ['A', 'B', 'C']);
+    $documents = array_map(
+        static fn (string $text, int $index): Document => (new Document($text))->setSourceName('faq-module-AI/page-' . $index . '.md')->setScore(0.9 - $index / 100),
+        $texts,
+        array_keys($texts),
+    );
+
+    $service = new DocumentationService(
+        developer_retrieval: new DeveloperDocumentationRetrieval(new StubDocumentationEmbeddingService, static fn (): array => $documents),
+    );
+
+    $result = $service->answerQuestion('How do I build the index?');
+
+    expect($result['answer'])->toContain($texts[0])
+        ->and($result['answer'])->toContain($texts[1])
+        ->and($result['answer'])->not->toContain($texts[2])
+        ->and($result['answer'])->toContain(str_repeat('C', 297) . '...')
+        ->and($result['citations'][0]['excerpt'])->toBe(str_repeat('A', 300) . '...')
+        ->and($result['citations'])->toHaveCount(3);
+});
+
 it('says so when no passage matches and no answer model is set', function (): void {
     config()->set('ai.features.faq.model', 'none');
 

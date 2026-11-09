@@ -357,7 +357,7 @@ no longer exists: it controlled the hand-written retry that `structured()` repla
 
 - `php artisan ai:help` opens interactive developer-documentation chat.
 - `php artisan ai:help --question="..."` executes a one-shot developer query.
-- With `features.faq.model` set to `none` (the default of a new install) `ai:help` runs the vector search only (`DeveloperDocumentationRetrieval`, the same one `test:ai:evaluate-documentation` measures) and prints the passages with their sources and scores; no chat model is called. An install that already holds a `provider:model` keeps it: to get the passages only, choose `none` in Settings (it is offered first by `ai:models:refresh`).
+- With `features.faq.model` set to `none` (the default of a new install) `ai:help` runs the vector search only (`DeveloperDocumentationRetrieval`, the same one `test:ai:evaluate-documentation` measures) and prints the passages with their sources and scores; no chat model is called. The first two passages are printed whole (`DocumentationService::WHOLE_PASSAGES`), because the passage is the answer; the others are cut to the 300-character excerpt of their citation, and the returned `citations` always carry that excerpt. An install that already holds a `provider:model` keeps it: to get the passages only, choose `none` in Settings (it is offered first by `ai:models:refresh`).
 
 ### Application content evaluation
 
