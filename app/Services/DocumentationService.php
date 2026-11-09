@@ -41,6 +41,13 @@ final readonly class DocumentationService
     private const int INDEX_BATCH_SIZE = 100;
 
     /**
+     * How many of the passages a help without a model shows whole. The answer is the passage, so a cut at the
+     * length of a citation excerpt would hide the very lines a person asked for; the rest stay short, as a
+     * pointer to where else to look.
+     */
+    private const int WHOLE_PASSAGES = 2;
+
+    /**
      * @param  Closure(): DocumentationAgent|null  $agentFactory  Optional factory for testing
      * @param  Closure(): bool|null  $ragPathsResolver  Whether the `rag_paths()` helper is
      *                                                  available. Null asks PHP, which is what production does. Injecting it lets a test
@@ -327,21 +334,22 @@ final readonly class DocumentationService
 
     /**
      * The answer of a help that has no model ({@see AiModelFeature::allowsNone()}): the passages the
-     * vector search finds in the developer corpus, with their sources, and no text written by a model.
+     * vector search finds in the developer corpus, with their sources, and no text written by a model. The
+     * first {@see self::WHOLE_PASSAGES} are shown whole, the others as the excerpt of their citation.
      *
      * @return array{answer: string, citations: list<array{source: string, excerpt: string, score: float|null}>}
      */
     private function passagesFor(string $question): array
     {
-        $documents = ($this->developer_retrieval ?? app(DeveloperDocumentationRetrieval::class))->retrieve($question);
+        $documents = array_values(($this->developer_retrieval ?? app(DeveloperDocumentationRetrieval::class))->retrieve($question));
         $citations = $this->buildCitations($documents);
 
         $lines = ['No answer model is set (features.faq.model), so these are the passages found:'];
 
-        foreach ($citations as $citation) {
+        foreach ($citations as $index => $citation) {
             $lines[] = '';
             $lines[] = $citation['source'];
-            $lines[] = $citation['excerpt'];
+            $lines[] = $index < self::WHOLE_PASSAGES ? $documents[$index]->getContent() : $citation['excerpt'];
         }
 
         if ($citations === []) {
