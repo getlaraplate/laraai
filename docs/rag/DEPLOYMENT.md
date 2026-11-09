@@ -50,6 +50,8 @@ AI_FAQ_ES_INDEX=laraplate_rag_docs
 php artisan ai:index-rag-docs
 ```
 
+To update the corpus later, run `php artisan ai:index-rag-docs --diff`: it embeds only the files that are new or changed and removes the ones that were deleted. `--full` rewrites every source; neither empties the index while it runs. See "Indexing modes" in `MODULE.md`.
+
 All replicas then share the same corpus via Elasticsearch.
 
 ### Documentation query log (optional)

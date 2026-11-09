@@ -48,7 +48,7 @@ it('treats a timeout like any other failure', function (): void {
 
     $result = app(ModelCatalog::class)->build([AiModelFeature::Faq], ['features.faq.model' => ['ollama:llama3.2:3b']]);
 
-    expect($result->choices['features.faq.model'])->toBe(['ollama:llama3.2:3b'])
+    expect($result->choices['features.faq.model'])->toBe(['none', 'ollama:llama3.2:3b'])
         ->and($result->outcomes['ollama']->status)->toBe(ProviderListingStatus::Failed)
         ->and($result->outcomes['ollama']->error)->toContain('timed out');
 });
@@ -131,4 +131,13 @@ it('offers no transcription model when only an embeddings server is configured',
     $result = app(ModelCatalog::class)->build([AiModelFeature::Transcription], []);
 
     expect($result->choices['features.media_analysis.transcription.model'])->toBe([]);
+});
+
+it('offers none to a feature that works without a model, even when no provider answers', function (): void {
+    Http::fake(['ollama.test/*' => Http::failedConnection('Operation timed out')]);
+
+    $result = app(ModelCatalog::class)->build([AiModelFeature::Faq, AiModelFeature::Chat], []);
+
+    expect($result->choices['features.faq.model'])->toBe(['none'])
+        ->and($result->choices['features.chat.model'])->not->toContain('none');
 });

@@ -12,10 +12,16 @@ use Closure;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Modules\AI\Ai\Agents\DocumentationAgent;
+use Modules\AI\Ai\Embeddings\EmbeddingDimensionProbe;
+use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
+use Modules\AI\Ai\Embeddings\EmbeddingsProviderFactory;
+use Modules\AI\Ai\Providers\AiModelChoice;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
 use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
+use Modules\AI\Ai\Rag\Retrieval\DeveloperDocumentationRetrieval;
 use Modules\AI\Ai\Rag\Retrieval\InAppDocumentationRetrieval;
+use Modules\AI\Enums\AiModelFeature;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Exceptions\UnknownDocumentAudienceException;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
@@ -27,6 +33,8 @@ use Modules\AI\Services\Documentation\FileDocumentReader;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Splitter\SplitterInterface;
+use RuntimeException;
+use Throwable;
 
 final readonly class DocumentationService
 {
@@ -37,12 +45,21 @@ final readonly class DocumentationService
      * @param  Closure(): bool|null  $ragPathsResolver  Whether the `rag_paths()` helper is
      *                                                  available. Null asks PHP, which is what production does. Injecting it lets a test
      *                                                  describe an application without the helper without reaching into this class.
+     * @param  Closure(): mixed|null  $embeddingsProbe  Embeds one text with the active embedding profile, so a run
+     *                                                  learns that the embeddings answer before it writes or empties anything. Null asks the
+     *                                                  profile, which is what production does.
+     * @param  DeveloperDocumentationRetrieval|null  $developer_retrieval  The retrieval of a help without a model; null builds it from the container.
+     * @param  Closure(DocumentationIndexProfile): ElasticsearchRagVectorStore|null  $storeFactory  The Elasticsearch store of a
+     *                                                                                              profile; null builds it from the configuration, which is what production does.
      */
     public function __construct(
         private ?Closure $agentFactory = null,
         private ?SplitterInterface $splitter = null,
         private ?InAppDocumentationRetrieval $in_app_retrieval = null,
         private ?Closure $ragPathsResolver = null,
+        private ?Closure $embeddingsProbe = null,
+        private ?DeveloperDocumentationRetrieval $developer_retrieval = null,
+        private ?Closure $storeFactory = null,
     ) {}
 
     /**
@@ -67,7 +84,79 @@ final readonly class DocumentationService
         DocumentationIndexProfile $profile = DocumentationIndexProfile::Developer,
         ?Closure $onProgress = null,
     ): int {
-        return $this->indexFromRoots($this->roots($path), $fullRebuild, $profile, $onProgress);
+        return $this->indexFromRoots($this->roots($path), $fullRebuild, $profile, $onProgress, pruneRemoved: $path === null);
+    }
+
+    /**
+     * Brings the Elasticsearch index of `$profile` in line with the documentation, writing only what differs:
+     * a source that is new, or whose fingerprint (its chunks and the active embedding model) changed since it
+     * was written, is embedded and replaced; a source already indexed and unchanged is left alone, and costs no
+     * embedding. A source indexed but no longer in the documentation is removed, unless `$path` limits the run
+     * to one file or directory, which cannot tell what is gone from the rest.
+     *
+     * The index is never emptied: a source is replaced only after its new chunks were embedded.
+     *
+     * @param  (Closure(int, int, list<string>): void)|null  $onProgress  see {@see self::indexDocuments()}
+     *
+     * @throws RuntimeException when the vector store is not Elasticsearch, or the embeddings do not answer
+     *
+     * @return array{sources: int, changed: int, unchanged: int, removed: int, chunks: int} The sources read, those
+     *                                                                                      written, those left alone, the sources removed from the index and the chunks written.
+     */
+    public function syncDocuments(
+        ?string $path = null,
+        DocumentationIndexProfile $profile = DocumentationIndexProfile::Developer,
+        ?Closure $onProgress = null,
+    ): array {
+        $driver = FaqVectorStoreConfig::driver();
+
+        if ($driver !== 'elasticsearch') {
+            throw new RuntimeException(sprintf('A diff needs the elasticsearch vector store, and the driver is "%s".', $driver));
+        }
+
+        $chunks = $this->splitDocuments($this->profileDocuments($this->roots($path), $profile));
+
+        if ($chunks === []) {
+            return ['sources' => 0, 'changed' => 0, 'unchanged' => 0, 'removed' => 0, 'chunks' => 0];
+        }
+
+        $by_source = [];
+
+        foreach ($chunks as $chunk) {
+            $by_source[$chunk->getSourceName()][] = $chunk;
+        }
+
+        $store = $this->store($profile);
+        $indexed = $store->sourceFingerprints();
+        $changed = [];
+        $changed_sources = 0;
+
+        foreach ($by_source as $name => $source_chunks) {
+            $fingerprint = $indexed[$name] ?? null;
+            $hash = $source_chunks[0]->getMetadata()[ElasticsearchRagVectorStore::SOURCE_HASH] ?? null;
+
+            if ($fingerprint !== null && $fingerprint['hash'] === $hash && $fingerprint['chunks'] === count($source_chunks)) {
+                continue;
+            }
+
+            $changed_sources++;
+            array_push($changed, ...$source_chunks);
+        }
+
+        if ($changed !== []) {
+            $this->assertEmbeddingsAnswer();
+            $this->storeDocuments($changed, $profile, replaceSources: true, onProgress: $onProgress);
+        }
+
+        $removed = $path === null ? $store->deleteSourcesNotIn(array_map(strval(...), array_keys($by_source))) : 0;
+
+        return [
+            'sources' => count($by_source),
+            'changed' => $changed_sources,
+            'unchanged' => count($by_source) - $changed_sources,
+            'removed' => $removed,
+            'chunks' => count($changed),
+        ];
     }
 
     /**
@@ -141,6 +230,10 @@ final readonly class DocumentationService
      */
     public function answerQuestion(string $question): array
     {
+        if (! AiModelChoice::forFeatureOrNone(AiModelFeature::Faq) instanceof AiModelChoice) {
+            return $this->passagesFor($question);
+        }
+
         $factory = $this->agentFactory ?? fn (): DocumentationAgent => DocumentationAgent::make(
             topK: ai_config_int('ai.features.faq.max_documents', 5),
         );
@@ -226,10 +319,40 @@ final readonly class DocumentationService
         }
 
         if ($store_driver === 'elasticsearch') {
-            return ElasticsearchRagVectorStore::fromConfig(DocumentationIndexProfile::Developer, 1)->hasDocuments();
+            return $this->store(DocumentationIndexProfile::Developer)->hasDocuments();
         }
 
         return true;
+    }
+
+    /**
+     * The answer of a help that has no model ({@see AiModelFeature::allowsNone()}): the passages the
+     * vector search finds in the developer corpus, with their sources, and no text written by a model.
+     *
+     * @return array{answer: string, citations: list<array{source: string, excerpt: string, score: float|null}>}
+     */
+    private function passagesFor(string $question): array
+    {
+        $documents = ($this->developer_retrieval ?? app(DeveloperDocumentationRetrieval::class))->retrieve($question);
+        $citations = $this->buildCitations($documents);
+
+        $lines = ['No answer model is set (features.faq.model), so these are the passages found:'];
+
+        foreach ($citations as $citation) {
+            $lines[] = '';
+            $lines[] = $citation['source'];
+            $lines[] = $citation['excerpt'];
+        }
+
+        if ($citations === []) {
+            $lines[] = '';
+            $lines[] = 'No passage of the documentation matches the question.';
+        }
+
+        return [
+            'answer' => implode("\n", $lines),
+            'citations' => $citations,
+        ];
     }
 
     private function ragPathsFunctionExists(): bool
@@ -348,15 +471,25 @@ final readonly class DocumentationService
         bool $fullRebuild,
         DocumentationIndexProfile $profile,
         ?Closure $onProgress = null,
+        bool $pruneRemoved = false,
     ): int {
         $documents = $this->profileDocuments($roots, $profile);
         $driver = FaqVectorStoreConfig::driver();
 
-        if ($fullRebuild) {
-            $this->resetVectorStoreForFullRebuild($driver, $profile);
+        $split_documents = $this->splitDocuments($documents);
+
+        if ($split_documents !== [] && $driver !== 'memory') {
+            $this->assertEmbeddingsAnswer();
         }
 
-        $split_documents = $this->splitDocuments($documents);
+        // An Elasticsearch index is never emptied up front: a run that stops after the delete leaves a library with
+        // nothing in it. Each source is replaced once its new chunks are embedded, and what the documentation no
+        // longer has is removed at the end.
+        $replaces_in_place = $driver === 'elasticsearch';
+
+        if ($fullRebuild && ! $replaces_in_place) {
+            $this->resetVectorStoreForFullRebuild($driver, $profile);
+        }
 
         if ($split_documents === []) {
             return 0;
@@ -365,11 +498,40 @@ final readonly class DocumentationService
         $this->storeDocuments(
             $split_documents,
             $profile,
-            replaceSources: ! $fullRebuild && $this->shouldUseIncrementalReindex($driver, $profile),
+            replaceSources: $fullRebuild ? $replaces_in_place : $this->shouldUseIncrementalReindex($driver, $profile),
             onProgress: $onProgress,
         );
 
+        if ($fullRebuild && $replaces_in_place && $pruneRemoved) {
+            $this->store($profile)->deleteSourcesNotIn(array_values(array_unique(array_map(
+                static fn (Document $chunk): string => $chunk->getSourceName(),
+                $split_documents,
+            ))));
+        }
+
         return count($split_documents);
+    }
+
+    /**
+     * One text is embedded before anything is written. Without it, a run whose embedding service is down
+     * spends minutes retrying batch after batch before it fails, and a full rebuild, which empties the
+     * store first, would also leave it empty: when this fails the store is left as it is.
+     *
+     * @throws RuntimeException when the embedding service cannot embed one text
+     */
+    private function assertEmbeddingsAnswer(): void
+    {
+        $probe = $this->embeddingsProbe
+            ?? static fn (): array => EmbeddingsProviderFactory::make()->embedText(EmbeddingDimensionProbe::TEXT);
+
+        try {
+            $probe();
+        } catch (Throwable $throwable) {
+            throw new RuntimeException(
+                'The embedding service does not answer, so the index was left as it is: ' . $throwable->getMessage(),
+                previous: $throwable,
+            );
+        }
     }
 
     /**
@@ -435,7 +597,45 @@ final readonly class DocumentationService
             }
         }
 
-        return $split_documents;
+        return FaqVectorStoreConfig::driver() === 'elasticsearch' ? $this->stampSourceHashes($split_documents) : $split_documents;
+    }
+
+    /**
+     * Marks every chunk with the fingerprint of its source: a hash of the chunks it was split into (their text
+     * and metadata) and of the embedding model that will embed them, so a diff run sees a source as changed when
+     * either did.
+     *
+     * @param  list<Document>  $chunks
+     * @return list<Document>
+     */
+    private function stampSourceHashes(array $chunks): array
+    {
+        $model_key = app(EmbeddingModelRegistry::class)->active()->key;
+        $by_source = [];
+
+        foreach ($chunks as $chunk) {
+            $by_source[$chunk->getSourceType() . ':' . $chunk->getSourceName()][] = $chunk;
+        }
+
+        foreach ($by_source as $source_chunks) {
+            $hash = hash('sha256', json_encode([
+                $model_key,
+                array_map(static fn (Document $chunk): array => [$chunk->getContent(), $chunk->getMetadata()], $source_chunks),
+            ], JSON_THROW_ON_ERROR));
+
+            foreach ($source_chunks as $chunk) {
+                $chunk->addMetadata(ElasticsearchRagVectorStore::SOURCE_HASH, $hash);
+            }
+        }
+
+        return $chunks;
+    }
+
+    private function store(DocumentationIndexProfile $profile): ElasticsearchRagVectorStore
+    {
+        return $this->storeFactory !== null
+            ? ($this->storeFactory)($profile)
+            : ElasticsearchRagVectorStore::fromConfig($profile, 1);
     }
 
     /**
@@ -528,7 +728,7 @@ final readonly class DocumentationService
         }
 
         if ($driver === 'elasticsearch') {
-            return ElasticsearchRagVectorStore::fromConfig($profile, 1)->hasDocuments();
+            return $this->store($profile)->hasDocuments();
         }
 
         return $this->filesystemVectorStoreHasData($profile);
@@ -554,12 +754,6 @@ final readonly class DocumentationService
     ): void {
         if ($driver === 'memory') {
             DocumentationAgent::resetSharedMemoryVectorStore($profile);
-
-            return;
-        }
-
-        if ($driver === 'elasticsearch') {
-            ElasticsearchRagVectorStore::fromConfig($profile, 1)->clearIndex();
 
             return;
         }

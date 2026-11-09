@@ -247,3 +247,76 @@ it('draws the bar in the error state and reports the failure when the indexing s
         ->and($tester->getDisplay())->toContain('Indexing failed: Elasticsearch said no')
         ->and($tester->getDisplay())->toContain('0 / 150');
 });
+
+it('runs a diff and reports what it wrote, left alone and removed', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
+        ->andReturn(['sources' => 20, 'changed' => 2, 'unchanged' => 17, 'removed' => 1, 'chunks' => 9]);
+    $mock->shouldNotReceive('indexDocuments');
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--diff' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('The developer documentation: 2 of 20 sources written (9 chunks), 17 unchanged, 1 removed from the index.');
+});
+
+it('runs one diff for each selected profile', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
+        ->andReturn(['sources' => 1, 'changed' => 0, 'unchanged' => 1, 'removed' => 0, 'chunks' => 0]);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->with(null, DocumentationIndexProfile::User, Mockery::type(Closure::class))
+        ->andReturn(['sources' => 3, 'changed' => 3, 'unchanged' => 0, 'removed' => 0, 'chunks' => 11]);
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--diff' => true, '--profile' => 'all']);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('The developer documentation: 0 of 1 sources written')
+        ->and($tester->getDisplay())->toContain('The user documentation: 3 of 3 sources written (11 chunks)');
+});
+
+it('refuses --full together with --diff, and indexes nothing', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldNotReceive('indexDocuments');
+    $mock->shouldNotReceive('syncDocuments');
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--full' => true, '--diff' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
+        ->and($tester->getDisplay())->toContain('--full and --diff exclude each other');
+});
+
+it('reports a diff that cannot run, such as one on a store that is not elasticsearch', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')->once()->andThrow(new RuntimeException('A diff needs the elasticsearch vector store, and the driver is "memory".'));
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--diff' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
+        ->and($tester->getDisplay())->toContain('Indexing failed: A diff needs the elasticsearch vector store');
+});

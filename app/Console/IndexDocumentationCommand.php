@@ -24,7 +24,8 @@ final class IndexDocumentationCommand extends Command
     protected $signature = 'ai:index-rag-docs
                             {--path= : Scan only this file or directory (omit to index roots returned by rag_paths())}
                             {--profile=developer : Index profile: developer, user, or all}
-                            {--full : Delete the vector store first, then rebuild from the selected documentation}';
+                            {--full : Rebuild every source of the selected documentation; on Elasticsearch each source is replaced once its new chunks are embedded, and the sources the documentation no longer has are removed at the end}
+                            {--diff : Index only the sources that are new or changed since the last run, and remove the ones the documentation no longer has (Elasticsearch store)}';
 
     #[Override]
     protected $description = 'Index documentation for FAQ/RAG <fg=magenta>(✨ Modules\AI)</fg=magenta>';
@@ -51,6 +52,7 @@ final class IndexDocumentationCommand extends Command
         $path_option = $this->option('path');
         $path = is_string($path_option) && $path_option !== '' ? $path_option : null;
         $full = (bool) $this->option('full');
+        $diff = (bool) $this->option('diff');
         $profiles = $this->documentationProfiles();
 
         if ($profiles === null) {
@@ -63,11 +65,25 @@ final class IndexDocumentationCommand extends Command
             return self::FAILURE;
         }
 
+        if ($full && $diff) {
+            $this->error('--full and --diff exclude each other: --full rewrites every source, --diff only those that changed.');
+
+            return self::FAILURE;
+        }
+
         if ($full && FaqVectorStoreConfig::driver() === 'memory') {
             $this->comment('Vector store driver is "memory": --full resets the in-process shared store only.');
         }
 
         try {
+            if ($diff) {
+                foreach ($profiles as $profile) {
+                    $this->reportDiff($profile, $documentationService->syncDocuments($path, $profile, $this->progressReporter($profile)));
+                }
+
+                return self::SUCCESS;
+            }
+
             $count = 0;
 
             foreach ($profiles as $profile) {
@@ -83,6 +99,24 @@ final class IndexDocumentationCommand extends Command
 
             return self::FAILURE;
         }
+    }
+
+    /**
+     * What a diff run did to the index of one profile, in a line.
+     *
+     * @param  array{sources: int, changed: int, unchanged: int, removed: int, chunks: int}  $report
+     */
+    private function reportDiff(DocumentationIndexProfile $profile, array $report): void
+    {
+        $this->info(sprintf(
+            'The %s documentation: %d of %d sources written (%d chunks), %d unchanged, %d removed from the index.',
+            $profile->value,
+            $report['changed'],
+            $report['sources'],
+            $report['chunks'],
+            $report['unchanged'],
+            $report['removed'],
+        ));
     }
 
     /**

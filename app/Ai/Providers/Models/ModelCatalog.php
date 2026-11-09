@@ -119,6 +119,7 @@ final readonly class ModelCatalog
         $entries = array_values(array_unique($entries));
         sort($entries, SORT_STRING);
 
-        return $entries;
+        // Offered first, and whatever the providers answer: working without a model needs no provider.
+        return $feature->allowsNone() ? [AiModelFeature::NONE, ...$entries] : $entries;
     }
 }
