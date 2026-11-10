@@ -1165,7 +1165,7 @@ it('answers with the passages found, and never calls a model, when no answer mod
         ->and($result['citations'][0])->toMatchArray(['source' => 'faq-module-AI/README.md', 'score' => 0.91]);
 });
 
-it('shows the first passages whole and the others short when no answer model is set', function (): void {
+it('shows every passage whole when no answer model is set, and keeps the citation excerpts short', function (): void {
     config()->set('ai.features.faq.model', 'none');
 
     $texts = array_map(static fn (string $letter): string => str_repeat($letter, 500), ['A', 'B', 'C']);
@@ -1183,10 +1183,54 @@ it('shows the first passages whole and the others short when no answer model is 
 
     expect($result['answer'])->toContain($texts[0])
         ->and($result['answer'])->toContain($texts[1])
-        ->and($result['answer'])->not->toContain($texts[2])
-        ->and($result['answer'])->toContain(str_repeat('C', 297) . '...')
+        ->and($result['answer'])->toContain($texts[2])
         ->and($result['citations'][0]['excerpt'])->toBe(str_repeat('A', 300) . '...')
         ->and($result['citations'])->toHaveCount(3);
+});
+
+it('shows the passages of a file once, in the order of the page, and the files in the order of their best passage', function (): void {
+    config()->set('ai.features.faq.model', 'none');
+
+    $passage = static fn (string $text, string $source, int $section, float $score): Document => (new Document($text))
+        ->setSourceName($source)
+        ->setMetadata(['section' => $section])
+        ->setScore($score);
+
+    // The search returns them by score: the file B first, then page A out of order.
+    $documents = [
+        $passage('B-intro', 'faq-module-Core/B.md', 0, 0.95),
+        $passage('A-two', 'faq-module-Core/A.md', 2, 0.94),
+        $passage('A-zero', 'faq-module-Core/A.md', 0, 0.94),
+        $passage('A-one', 'faq-module-Core/A.md', 1, 0.93),
+    ];
+
+    $service = new DocumentationService(
+        developer_retrieval: new DeveloperDocumentationRetrieval(new StubDocumentationEmbeddingService, static fn (): array => $documents),
+    );
+
+    $answer = $service->answerQuestion('Anything?')['answer'];
+    $positions = array_map(static fn (string $text): int|false => mb_strpos($answer, $text), ['faq-module-Core/B.md', 'B-intro', 'faq-module-Core/A.md', 'A-zero', 'A-one', 'A-two']);
+
+    expect(mb_substr_count($answer, 'faq-module-Core/A.md'))->toBe(1)
+        ->and($positions)->each->not->toBeFalse()
+        ->and($positions)->toEqual(collect($positions)->sort()->values()->all());
+});
+
+it('keeps the order of the search for a file whose passages carry no position', function (): void {
+    config()->set('ai.features.faq.model', 'none');
+
+    $documents = [
+        (new Document('first-found'))->setSourceName('faq-app-rag/a.md')->setScore(0.9),
+        (new Document('second-found'))->setSourceName('faq-app-rag/a.md')->setMetadata(['section' => 0])->setScore(0.8),
+    ];
+
+    $service = new DocumentationService(
+        developer_retrieval: new DeveloperDocumentationRetrieval(new StubDocumentationEmbeddingService, static fn (): array => $documents),
+    );
+
+    $answer = $service->answerQuestion('Anything?')['answer'];
+
+    expect(mb_strpos($answer, 'first-found'))->toBeLessThan(mb_strpos($answer, 'second-found'));
 });
 
 it('says so when no passage matches and no answer model is set', function (): void {

@@ -16,7 +16,7 @@ Filament > Settings, group `ai`. Every AI feature has its own setting:
 | `features.moderation.model` | AI moderation of content and comments |
 | `features.search_orchestration.model` | Search planning |
 | `features.translation.model` | Automatic translation |
-| `features.faq.model` | The developer documentation help of `ai:help`. `none` (the default) writes no answer: the help shows the passages the vector search finds, with their sources, and needs no model (the first two passages are shown whole, the others as a short excerpt) |
+| `features.faq.model` | The developer documentation help of `ai:help`. `none` (the default) writes no answer: the help shows the passages the vector search finds, with their sources, and needs no model (every passage is shown whole, a file once, with its passages in the order of the page) |
 | `features.contextual_suggestions.model` | Contextual suggestions |
 | `features.chat.summary.model` | Chat summaries and memory |
 | `features.media_analysis.vision.model` | Image analysis (caption, OCR, idea, intent) |
