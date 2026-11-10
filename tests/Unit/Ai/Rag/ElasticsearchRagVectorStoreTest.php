@@ -183,15 +183,35 @@ test('the store declares the default document schema', function (): void {
 });
 
 /**
- * A client whose index accepts the mapping of the source fingerprint, which a store adds before its first write.
+ * What an index made by `ai:create-rag-index` answers to a mapping read: the source fields are keywords.
+ *
+ * @return array<string, mixed>
  */
-function rag_client_accepting_the_fingerprint_mapping(): Client
+function rag_keyword_mapping(string $index = 'laraplate_rag_docs_test'): array
+{
+    return [$index => ['mappings' => ['properties' => [
+        'sourceType' => ['type' => 'keyword'],
+        'sourceName' => ['type' => 'keyword'],
+    ]]]];
+}
+
+/**
+ * The index endpoint of an index that exists, maps its source fields as keywords and takes the fingerprint mapping.
+ */
+function rag_ready_indices(): Indices
 {
     $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->andReturn(make_elasticsearch_response(rag_keyword_mapping()));
     $indices->shouldReceive('putMapping')->andReturn(make_elasticsearch_response(['acknowledged' => true]));
 
+    return $indices;
+}
+
+function rag_client_accepting_the_fingerprint_mapping(): Client
+{
     $client = Mockery::mock(Client::class);
-    $client->shouldReceive('indices')->andReturn($indices);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
 
     return $client;
 }
@@ -233,6 +253,7 @@ test('add document refuses a document without an embedding, and sends nothing to
 
 test('delete by source type and name issues delete by query', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('deleteByQuery')
         ->once()
         ->with(Mockery::on(function (array $params): bool {
@@ -253,6 +274,7 @@ test('delete by source type and name issues delete by query', function (): void 
 
 test('delete by source type only matches file vector store semantics', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('deleteByQuery')
         ->once()
         ->with(Mockery::on(function (array $params): bool {
@@ -365,6 +387,8 @@ test('index mappings declare the source fingerprint as a keyword', function (): 
 
 test('the store maps the source fingerprint once, before its first write', function (): void {
     $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->once()->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->once()->andReturn(make_elasticsearch_response(rag_keyword_mapping()));
     $indices->shouldReceive('putMapping')
         ->once()
         ->with([
@@ -388,6 +412,8 @@ test('the store maps the source fingerprint once, before its first write', funct
 
 test('a write fails, and sends nothing, when the fingerprint mapping is refused', function (): void {
     $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->once()->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->once()->andReturn(make_elasticsearch_response(rag_keyword_mapping()));
     $indices->shouldReceive('putMapping')->once()->andThrow(new RuntimeException('mapper_parsing_exception'));
 
     $client = Mockery::mock(Client::class);
@@ -402,6 +428,7 @@ test('a write fails, and sends nothing, when the fingerprint mapping is refused'
 
 test('source fingerprints give the hash and chunk count of each source, and no hash when its chunks disagree', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('count')->once()->andReturn(make_elasticsearch_response(['count' => 9]));
     $client->shouldReceive('search')
         ->once()
@@ -437,6 +464,7 @@ test('source fingerprints are empty when the index does not exist, and are not s
 
 test('source fingerprints refuse an index with more sources than one read returns', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('count')->once()->andReturn(make_elasticsearch_response(['count' => 9]));
     $client->shouldReceive('search')->once()->andReturn(make_elasticsearch_response(['aggregations' => ['sources' => [
         'sum_other_doc_count' => 12,
@@ -449,6 +477,7 @@ test('source fingerprints refuse an index with more sources than one read return
 
 test('source fingerprints fail loudly when the read fails', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('count')->once()->andReturn(make_elasticsearch_response(['count' => 9]));
     $client->shouldReceive('search')->once()->andThrow(new RuntimeException('cluster down'));
 
@@ -458,6 +487,7 @@ test('source fingerprints fail loudly when the read fails', function (): void {
 
 test('delete sources not in a list removes every other source and reports how many chunks went', function (): void {
     $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn(rag_ready_indices());
     $client->shouldReceive('deleteByQuery')
         ->once()
         ->with([
@@ -476,4 +506,82 @@ test('delete sources not in an empty list is refused, and nothing is deleted', f
 
     expect(fn () => make_rag_vector_store($client)->deleteSourcesNotIn([]))
         ->toThrow(InvalidArgumentException::class, 'would empty the index');
+});
+
+test('a write creates a missing index with the mapping of the store, not the one dynamic mapping would give', function (): void {
+    $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->once()->andReturn(make_elasticsearch_response(false, 404));
+    $indices->shouldReceive('create')
+        ->once()
+        ->with(Mockery::on(fn (array $params): bool => $params['index'] === 'laraplate_rag_docs_test'
+            && ($params['body']['mappings']['properties']['sourceName'] ?? null) === ['type' => 'keyword']
+            && ($params['body']['mappings']['properties']['embedding']['dims'] ?? null) === 3
+            && ($params['body']['mappings']['properties']['metadata']['properties']['source_hash'] ?? null) === ['type' => 'keyword']))
+        ->andReturn(make_elasticsearch_response(['acknowledged' => true]));
+    $indices->shouldNotReceive('getMapping');
+    $indices->shouldNotReceive('putMapping');
+
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn($indices);
+    $client->shouldReceive('bulk')->once()->andReturn(make_elasticsearch_response(['errors' => false]));
+
+    $document = (new Document('Chunk body'))->setSourceType('file')->setSourceName('faq-module-AI')->setEmbedding([0.1, 0.2, 0.3]);
+
+    make_rag_vector_store($client)->addDocuments([$document]);
+
+    expect(true)->toBeTrue();
+});
+
+test('a write is refused, and sends nothing, on an index that maps the source name as text', function (): void {
+    $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->twice()->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->twice()->andReturn(make_elasticsearch_response(['laraplate_rag_docs_test' => ['mappings' => ['properties' => [
+        'sourceType' => ['type' => 'text', 'fields' => ['keyword' => ['type' => 'keyword', 'ignore_above' => 256]]],
+        'sourceName' => ['type' => 'text', 'fields' => ['keyword' => ['type' => 'keyword', 'ignore_above' => 256]]],
+    ]]]]));
+    $indices->shouldNotReceive('putMapping');
+
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn($indices);
+    $client->shouldNotReceive('bulk');
+    $client->shouldNotReceive('deleteByQuery');
+
+    $document = (new Document('Chunk body'))->setSourceType('file')->setSourceName('faq-module-AI')->setEmbedding([0.1, 0.2, 0.3]);
+
+    expect(fn () => make_rag_vector_store($client)->addDocuments([$document]))
+        ->toThrow(VectorStoreException::class, 'maps sourceType as "text", not as a keyword')
+        ->and(fn () => make_rag_vector_store($client)->addDocuments([$document]))
+        ->toThrow(VectorStoreException::class, 'php artisan ai:create-rag-index --profile=developer --force, then php artisan ai:index-rag-docs --full --profile=developer');
+});
+
+test('a delete by source is refused on an index that maps the source name as text, so it never deletes nothing silently', function (): void {
+    $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->once()->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->once()->andReturn(make_elasticsearch_response(['laraplate_rag_docs_test' => ['mappings' => ['properties' => [
+        'sourceType' => ['type' => 'keyword'],
+        'sourceName' => ['type' => 'text'],
+    ]]]]));
+
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('indices')->andReturn($indices);
+    $client->shouldNotReceive('deleteByQuery');
+
+    expect(fn () => make_rag_vector_store($client)->delete(Filter::where('sourceType', 'file')->where('sourceName', 'faq-module-AI')))
+        ->toThrow(VectorStoreException::class, 'maps sourceName as "text"');
+});
+
+test('source fingerprints are refused on an index that maps the source name as text, instead of failing on fielddata', function (): void {
+    $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->once()->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->once()->andReturn(make_elasticsearch_response(['laraplate_rag_docs_test' => ['mappings' => ['properties' => [
+        'sourceName' => ['type' => 'text'],
+    ]]]]));
+
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('count')->once()->andReturn(make_elasticsearch_response(['count' => 5]));
+    $client->shouldReceive('indices')->andReturn($indices);
+    $client->shouldNotReceive('search');
+
+    expect(fn () => make_rag_vector_store($client)->sourceFingerprints())
+        ->toThrow(VectorStoreException::class, 'ai:create-rag-index');
 });

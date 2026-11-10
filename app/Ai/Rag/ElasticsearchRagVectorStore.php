@@ -60,7 +60,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
      */
     private const int MAX_SOURCES = 10000;
 
-    private bool $sourceHashMapped = false;
+    private bool $indexReady = false;
 
     public function __construct(
         private readonly Client $client,
@@ -215,6 +215,8 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             return [];
         }
 
+        $this->ensureIndexReady();
+
         try {
             $response = $this->client->search([
                 'index' => $this->indexProfile->indexName(),
@@ -285,6 +287,8 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             throw new InvalidArgumentException('Refusing to delete the sources not in an empty list: it would empty the index.');
         }
 
+        $this->ensureIndexReady();
+
         try {
             $response = $this->client->deleteByQuery([
                 'index' => $this->indexProfile->indexName(),
@@ -319,7 +323,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         $this->validateDocuments($documents);
-        $this->ensureSourceHashMapping();
+        $this->ensureIndexReady();
 
         $body = [];
 
@@ -357,6 +361,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
     {
         $this->validateFilters($filters);
         $query = $this->filterQuery($filters);
+        $this->ensureIndexReady();
 
         try {
             $this->client->deleteByQuery([
@@ -477,18 +482,69 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
     }
 
     /**
-     * The fingerprint field is added to an index created before it existed, once per store, before the first
-     * write: left to dynamic mapping it would become a text field, which a terms aggregation cannot read.
+     * Makes the index fit for the writes and deletes of a source, once per store.
+     *
+     * An index that does not exist is created with the mapping of {@see self::indexMappings()}: left to the first
+     * write it would be created by dynamic mapping, which makes `sourceName` a text field. A term query on a text
+     * field does not find the whole name, so the delete that replaces a source would delete nothing and every run
+     * would add the chunks of a source once more. An index that exists with `sourceType` or `sourceName` as text
+     * is refused, with the way to rebuild it: the type of a field cannot be changed in place. The source
+     * fingerprint is then mapped as a keyword on an index created before it existed, for the same reason: dynamic
+     * mapping would make it text, which a terms aggregation cannot read.
+     *
+     * @throws VectorStoreException when the index cannot be created, read or mapped, or maps a source field as text
      */
-    private function ensureSourceHashMapping(): void
+    private function ensureIndexReady(): void
     {
-        if ($this->sourceHashMapped) {
+        if ($this->indexReady) {
             return;
+        }
+
+        $index = $this->indexProfile->indexName();
+
+        try {
+            if (! $this->client->indices()->exists(['index' => $index])->asBool()) {
+                $this->client->indices()->create(['index' => $index, 'body' => ['mappings' => self::indexMappings($this->embedding_dims)]]);
+                $this->indexReady = true;
+
+                return;
+            }
+
+            $mapping = $this->client->indices()->getMapping(['index' => $index])->asArray();
+        } catch (Throwable $throwable) {
+            throw new VectorStoreException(
+                'Failed to prepare the Elasticsearch RAG index: ' . $throwable->getMessage(),
+                (int) $throwable->getCode(),
+                $throwable,
+            );
+        }
+
+        $properties = [];
+
+        foreach ($mapping as $definition) {
+            $properties = is_array($definition['mappings']['properties'] ?? null) ? $definition['mappings']['properties'] : [];
+
+            break;
+        }
+
+        foreach (['sourceType', 'sourceName'] as $field) {
+            $type = is_array($properties[$field] ?? null) ? ($properties[$field]['type'] ?? null) : null;
+
+            if ($type !== null && $type !== 'keyword') {
+                throw new VectorStoreException(sprintf(
+                    'The index [%s] maps %s as "%s", not as a keyword: it was created by a write, not by ai:create-rag-index, so the chunks of a source cannot be found by name and a run would add them again instead of replacing them. Rebuild it: php artisan ai:create-rag-index --profile=%s --force, then php artisan ai:index-rag-docs --full --profile=%s',
+                    $index,
+                    $field,
+                    is_string($type) ? $type : 'unknown',
+                    $this->indexProfile->value,
+                    $this->indexProfile->value,
+                ));
+            }
         }
 
         try {
             $this->client->indices()->putMapping([
-                'index' => $this->indexProfile->indexName(),
+                'index' => $index,
                 'body' => ['properties' => ['metadata' => ['properties' => [self::SOURCE_HASH => ['type' => 'keyword']]]]],
             ]);
         } catch (Throwable $throwable) {
@@ -499,7 +555,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             );
         }
 
-        $this->sourceHashMapped = true;
+        $this->indexReady = true;
     }
 
     /**
