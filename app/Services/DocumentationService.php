@@ -41,13 +41,6 @@ final readonly class DocumentationService
     private const int INDEX_BATCH_SIZE = 100;
 
     /**
-     * How many of the passages a help without a model shows whole. The answer is the passage, so a cut at the
-     * length of a citation excerpt would hide the very lines a person asked for; the rest stay short, as a
-     * pointer to where else to look.
-     */
-    private const int WHOLE_PASSAGES = 2;
-
-    /**
      * @param  Closure(): DocumentationAgent|null  $agentFactory  Optional factory for testing
      * @param  Closure(): bool|null  $ragPathsResolver  Whether the `rag_paths()` helper is
      *                                                  available. Null asks PHP, which is what production does. Injecting it lets a test
@@ -352,7 +345,9 @@ final readonly class DocumentationService
     /**
      * The answer of a help that has no model ({@see AiModelFeature::allowsNone()}): the passages the
      * vector search finds in the developer corpus, with their sources, and no text written by a model. The
-     * first {@see self::WHOLE_PASSAGES} are shown whole, the others as the excerpt of their citation.
+     * passages are the answer, so each is shown whole (the excerpt of a citation is for a list of sources), a
+     * file once with its passages in the order of the page: the similarity of the sections of one page differs
+     * by hundredths, an order by score would be an arbitrary one.
      *
      * @return array{answer: string, citations: list<array{source: string, excerpt: string, score: float|null}>}
      */
@@ -363,10 +358,17 @@ final readonly class DocumentationService
 
         $lines = ['No answer model is set (features.faq.model), so these are the passages found:'];
 
-        foreach ($citations as $index => $citation) {
+        foreach ($this->passagesByFile($documents) as $source => $passages) {
             $lines[] = '';
-            $lines[] = $citation['source'];
-            $lines[] = $index < self::WHOLE_PASSAGES ? $documents[$index]->getContent() : $citation['excerpt'];
+            $lines[] = (string) $source;
+
+            foreach ($passages as $position => $passage) {
+                if ($position > 0) {
+                    $lines[] = '';
+                }
+
+                $lines[] = $passage->getContent();
+            }
         }
 
         if ($citations === []) {
@@ -378,6 +380,35 @@ final readonly class DocumentationService
             'answer' => implode("\n", $lines),
             'citations' => $citations,
         ];
+    }
+
+    /**
+     * The documents by file, the files in the order of their best passage, the passages of a file in the order
+     * of the page (`section`). A file whose passages do not all carry a position keeps the order of the search.
+     *
+     * @param  list<Document>  $documents  in the order of the search
+     * @return array<string, list<Document>>
+     */
+    private function passagesByFile(array $documents): array
+    {
+        $files = [];
+
+        foreach ($documents as $document) {
+            $source = $document->getSourceName();
+            $files[$source !== '' ? $source : 'Unknown'][] = $document;
+        }
+
+        return array_map(static function (array $passages): array {
+            $positions = array_map(static fn (Document $passage): mixed => $passage->getMetadata()['section'] ?? null, $passages);
+
+            if (in_array(null, $positions, true) || count(array_filter($positions, is_int(...))) !== count($positions)) {
+                return $passages;
+            }
+
+            usort($passages, static fn (Document $a, Document $b): int => $a->getMetadata()['section'] <=> $b->getMetadata()['section']);
+
+            return $passages;
+        }, $files);
     }
 
     private function ragPathsFunctionExists(): bool
