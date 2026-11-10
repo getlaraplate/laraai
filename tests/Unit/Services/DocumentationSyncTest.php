@@ -105,7 +105,9 @@ it('writes a source that is not in the index yet, with its fingerprint, and repo
 
         $report = sync_service(sync_client(), $agent)->syncDocuments($directory);
 
-        expect($report)->toBe(['sources' => 1, 'changed' => 1, 'unchanged' => 0, 'removed' => 0, 'chunks' => count($written)])
+        expect($report)->toMatchArray(['sources' => 1, 'changed' => 1, 'unchanged' => 0, 'removed' => 0, 'chunks' => count($written), 'dry_run' => false])
+            ->and($report['to_write'])->toBe([$written[0]->getSourceName()])
+            ->and($report['to_remove'])->toBe([])
             ->and($written)->not->toBeEmpty()
             ->and($written[0]->getMetadata()[ElasticsearchRagVectorStore::SOURCE_HASH])->toBeString()->toHaveLength(64);
     } finally {
@@ -137,7 +139,7 @@ it('leaves a source alone, and embeds nothing, when its fingerprint is unchanged
 
         $report = $service->syncDocuments($directory);
 
-        expect($report)->toBe(['sources' => 1, 'changed' => 0, 'unchanged' => 1, 'removed' => 0, 'chunks' => 0])
+        expect($report)->toMatchArray(['sources' => 1, 'changed' => 0, 'unchanged' => 1, 'removed' => 0, 'chunks' => 0, 'to_write' => [], 'to_remove' => []])
             ->and($probed)->toBe(0);
     } finally {
         sync_remove_directory($directory);
@@ -225,7 +227,8 @@ it('removes the sources the documentation no longer has, and keeps every source 
 
     $report = sync_service($client, $agent)->syncDocuments();
 
-    expect($report['removed'])->toBe(2)
+    expect($report['removed'])->toBe(1)
+        ->and($report['to_remove'])->toBe(['faq-module-gone/Old.md'])
         ->and($report['sources'])->toBe(count($kept))
         ->and($kept)->not->toBeEmpty()
         ->and($kept)->not->toContain('faq-module-gone/Old.md');
@@ -256,7 +259,7 @@ it('deletes nothing when no documentation source is found at all', function (): 
 
     $report = sync_service($client, $agent, static fn (): bool => false)->syncDocuments();
 
-    expect($report)->toBe(['sources' => 0, 'changed' => 0, 'unchanged' => 0, 'removed' => 0, 'chunks' => 0]);
+    expect($report)->toMatchArray(['sources' => 0, 'changed' => 0, 'unchanged' => 0, 'removed' => 0, 'chunks' => 0, 'to_write' => [], 'to_remove' => []]);
 });
 
 it('refuses a diff when the vector store is not elasticsearch', function (): void {
@@ -339,4 +342,54 @@ it('keeps the index of a full rebuild that found no documentation, instead of em
     $client->shouldNotReceive('deleteByQuery');
 
     expect(sync_service($client, $agent, static fn (): bool => false)->indexDocuments(null, true, DocumentationIndexProfile::Developer))->toBe(0);
+});
+
+it('lists what a diff would write and remove, and touches nothing, on a dry run', function (): void {
+    $agent = Mockery::mock(DocumentationAgent::class);
+    $agent->shouldNotReceive('reindexBySource');
+    $agent->shouldNotReceive('addDocuments');
+
+    $probed = 0;
+    $client = sync_client(['faq-module-gone/Old.md' => ['hash' => 'old', 'chunks' => 2]]);
+    $client->shouldNotReceive('deleteByQuery');
+    $client->shouldNotReceive('bulk');
+
+    config()->set('ai.features.faq.vector_store', 'elasticsearch');
+    $service = new DocumentationService(
+        agentFactory: static fn (): DocumentationAgent => $agent,
+        embeddingsProbe: static function () use (&$probed): array {
+            $probed++;
+
+            return [0.1];
+        },
+        storeFactory: static fn (DocumentationIndexProfile $profile): ElasticsearchRagVectorStore => new ElasticsearchRagVectorStore($client, $profile, 1, 3),
+    );
+
+    $report = $service->syncDocuments(dryRun: true);
+
+    expect($report['dry_run'])->toBeTrue()
+        ->and($report['changed'])->toBeGreaterThan(0)
+        ->and($report['to_write'])->toHaveCount($report['changed'])
+        ->and($report['to_remove'])->toBe(['faq-module-gone/Old.md'])
+        ->and($report['removed'])->toBe(1)
+        ->and($probed)->toBe(0);
+});
+
+it('deletes nothing, and sends no delete, when no indexed source is gone', function (): void {
+    $directory = sync_docs_directory();
+
+    try {
+        $first = sync_first_chunks($directory);
+        $indexed = [$first[0]->getSourceName() => ['hash' => $first[0]->getMetadata()[ElasticsearchRagVectorStore::SOURCE_HASH], 'chunks' => count($first)]];
+
+        $agent = Mockery::mock(DocumentationAgent::class);
+        $agent->shouldNotReceive('reindexBySource');
+
+        $client = sync_client($indexed);
+        $client->shouldNotReceive('deleteByQuery');
+
+        expect(sync_service($client, $agent, static fn (): bool => true)->syncDocuments($directory)['removed'])->toBe(0);
+    } finally {
+        sync_remove_directory($directory);
+    }
 });

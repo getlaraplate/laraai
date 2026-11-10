@@ -103,17 +103,22 @@ final readonly class DocumentationService
      *
      * The index is never emptied: a source is replaced only after its new chunks were embedded.
      *
+     * With `$dryRun` nothing is embedded, written or removed, and the embedding service is not asked: the report
+     * says what a real run would write and remove, by source name.
+     *
      * @param  (Closure(int, int, list<string>): void)|null  $onProgress  see {@see self::indexDocuments()}
      *
      * @throws RuntimeException when the vector store is not Elasticsearch, or the embeddings do not answer
      *
-     * @return array{sources: int, changed: int, unchanged: int, removed: int, chunks: int} The sources read, those
-     *                                                                                      written, those left alone, the sources removed from the index and the chunks written.
+     * @return array{sources: int, changed: int, unchanged: int, removed: int, chunks: int, to_write: list<string>, to_remove: list<string>, dry_run: bool} The sources
+     *                                                                                                                                                      read, those written (or to write), those left alone, the sources removed from the index (or to remove), the chunks
+     *                                                                                                                                                      written, and the names of the sources to write and to remove.
      */
     public function syncDocuments(
         ?string $path = null,
         DocumentationIndexProfile $profile = DocumentationIndexProfile::Developer,
         ?Closure $onProgress = null,
+        bool $dryRun = false,
     ): array {
         $driver = FaqVectorStoreConfig::driver();
 
@@ -124,7 +129,7 @@ final readonly class DocumentationService
         $chunks = $this->splitDocuments($this->profileDocuments($this->roots($path), $profile));
 
         if ($chunks === []) {
-            return ['sources' => 0, 'changed' => 0, 'unchanged' => 0, 'removed' => 0, 'chunks' => 0];
+            return ['sources' => 0, 'changed' => 0, 'unchanged' => 0, 'removed' => 0, 'chunks' => 0, 'to_write' => [], 'to_remove' => [], 'dry_run' => $dryRun];
         }
 
         $by_source = [];
@@ -136,7 +141,7 @@ final readonly class DocumentationService
         $store = $this->store($profile);
         $indexed = $store->sourceFingerprints();
         $changed = [];
-        $changed_sources = 0;
+        $to_write = [];
 
         foreach ($by_source as $name => $source_chunks) {
             $fingerprint = $indexed[$name] ?? null;
@@ -146,23 +151,35 @@ final readonly class DocumentationService
                 continue;
             }
 
-            $changed_sources++;
+            $to_write[] = (string) $name;
             array_push($changed, ...$source_chunks);
         }
 
-        if ($changed !== []) {
-            $this->assertEmbeddingsAnswer();
-            $this->storeDocuments($changed, $profile, replaceSources: true, onProgress: $onProgress);
-        }
+        // With a path the run sees one file or directory, and cannot tell what is gone from the rest.
+        $to_remove = $path === null
+            ? array_values(array_diff(array_map(strval(...), array_keys($indexed)), array_map(strval(...), array_keys($by_source))))
+            : [];
 
-        $removed = $path === null ? $store->deleteSourcesNotIn(array_map(strval(...), array_keys($by_source))) : 0;
+        if (! $dryRun) {
+            if ($changed !== []) {
+                $this->assertEmbeddingsAnswer();
+                $this->storeDocuments($changed, $profile, replaceSources: true, onProgress: $onProgress);
+            }
+
+            if ($to_remove !== []) {
+                $store->deleteSourcesNotIn(array_map(strval(...), array_keys($by_source)));
+            }
+        }
 
         return [
             'sources' => count($by_source),
-            'changed' => $changed_sources,
-            'unchanged' => count($by_source) - $changed_sources,
-            'removed' => $removed,
+            'changed' => count($to_write),
+            'unchanged' => count($by_source) - count($to_write),
+            'removed' => count($to_remove),
             'chunks' => count($changed),
+            'to_write' => $to_write,
+            'to_remove' => $to_remove,
+            'dry_run' => $dryRun,
         ];
     }
 

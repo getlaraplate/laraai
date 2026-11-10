@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\AI\Console;
 
+use function ai_config_bool;
+use function Laravel\Prompts\text;
+
 use Exception;
 use Illuminate\Console\Command;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Services\DocumentationService;
 use Override;
-
-use function ai_config_bool;
-use function Laravel\Prompts\text;
 
 final class LaraplateHelpCommand extends Command
 {
@@ -96,16 +96,53 @@ final class LaraplateHelpCommand extends Command
             $this->newLine();
             $this->line('<comment>Sources:</comment>');
 
-            foreach ($result['citations'] as $citation) {
-                $source = $citation['source'];
-                $score = $citation['score'];
-                $score_label = is_float($score) ? sprintf(' (score: %.3f)', $score) : '';
-                $this->line('- ' . $source . $score_label);
+            foreach ($this->groupBySource($result['citations']) as $group) {
+                $this->line('- ' . $group['source'] . $this->describeGroup($group['passages'], $group['best']));
             }
         }
 
         $this->newLine();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The citations of one answer by source, in the order the sources first appear: a page that supplies
+     * several passages is one line, not one line per passage.
+     *
+     * @param  list<array{source: string, score: float|null}>  $citations
+     * @return list<array{source: string, passages: int, best: float|null}>
+     */
+    private function groupBySource(array $citations): array
+    {
+        $groups = [];
+
+        foreach ($citations as $citation) {
+            $source = $citation['source'];
+            $score = $citation['score'];
+            $index = array_search($source, array_column($groups, 'source'), true);
+
+            if ($index === false) {
+                $groups[] = ['source' => $source, 'passages' => 1, 'best' => $score];
+
+                continue;
+            }
+
+            $groups[$index]['passages']++;
+            $groups[$index]['best'] = is_float($score) ? max($score, $groups[$index]['best'] ?? $score) : $groups[$index]['best'];
+        }
+
+        return $groups;
+    }
+
+    private function describeGroup(int $passages, ?float $best): string
+    {
+        if ($best === null) {
+            return $passages > 1 ? sprintf(' (%d passages)', $passages) : '';
+        }
+
+        return $passages > 1
+            ? sprintf(' (%d passages, best score: %.3f)', $passages, $best)
+            : sprintf(' (score: %.3f)', $best);
     }
 }
