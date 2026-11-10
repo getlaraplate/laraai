@@ -8,6 +8,7 @@ use Modules\AI\Ai\Agents\DocumentationAgent;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
 use Modules\AI\Services\DocumentationService;
+use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
 
 /**
@@ -36,6 +37,11 @@ function sync_remove_directory(string $directory): void
 function sync_client(array $fingerprints = []): Client
 {
     $indices = Mockery::mock(Indices::class);
+    $indices->shouldReceive('exists')->andReturn(make_elasticsearch_response(true));
+    $indices->shouldReceive('getMapping')->andReturn(make_elasticsearch_response(['laraplate_rag_docs_test' => ['mappings' => ['properties' => [
+        'sourceType' => ['type' => 'keyword'],
+        'sourceName' => ['type' => 'keyword'],
+    ]]]]));
     $indices->shouldReceive('putMapping')->andReturn(make_elasticsearch_response(['acknowledged' => true]));
 
     $buckets = [];
@@ -389,6 +395,32 @@ it('deletes nothing, and sends no delete, when no indexed source is gone', funct
         $client->shouldNotReceive('deleteByQuery');
 
         expect(sync_service($client, $agent, static fn (): bool => true)->syncDocuments($directory)['removed'])->toBe(0);
+    } finally {
+        sync_remove_directory($directory);
+    }
+});
+
+it('stops a diff, with the way to repair it, on an index that maps the source name as text', function (): void {
+    $directory = sync_docs_directory();
+
+    try {
+        $indices = Mockery::mock(Indices::class);
+        $indices->shouldReceive('exists')->andReturn(make_elasticsearch_response(true));
+        $indices->shouldReceive('getMapping')->andReturn(make_elasticsearch_response(['laraplate_rag_docs_test' => ['mappings' => ['properties' => [
+            'sourceName' => ['type' => 'text', 'fields' => ['keyword' => ['type' => 'keyword']]],
+        ]]]]));
+
+        $client = Mockery::mock(Client::class);
+        $client->shouldReceive('indices')->andReturn($indices);
+        $client->shouldReceive('count')->andReturn(make_elasticsearch_response(['count' => 3]));
+        $client->shouldNotReceive('search');
+        $client->shouldNotReceive('deleteByQuery');
+
+        $agent = Mockery::mock(DocumentationAgent::class);
+        $agent->shouldNotReceive('reindexBySource');
+
+        expect(fn () => sync_service($client, $agent)->syncDocuments($directory, dryRun: true))
+            ->toThrow(VectorStoreException::class, 'ai:create-rag-index --profile=developer --force');
     } finally {
         sync_remove_directory($directory);
     }
