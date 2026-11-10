@@ -20,12 +20,18 @@ final class IndexDocumentationCommand extends Command
 {
     use ResolvesDocumentationProfiles;
 
+    /**
+     * The sources a dry run names under each heading; the line above them has the counts.
+     */
+    private const int DRY_RUN_LISTED = 20;
+
     #[Override]
     protected $signature = 'ai:index-rag-docs
                             {--path= : Scan only this file or directory (omit to index roots returned by rag_paths())}
                             {--profile=developer : Index profile: developer, user, or all}
                             {--full : Rebuild every source of the selected documentation; on Elasticsearch each source is replaced once its new chunks are embedded, and the sources the documentation no longer has are removed at the end}
-                            {--diff : Index only the sources that are new or changed since the last run, and remove the ones the documentation no longer has (Elasticsearch store)}';
+                            {--diff : Index only the sources that are new or changed since the last run, and remove the ones the documentation no longer has (Elasticsearch store)}
+                            {--dry-run : With --diff, list what would be written and removed, without embedding, writing or removing anything}';
 
     #[Override]
     protected $description = 'Index documentation for FAQ/RAG <fg=magenta>(✨ Modules\AI)</fg=magenta>';
@@ -53,6 +59,7 @@ final class IndexDocumentationCommand extends Command
         $path = is_string($path_option) && $path_option !== '' ? $path_option : null;
         $full = (bool) $this->option('full');
         $diff = (bool) $this->option('diff');
+        $dry_run = (bool) $this->option('dry-run');
         $profiles = $this->documentationProfiles();
 
         if ($profiles === null) {
@@ -61,6 +68,12 @@ final class IndexDocumentationCommand extends Command
 
         if ($path !== null && (! is_dir($path) && ! is_file($path))) {
             $this->error("Path does not exist or is not readable: {$path}");
+
+            return self::FAILURE;
+        }
+
+        if ($dry_run && ! $diff) {
+            $this->error('--dry-run belongs to --diff: add --diff to see what a run would write and remove.');
 
             return self::FAILURE;
         }
@@ -78,7 +91,7 @@ final class IndexDocumentationCommand extends Command
         try {
             if ($diff) {
                 foreach ($profiles as $profile) {
-                    $this->reportDiff($profile, $documentationService->syncDocuments($path, $profile, $this->progressReporter($profile)));
+                    $this->reportDiff($profile, $documentationService->syncDocuments($path, $profile, $this->progressReporter($profile), $dry_run));
                 }
 
                 return self::SUCCESS;
@@ -102,14 +115,29 @@ final class IndexDocumentationCommand extends Command
     }
 
     /**
-     * What a diff run did to the index of one profile, in a line.
+     * What a diff run did to the index of one profile, in a line; a dry run also lists the sources it would
+     * write and remove.
      *
-     * @param  array{sources: int, changed: int, unchanged: int, removed: int, chunks: int}  $report
+     * @param  array{sources: int, changed: int, unchanged: int, removed: int, chunks: int, to_write: list<string>, to_remove: list<string>, dry_run: bool}  $report
      */
     private function reportDiff(DocumentationIndexProfile $profile, array $report): void
     {
+        if (! $report['dry_run']) {
+            $this->info(sprintf(
+                'The %s documentation: %d of %d sources written (%d chunks), %d unchanged, %d removed from the index.',
+                $profile->value,
+                $report['changed'],
+                $report['sources'],
+                $report['chunks'],
+                $report['unchanged'],
+                $report['removed'],
+            ));
+
+            return;
+        }
+
         $this->info(sprintf(
-            'The %s documentation: %d of %d sources written (%d chunks), %d unchanged, %d removed from the index.',
+            'The %s documentation, dry run (nothing was embedded, written or removed): %d of %d sources would be written (%d chunks), %d are unchanged, %d would be removed.',
             $profile->value,
             $report['changed'],
             $report['sources'],
@@ -117,6 +145,16 @@ final class IndexDocumentationCommand extends Command
             $report['unchanged'],
             $report['removed'],
         ));
+
+        foreach (['to_write' => 'Would write', 'to_remove' => 'Would remove'] as $key => $label) {
+            foreach (array_slice($report[$key], 0, self::DRY_RUN_LISTED) as $source) {
+                $this->line(sprintf('  %s %s', $label, $source));
+            }
+
+            if (count($report[$key]) > self::DRY_RUN_LISTED) {
+                $this->line(sprintf('  ... and %d more', count($report[$key]) - self::DRY_RUN_LISTED));
+            }
+        }
     }
 
     /**

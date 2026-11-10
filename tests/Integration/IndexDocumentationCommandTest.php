@@ -252,8 +252,8 @@ it('runs a diff and reports what it wrote, left alone and removed', function ():
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('syncDocuments')
         ->once()
-        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
-        ->andReturn(['sources' => 20, 'changed' => 2, 'unchanged' => 17, 'removed' => 1, 'chunks' => 9]);
+        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class), false)
+        ->andReturn(['sources' => 20, 'changed' => 2, 'unchanged' => 17, 'removed' => 1, 'chunks' => 9, 'to_write' => [], 'to_remove' => [], 'dry_run' => false]);
     $mock->shouldNotReceive('indexDocuments');
     app()->instance(DocumentationService::class, $mock);
 
@@ -271,12 +271,12 @@ it('runs one diff for each selected profile', function (): void {
     $mock = Mockery::mock(DocumentationService::class);
     $mock->shouldReceive('syncDocuments')
         ->once()
-        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class))
-        ->andReturn(['sources' => 1, 'changed' => 0, 'unchanged' => 1, 'removed' => 0, 'chunks' => 0]);
+        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class), false)
+        ->andReturn(['sources' => 1, 'changed' => 0, 'unchanged' => 1, 'removed' => 0, 'chunks' => 0, 'to_write' => [], 'to_remove' => [], 'dry_run' => false]);
     $mock->shouldReceive('syncDocuments')
         ->once()
-        ->with(null, DocumentationIndexProfile::User, Mockery::type(Closure::class))
-        ->andReturn(['sources' => 3, 'changed' => 3, 'unchanged' => 0, 'removed' => 0, 'chunks' => 11]);
+        ->with(null, DocumentationIndexProfile::User, Mockery::type(Closure::class), false)
+        ->andReturn(['sources' => 3, 'changed' => 3, 'unchanged' => 0, 'removed' => 0, 'chunks' => 11, 'to_write' => [], 'to_remove' => [], 'dry_run' => false]);
     app()->instance(DocumentationService::class, $mock);
 
     $command = new IndexDocumentationCommand;
@@ -319,4 +319,65 @@ it('reports a diff that cannot run, such as one on a store that is not elasticse
 
     expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
         ->and($tester->getDisplay())->toContain('Indexing failed: A diff needs the elasticsearch vector store');
+});
+
+it('lists, on a dry run, the sources a diff would write and remove', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->with(null, DocumentationIndexProfile::Developer, Mockery::type(Closure::class), true)
+        ->andReturn([
+            'sources' => 20, 'changed' => 2, 'unchanged' => 17, 'removed' => 1, 'chunks' => 9,
+            'to_write' => ['faq-module-Core/VERSIONING_DEVELOPER.md', 'faq-module-Core/MODULE.md'],
+            'to_remove' => ['faq-module-Core/OLD.md'],
+            'dry_run' => true,
+        ]);
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--diff' => true, '--dry-run' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('dry run (nothing was embedded, written or removed): 2 of 20 sources would be written (9 chunks), 17 are unchanged, 1 would be removed.')
+        ->and($tester->getDisplay())->toContain('Would write faq-module-Core/VERSIONING_DEVELOPER.md')
+        ->and($tester->getDisplay())->toContain('Would remove faq-module-Core/OLD.md');
+});
+
+it('names the first sources of a long dry run and counts the rest', function (): void {
+    $names = array_map(static fn (int $n): string => sprintf('faq-module-Core/page-%02d.md', $n), range(1, 23));
+
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->andReturn(['sources' => 23, 'changed' => 23, 'unchanged' => 0, 'removed' => 0, 'chunks' => 40, 'to_write' => $names, 'to_remove' => [], 'dry_run' => true]);
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--diff' => true, '--dry-run' => true]);
+
+    expect($tester->getDisplay())->toContain('Would write faq-module-Core/page-20.md')
+        ->and($tester->getDisplay())->not->toContain('page-21.md')
+        ->and($tester->getDisplay())->toContain('... and 3 more');
+});
+
+it('refuses --dry-run without --diff, and indexes nothing', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldNotReceive('indexDocuments');
+    $mock->shouldNotReceive('syncDocuments');
+    app()->instance(DocumentationService::class, $mock);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute(['--dry-run' => true]);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
+        ->and($tester->getDisplay())->toContain('--dry-run belongs to --diff');
 });

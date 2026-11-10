@@ -337,6 +337,7 @@ no longer exists: it controlled the hand-written retry that `structured()` repla
 - `php artisan ai:index-rag-docs --profile=developer|user|all`
 - `php artisan ai:index-rag-docs --path=/some/path --full`
 - `php artisan ai:index-rag-docs --diff` (only what is new or changed; removes what is gone)
+- `php artisan ai:index-rag-docs --diff --dry-run` (the same, listing what it would do and doing nothing)
 
 #### Indexing modes
 
@@ -349,6 +350,7 @@ no longer exists: it controlled the hand-written retry that `structured()` repla
 | Full | `ai:index-rag-docs --full` | every source, re-embedded | yes |
 
 - **Diff** (Elasticsearch store only; other stores refuse it). Every chunk carries `metadata.source_hash`, a SHA-256 of the chunks of its source (text and metadata) and of the active embedding model key. A run reads the hash and chunk count of each indexed source with one aggregation and compares them with the files on disk. A source that is absent, has no hash (indexed before fingerprints existed), whose chunks disagree, or whose hash or chunk count differs, is embedded and replaced. An unchanged source costs no embedding, and the embedding service is not even probed when nothing changed. Changing the embedding model changes every hash, so the next diff rewrites everything, as it should. The first diff after upgrading rewrites every source once, because the old chunks have no hash; the field is added to an existing index with a mapping update before the first write.
+- **Dry run.** `--diff --dry-run` reads the index and the files and prints what a diff would write and remove, naming the first 20 sources of each list, and does nothing else: no embedding, no write, no delete, and the embedding service is not asked. It is the way to see what an update would cost before running it. `--dry-run` without `--diff` is refused.
 - **Full** on Elasticsearch never calls a delete over the whole index. It replaces every source in place and, at the end, removes the sources whose name is no longer in the documentation. It used to empty the index first, which left the library empty for the whole run, and for good when the run failed. On the filesystem store `--full` still deletes the store file first, and on the memory store it resets the shared store.
 - **Removal** compares source names with the roots the run read. It happens only when the roots come from `rag_paths()`: with `--path` the run sees one file or directory and cannot tell what is gone from the rest, so nothing is removed. A module that is switched off drops out of `rag_paths(onlyActive: true)`, and its documents are removed by the next diff or full run. A run that finds no source at all removes nothing: an empty list is a mistake to report, not an index to empty.
 - `--full` and `--diff` exclude each other. `--path` gives sources the name `faq-cli-<hash of the path>`, different from the `faq-module-...` name of the same file in a run without `--path`: do not use it to update a file of the regular corpus.
@@ -357,7 +359,7 @@ no longer exists: it controlled the hand-written retry that `structured()` repla
 
 - `php artisan ai:help` opens interactive developer-documentation chat.
 - `php artisan ai:help --question="..."` executes a one-shot developer query.
-- With `features.faq.model` set to `none` (the default of a new install) `ai:help` runs the vector search only (`DeveloperDocumentationRetrieval`, the same one `test:ai:evaluate-documentation` measures) and prints the passages with their sources and scores; no chat model is called. The first two passages are printed whole (`DocumentationService::WHOLE_PASSAGES`), because the passage is the answer; the others are cut to the 300-character excerpt of their citation, and the returned `citations` always carry that excerpt. An install that already holds a `provider:model` keeps it: to get the passages only, choose `none` in Settings (it is offered first by `ai:models:refresh`).
+- With `features.faq.model` set to `none` (the default of a new install) `ai:help` runs the vector search only (`DeveloperDocumentationRetrieval`, the same one `test:ai:evaluate-documentation` measures) and prints the passages with their sources and scores; no chat model is called. The "Sources" list at the end has one line per file: `file (3 passages, best score: 0.949)`, or `file (score: 0.910)` for a single passage. The first two passages are printed whole (`DocumentationService::WHOLE_PASSAGES`), because the passage is the answer; the others are cut to the 300-character excerpt of their citation, and the returned `citations` always carry that excerpt. An install that already holds a `provider:model` keeps it: to get the passages only, choose `none` in Settings (it is offered first by `ai:models:refresh`).
 
 ### Application content evaluation
 
