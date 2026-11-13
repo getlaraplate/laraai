@@ -403,7 +403,7 @@ it('indexDocuments indexes documents and returns count', function (): void {
         ->with(Mockery::on(fn ($docs): bool => is_array($docs) && count($docs) >= 1))
         ->once();
 
-    $service = new DocumentationService(fn () => $agentMock);
+    $service = new DocumentationService(fn () => $agentMock, embeddingsProbe: static fn (): array => [0.1]);
 
     try {
         $count = $service->indexDocuments($tmpDir);
@@ -475,7 +475,7 @@ it('indexDocuments with full rebuild removes filesystem vector store file before
     $agentMock = Mockery::mock(DocumentationAgent::class);
     $agentMock->shouldReceive('addDocuments')->once();
 
-    $service = new DocumentationService(fn () => $agentMock);
+    $service = new DocumentationService(fn () => $agentMock, embeddingsProbe: static fn (): array => [0.1]);
 
     try {
         $service->indexDocuments($tmpDir, true);
