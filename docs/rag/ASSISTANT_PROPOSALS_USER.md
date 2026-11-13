@@ -2,6 +2,14 @@
 module: ai
 audience: user
 cross_cutting_user: true
+locale: en
+canonical_source: ai/assistant-proposals
+safe_source_label: "AI · Suggestions from the assistant"
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+required_permissions: []
+tenant_scope: global
 ---
 # Suggestions from the assistant: user guide
 
