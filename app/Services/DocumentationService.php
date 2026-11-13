@@ -30,6 +30,8 @@ use Modules\AI\Services\Documentation\Chunking\SplitterFactory;
 use Modules\AI\Services\Documentation\DocumentationMetadata;
 use Modules\AI\Services\Documentation\DocumentAudiencePolicy;
 use Modules\AI\Services\Documentation\FileDocumentReader;
+use Modules\AI\Services\Documentation\PermissionRequirementAudit;
+use Modules\Core\Models\Permission;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\RAG\Document;
 use NeuronAI\RAG\Splitter\SplitterInterface;
@@ -51,6 +53,8 @@ final readonly class DocumentationService
      * @param  DeveloperDocumentationRetrieval|null  $developer_retrieval  The retrieval of a help without a model; null builds it from the container.
      * @param  Closure(DocumentationIndexProfile): ElasticsearchRagVectorStore|null  $storeFactory  The Elasticsearch store of a
      *                                                                                              profile; null builds it from the configuration, which is what production does.
+     * @param  Closure(): list<string>|null  $permissionNames  The names of the permissions of the application, for the check
+     *                                                         of the requirements of the user documents; null reads the `permissions` table.
      */
     public function __construct(
         private ?Closure $agentFactory = null,
@@ -60,6 +64,7 @@ final readonly class DocumentationService
         private ?Closure $embeddingsProbe = null,
         private ?DeveloperDocumentationRetrieval $developer_retrieval = null,
         private ?Closure $storeFactory = null,
+        private ?Closure $permissionNames = null,
     ) {}
 
     /**
@@ -193,6 +198,25 @@ final readonly class DocumentationService
         sort($names, SORT_STRING);
 
         return $names;
+    }
+
+    /**
+     * The permission requirements of the user documents (from {@see rag_paths()}, or from `$path` alone) that
+     * no permission of the application satisfies: a page with such a requirement is visible to nobody unless
+     * another of its requirements matches. Reads only; nothing is written and nothing here is an error.
+     *
+     * @return list<array{document: string, requirement: string}>
+     *
+     * @see PermissionRequirementAudit
+     */
+    public function unmatchedPermissionRequirements(?string $path = null): array
+    {
+        $documents = $this->profileDocuments($this->roots($path), DocumentationIndexProfile::User);
+        $names = $this->permissionNames instanceof Closure
+            ? ($this->permissionNames)()
+            : Permission::query()->pluck('name')->map(strval(...))->all();
+
+        return PermissionRequirementAudit::unmatched(array_values($names), $documents);
     }
 
     /**
