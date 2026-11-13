@@ -13,6 +13,7 @@ use Modules\AI\Enums\AssistantTenantScope;
 use Modules\AI\Services\Assistance\AssistantAccessContext;
 use Modules\AI\Services\Assistance\Scope\AssistantScope;
 use Modules\AI\Services\Assistance\Scope\DocScope;
+use Modules\AI\Services\Documentation\PermissionRequirementPatterns;
 
 final readonly class DocumentationRetrievalContext
 {
@@ -134,6 +135,10 @@ final readonly class DocumentationRetrievalContext
     }
 
     /**
+     * A page with no requirement is visible to every authenticated user; otherwise it is visible when the caller
+     * satisfies at least one of its requirements ({@see PermissionRequirementPatterns}). A requirement nobody
+     * satisfies, a misspelled one included, shows the page to no one.
+     *
      * @return array<string, mixed>
      */
     private function permissionFilter(): array
@@ -144,11 +149,8 @@ final readonly class DocumentationRetrievalContext
 
         if ($this->effectivePermissions !== []) {
             $should[] = [
-                'terms_set' => [
-                    'metadata.required_permissions' => [
-                        'terms' => $this->effectivePermissions,
-                        'minimum_should_match_field' => 'metadata.required_permissions_count',
-                    ],
+                'terms' => [
+                    'metadata.required_permissions' => PermissionRequirementPatterns::satisfiedBy($this->effectivePermissions),
                 ],
             ];
         }
