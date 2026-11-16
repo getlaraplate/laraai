@@ -55,7 +55,7 @@ Owned by AI, mirroring `Modules/AI/app/Services/ApplicationContent/Evaluation/`:
 Test support (namespace `Modules\AI\Tests\Stubs\Documentation\`):
 
 - `StubDocumentationEmbeddingService` — `embedText($text)` returns `[(float) crc32($text)]`.
-- `FakeDocumentationSearch` — the injected `$search` closure. Keyed by `(int) crc32($query)`; applies locale, tenant, and permission filtering equivalent to the production Elasticsearch filter, truncates to `context->topK`. `::document(...)` builds a safe-projection-passing `Document`; `::forInAppRetrieval([...])` wires a real `InAppDocumentationRetrieval` with the stub embedder + this closure.
+- `FakeDocumentationSearch` — the injected `$search` closure. Keyed by `(int) crc32($query)`; applies locale, tenant, and permission filtering equivalent to the production Elasticsearch filter (the permission rule is the production one: a page with no requirement, or one with any requirement in `PermissionRequirementPatterns::satisfiedBy()` of the caller's permissions), truncates to `context->topK`. `::document(...)` builds a safe-projection-passing `Document`; `::forInAppRetrieval([...])` wires a real `InAppDocumentationRetrieval` with the stub embedder + this closure.
 - `CoreUserDocumentationCorpus` — the Core/user fixture corpus whose `safe_source_label`s are byte-identical to the Core dataset's `expected_source_labels`.
 
 ## InternalFlow

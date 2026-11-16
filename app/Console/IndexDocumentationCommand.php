@@ -15,6 +15,7 @@ use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
 use Modules\AI\Console\Concerns\ResolvesDocumentationProfiles;
 use Modules\AI\Services\DocumentationService;
 use Override;
+use Throwable;
 
 final class IndexDocumentationCommand extends Command
 {
@@ -94,6 +95,8 @@ final class IndexDocumentationCommand extends Command
                     $this->reportDiff($profile, $documentationService->syncDocuments($path, $profile, $this->progressReporter($profile), $dry_run));
                 }
 
+                $this->warnAboutUnmatchedRequirements($documentationService, $profiles, $path);
+
                 return self::SUCCESS;
             }
 
@@ -104,6 +107,7 @@ final class IndexDocumentationCommand extends Command
             }
 
             $this->info("Indexed {$count} document chunks.");
+            $this->warnAboutUnmatchedRequirements($documentationService, $profiles, $path);
 
             return self::SUCCESS;
         } catch (Exception $e) {
@@ -111,6 +115,45 @@ final class IndexDocumentationCommand extends Command
             $this->error('Indexing failed: ' . $e->getMessage());
 
             return self::FAILURE;
+        }
+    }
+
+    /**
+     * After a run that covered the user documentation: the permission requirements that no permission of the
+     * application satisfies, which a misspelling produces. Only a warning, the run is not failed and the
+     * documents are indexed all the same; a check that cannot run is said and does not fail the run either.
+     *
+     * @param  list<DocumentationIndexProfile>  $profiles
+     */
+    private function warnAboutUnmatchedRequirements(DocumentationService $documentationService, array $profiles, ?string $path): void
+    {
+        if (! in_array(DocumentationIndexProfile::User, $profiles, true)) {
+            return;
+        }
+
+        try {
+            $unmatched = $documentationService->unmatchedPermissionRequirements($path);
+        } catch (Throwable $e) {
+            $this->comment('The permission requirements of the user documentation were not checked: ' . $e->getMessage());
+
+            return;
+        }
+
+        if ($unmatched === []) {
+            return;
+        }
+
+        $this->warn(sprintf(
+            '%d permission requirement(s) of the user documentation match no permission of the application; a page is visible to nobody when none of its requirements matches:',
+            count($unmatched),
+        ));
+
+        foreach (array_slice($unmatched, 0, self::DRY_RUN_LISTED) as $entry) {
+            $this->line(sprintf('  %s: %s', $entry['document'], $entry['requirement']));
+        }
+
+        if (count($unmatched) > self::DRY_RUN_LISTED) {
+            $this->line(sprintf('  ... and %d more', count($unmatched) - self::DRY_RUN_LISTED));
         }
     }
 
