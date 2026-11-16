@@ -2,6 +2,16 @@
 module: ai
 audience: user
 cross_cutting_user: true
+locale: en
+canonical_source: ai/model-selection
+safe_source_label: "AI · Choosing the AI model of each feature"
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+required_permissions:
+  - core_settings.select
+  - core_settings.update
+tenant_scope: global
 ---
 # Choosing the AI model of each feature: user guide
 
