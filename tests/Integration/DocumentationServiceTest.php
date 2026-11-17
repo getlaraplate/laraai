@@ -1245,3 +1245,80 @@ it('says so when no passage matches and no answer model is set', function (): vo
     expect($result['citations'])->toBe([])
         ->and($result['answer'])->toContain('No passage of the documentation matches the question.');
 });
+
+it('reports the requirements of the user documents that no permission satisfies', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-user-requirements-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    file_put_contents($tmp_dir . '/user.md', <<<'MARKDOWN'
+---
+audience: user
+module: CMS
+locale: it
+canonical_source: cms/content/editing
+safe_source_label: Modifica dei contenuti
+required_permissions:
+  - cms_contents.*
+  - cms_contenst.delete
+  - '*.update'
+tenant_scope: global
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+---
+# Modifica
+
+Apri il contenuto e seleziona Modifica.
+MARKDOWN);
+    file_put_contents($tmp_dir . '/developer.md', "---\naudience: developer\n---\n# Dev\n\nInternal.");
+
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    $service = new DocumentationService(permissionNames: fn (): array => [
+        'default.cms_contents.select',
+        'default.erp_orders.update',
+    ]);
+
+    try {
+        expect($service->unmatchedPermissionRequirements($tmp_dir))->toBe([
+            ['document' => 'cms/content/editing', 'requirement' => 'cms_contenst.delete'],
+        ]);
+    } finally {
+        unlink($tmp_dir . '/user.md');
+        unlink($tmp_dir . '/developer.md');
+        rmdir($tmp_dir);
+    }
+});
+
+it('reads the permission names from the permissions table when none are injected', function (): void {
+    $tmp_dir = sys_get_temp_dir() . '/ai-user-requirements-db-' . uniqid();
+    mkdir($tmp_dir, 0755, true);
+    file_put_contents($tmp_dir . '/user.md', <<<'MARKDOWN'
+---
+audience: user
+module: CMS
+locale: it
+canonical_source: cms/content/editing
+safe_source_label: Modifica dei contenuti
+required_permissions:
+  - no_such_table.*
+tenant_scope: global
+version: '1.0'
+policy_classification: user_safe
+policy_classification_version: in-app-docs-v1
+---
+# Modifica
+
+Apri il contenuto.
+MARKDOWN);
+
+    config()->set('ai.features.faq.policy_classification_version', 'in-app-docs-v1');
+
+    try {
+        expect((new DocumentationService)->unmatchedPermissionRequirements($tmp_dir))->toBe([
+            ['document' => 'cms/content/editing', 'requirement' => 'no_such_table.*'],
+        ]);
+    } finally {
+        unlink($tmp_dir . '/user.md');
+        rmdir($tmp_dir);
+    }
+});

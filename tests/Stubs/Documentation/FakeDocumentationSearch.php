@@ -8,6 +8,7 @@ use Closure;
 use Modules\AI\Ai\Rag\Retrieval\DeveloperDocumentationRetrieval;
 use Modules\AI\Ai\Rag\Retrieval\DocumentationRetrievalContext;
 use Modules\AI\Ai\Rag\Retrieval\InAppDocumentationRetrieval;
+use Modules\AI\Services\Documentation\PermissionRequirementPatterns;
 use NeuronAI\RAG\Document;
 
 final class FakeDocumentationSearch
@@ -159,6 +160,12 @@ final class FakeDocumentationSearch
 
         $required = $metadata['required_permissions'] ?? [];
 
-        return array_values(array_diff($required, $context->effectivePermissions)) === [];
+        if ($required === []) {
+            return true;
+        }
+
+        $satisfied = PermissionRequirementPatterns::satisfiedBy($context->effectivePermissions);
+
+        return array_intersect($required, $satisfied) !== [];
     }
 }

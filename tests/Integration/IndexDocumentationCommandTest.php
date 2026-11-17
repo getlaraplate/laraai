@@ -122,6 +122,7 @@ it('indexes the explicitly selected user corpus', function (): void {
         ->once()
         ->with(null, false, DocumentationIndexProfile::User, Mockery::type(Closure::class))
         ->andReturn(2);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->with(null)->andReturn([]);
     app()->instance(DocumentationService::class, $mock);
 
     $command = new IndexDocumentationCommand;
@@ -277,6 +278,7 @@ it('runs one diff for each selected profile', function (): void {
         ->once()
         ->with(null, DocumentationIndexProfile::User, Mockery::type(Closure::class), false)
         ->andReturn(['sources' => 3, 'changed' => 3, 'unchanged' => 0, 'removed' => 0, 'chunks' => 11, 'to_write' => [], 'to_remove' => [], 'dry_run' => false]);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->with(null)->andReturn([]);
     app()->instance(DocumentationService::class, $mock);
 
     $command = new IndexDocumentationCommand;
@@ -380,4 +382,91 @@ it('refuses --dry-run without --diff, and indexes nothing', function (): void {
 
     expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::FAILURE)
         ->and($tester->getDisplay())->toContain('--dry-run belongs to --diff');
+});
+
+/**
+ * @param  array<string, mixed>  $options
+ */
+function run_index_command_with_unmatched(DocumentationService $service, array $options): CommandTester
+{
+    app()->instance(DocumentationService::class, $service);
+
+    $command = new IndexDocumentationCommand;
+    $command->setLaravel(app());
+
+    $tester = new CommandTester($command);
+    $tester->execute($options);
+
+    return $tester;
+}
+
+it('warns about a permission requirement that matches no permission and still succeeds', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')->once()->andReturn(4);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->with(null)->andReturn([
+        ['document' => 'core/docs/rag/A_USER.md', 'requirement' => 'cms_contenst.*'],
+    ]);
+
+    $tester = run_index_command_with_unmatched($mock, ['--profile' => 'user']);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('Indexed 4 document chunks.')
+        ->and($tester->getDisplay())->toContain('1 permission requirement(s) of the user documentation match no permission')
+        ->and($tester->getDisplay())->toContain('core/docs/rag/A_USER.md: cms_contenst.*');
+});
+
+it('does not check the requirements when only the developer documentation is indexed', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')->once()->andReturn(4);
+    $mock->shouldNotReceive('unmatchedPermissionRequirements');
+
+    $tester = run_index_command_with_unmatched($mock, ['--profile' => 'developer']);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->not->toContain('permission requirement');
+});
+
+it('reports the same warning after a dry run, which writes nothing', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('syncDocuments')
+        ->once()
+        ->with('/tmp', DocumentationIndexProfile::User, Mockery::type(Closure::class), true)
+        ->andReturn(['sources' => 1, 'changed' => 1, 'unchanged' => 0, 'removed' => 0, 'chunks' => 2, 'to_write' => ['a'], 'to_remove' => [], 'dry_run' => true]);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->with('/tmp')->andReturn([
+        ['document' => 'a.md', 'requirement' => '*.delet'],
+    ]);
+
+    $tester = run_index_command_with_unmatched($mock, ['--diff' => true, '--dry-run' => true, '--profile' => 'user', '--path' => '/tmp']);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('dry run')
+        ->and($tester->getDisplay())->toContain('a.md: *.delet');
+});
+
+it('lists at most twenty unmatched requirements and counts the rest', function (): void {
+    $entries = array_map(
+        static fn (int $n): array => ['document' => sprintf('doc-%02d.md', $n), 'requirement' => 'nope.*'],
+        range(1, 23),
+    );
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')->once()->andReturn(1);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->andReturn($entries);
+
+    $tester = run_index_command_with_unmatched($mock, ['--profile' => 'user']);
+
+    expect($tester->getDisplay())->toContain('23 permission requirement(s)')
+        ->and($tester->getDisplay())->toContain('doc-20.md: nope.*')
+        ->and($tester->getDisplay())->not->toContain('doc-21.md')
+        ->and($tester->getDisplay())->toContain('... and 3 more');
+});
+
+it('says when the requirements could not be checked and does not fail the run', function (): void {
+    $mock = Mockery::mock(DocumentationService::class);
+    $mock->shouldReceive('indexDocuments')->once()->andReturn(1);
+    $mock->shouldReceive('unmatchedPermissionRequirements')->once()->andThrow(new RuntimeException('no database'));
+
+    $tester = run_index_command_with_unmatched($mock, ['--profile' => 'user']);
+
+    expect($tester->getStatusCode())->toBe(IndexDocumentationCommand::SUCCESS)
+        ->and($tester->getDisplay())->toContain('were not checked: no database');
 });
