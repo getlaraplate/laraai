@@ -326,7 +326,7 @@ it('does not probe the embeddings server when the active profile is a hosted pro
     Http::preventStrayRequests();
     Config::set('ai.servers.embeddings.url', '');
     Config::set('ai.features.embeddings.models.voyageai:voyage-3-lite', ['dimensions' => 512]);
-    Config::set('core.search.vector.model', 'voyageai:voyage-3-lite');
+    Config::set('ai.features.embeddings.serving_model', 'voyageai:voyage-3-lite');
     Config::set('ai.providers.voyageai.api_key', 'k');
 
     (new EmbeddableTestModel(['title' => 'Alpha']))->saveQuietly();
