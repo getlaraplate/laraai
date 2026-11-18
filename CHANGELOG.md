@@ -2,6 +2,142 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.0] - 2026-11-18
+
+### 🚀 Features
+
+- Send a request id to the self-hosted AI services
+- Warn when the embedding service speaks an unknown API version
+- *(assistant)* Summarize runs on the aggregate engine
+- *(assistant)* Show_widget tool, widget objects collector and policy capability
+- *(ai)* The in-app assistant has its own switch, apart from the documentation
+- *(ai)* Cache query embeddings with a lock so parallel searches embed once
+- *(ai)* Access context for a documentation search without a conversation
+- *(ai)* Documentation search service returning citation-shaped passages
+- *(ai)* Documentation search route for the command palette
+- *(ai)* Documentation search also answers POST; query embedding cache keyed by user
+- Declare the AI servers in configuration
+- Add the OpenAI-compatible embeddings provider
+- Identify the embedding server without a health convention
+- Rerank through the tei and cohere dialects
+- Transcribe through the OpenAI audio API
+- Add ai:servers:check
+- *(ai)* A machine translation is one revision of its own (D28)
+- *(ai)* Search orchestration switch and timeout are settings
+- *(ai)* AI answers the vector profile
+- *(ai)* The LLM intent parser can supply a date interval
+- *(ai)* Optional relevance judge
+- *(ai)* Embedding drift reference in the probe
+- *(ai)* Profiles declare their languages
+- *(ai)* Profiles carry an optional similarity floor
+- *(ai)* Chunk context header for application content
+- *(ai)* Reuse the description of near-duplicate images
+- *(ai)* Tokens per role in analytics and a data egress indicator
+- *(ai)* Scout:rebuild refuses to run during an embedding switch
+- *(assistant)* Emit widget objects in messages, stream and capabilities
+- *(assistant)* Graph widget objects
+- *(ai)* Documentation chunks carry their position and an opaque document key
+- *(ai)* Documentation and content citations carry their kind and an opaque reference
+- *(ai)* Read the chunks of a documentation document under the access rules of the search
+- *(ai)* GET /app/crud/detail/{module}/documentation reads a documentation passage or document
+- *(rag)* Ai:index-rag-docs shows a progress bar with the file being indexed
+- *(rag)* Diff indexing, a safe full rebuild, and a documentation help that needs no model
+- *(rag)* One source line per file in ai:help, and ai:index-rag-docs --diff --dry-run
+- *(ai)* Derive the documentation requirements a set of permissions satisfies
+- *(ai)* Documentation requirements are short-form patterns and mean any of them
+- *(ai)* Find documentation requirements that match no permission
+- *(ai)* Warn about documentation requirements that match no permission
+
+### 🐛 Bug Fixes
+
+- Harden the self-hosted AI client failure paths
+- Close the review minors of the self-hosted AI clients
+- *(assistant)* Summarize reports unexpected failures, ranks top groups and names refusals as the tool does
+- *(assistant)* Summarize keeps the message of a refused permission
+- *(assistant)* Show_widget validates its filters with the rules of the route
+- *(ai)* Query embedding cache falls back on a failing re-read and stores only valid vectors
+- *(ai)* Plain-text excerpts, uncached invalid-UTF-8 queries, uncached verify smoke embed
+- *(ai)* The assistant receives the heading breadcrumb of documentation passages
+- Keyed reranker /info, configured gate of openai_compatible, no error body in failures
+- *(ai)* A negative search timeout reads as no limit
+- *(ai)* Skip bodyless documentation files and give test documents content
+- *(ai)* Keep setting descriptions within the core_settings column
+- *(assistant)* Show_widget refuses a filter node whose filters are not a list
+- *(assistant)* Build show_widget only for a person who may summarize and a type it shows
+- *(assistant)* Offer exactly the widget types of the run and store the graph limits
+- *(assistant)* Refuse a relation filter node in show_widget
+- *(assistant)* Summarize answers a refused scope node as show_widget does
+- *(ai)* Read and write Scout wheres through the public API and ScoutWheres
+- *(ai)* Name not like among the filter operators of the CRUD tool
+- *(ai)* The help without a model shows the first passages whole
+- *(rag)* The index is created with its own mapping, and one that maps the source name as text is refused
+- *(ai)* The help without a model shows every passage whole, in the order of the page
+- The minors of the AI review (non-JSON answer, server inheritance, probe, repair guard, rerank info cache and 424)
+
+### 🚜 Refactor
+
+- Rename the self-hosted embeddings provider to openai_compatible
+- *(ai)* The switch writes AI settings only
+- *(ai)* Follow the offersVectorSearch rename in the recording engine stub
+
+### 📚 Documentation
+
+- Align the self-hosted service guides with the hardened services
+- Mark the self-hosted services as experimental
+- Point the links to the getlaraplate organization
+- Fix a typo in the work in progress notice
+- Use the Laraplate brand logo in the README
+- Trace self-hosted AI service calls by request id
+- *(ai)* Query embedding cache and the documentation search route
+- *(ai)* The documentation search limiter counts every authenticated call
+- Document the standard servers
+- *(ai)* A machine translation is one revision of its own
+- *(ai)* Draw the architecture and flow diagrams in Mermaid
+- *(servers)* Install TEI with Docker, say that a source build needs a recent oneMKL
+- *(servers)* Add the TEI reranker container and the nginx prefixes
+- *(ai)* Vector search is owned by the AI module
+- *(ai)* Retrieval improvements
+- *(ai)* The index check command is scout:check-index
+- *(ai)* Scout:rebuild during a switch
+- *(assistant)* Document the widget tool and the aggregate-backed summarize
+- *(assistant)* The application computes the figures, the assistant writes the title
+- *(assistant)* Document the graph widget object
+- *(assistant)* The widget types of the run and the limits of a graph object
+- *(assistant)* Rankings of mixed-currency amounts and features.objects without enabled
+- *(assistant)* Order the filter checks of the widget tool as the code runs them
+- *(ai)* The documentation read route, the document key and the citation shape
+- Require Laravel 13
+- *(ai)* The permission patterns of documentation front matter
+- *(ai)* Front matter for the user documentation index
+- Infinity verified by a run, with what it showed
+
+### 🧪 Testing
+
+- Check the self-hosted AI clients against the service contracts
+- *(ai)* The switch harness provider answers the verify smoke embed
+- Check the AI clients against the OpenAPI documents of TEI, Infinity and speaches
+- Drop the narrow env example check, the guard test of the application covers it
+- *(ai)* The helper-roots index test asserts its source, not a batch cap
+- *(assistant)* Stored widget requests round-trip through the routes
+- *(ai)* Documentation reads before and after a full reindex
+- *(ai)* The content citation of an answer carries its kind
+- *(ai)* The two indexDocuments tests probe a fake, not the real service
+- *(ai)* The hosted-provider repair test picks its profile through serving_model
+
+### ⚙️ Miscellaneous Tasks
+
+- Point repository links to the getlaraplate organization
+- Rename the Composer package to the getlaraplate vendor
+- Align the package description with the repository description
+- Align the module description with the repository description
+- Call the organization CLA workflow
+- Rename the repository and package from laraplate-<module> to lara<module>
+- *(seeders)* Report each seeding step with one summary line
+- *(embeddings)* Ship one embedding profile, drop the MiniLM profile and its server
+- Prefix evaluation and tuning commands with test:
+- Drop the license-compliance-checker repository
+- *(deps)* Require Laravel 13
+
 ## [3.1.0] - 2026-10-19
 
 ### 🚀 Features
@@ -276,7 +412,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 - Point Whisper docs at the canonical repo and port 8001
 
 The service is deployed on the ai host on :8001 (kept in the 800x range next to
-embeddings on :8000) from github.com/getlaraplate/whisper-api (Flask + faster-whisper,
+embeddings on :8000) from github.com/swolley/whisper-api (Flask + faster-whisper,
 systemd, shared /opt/ai-env). Doc now references that repo and the integration +
 sizing note rather than a divergent inline implementation.
 
