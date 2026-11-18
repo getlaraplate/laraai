@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\AI\Services;
 
 use Exception;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionMismatch;
@@ -269,7 +270,9 @@ final readonly class ModelEmbeddingSynchronizer
 
                 /** @phpstan-ignore method.notFound */
                 $model->embeddings()->forLocale($item['row_locale'])
-                    ->where(fn ($query) => $this->scopeToOwnedRows($query, $model_key))
+                    ->where(function (Builder $query) use ($model_key): void {
+                        $this->scopeToOwnedRows($query, $model_key);
+                    })
                     ->delete();
 
                 foreach ($vectors as $vector) {
@@ -327,7 +330,7 @@ final readonly class ModelEmbeddingSynchronizer
         return $row->model_key === $model_key || ! in_array($row->model_key, $this->registry->keys(), true);
     }
 
-    private function scopeToOwnedRows(\Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\Relation $query, string $model_key): void
+    private function scopeToOwnedRows(Builder|\Illuminate\Database\Eloquent\Relations\Relation $query, string $model_key): void
     {
         $query->where('model_key', $model_key)
             ->orWhereNull('model_key')
@@ -351,7 +354,7 @@ final readonly class ModelEmbeddingSynchronizer
         $source = ModelEmbedding::query()
             ->where('content_hash', $content_hash)
             ->where('model_key', $model_key)
-            ->where(static function ($query) use ($model): void {
+            ->where(static function (Builder $query) use ($model): void {
                 $query->where('model_type', '!=', $model->getMorphClass())
                     ->orWhere('model_id', '!=', $model->getKey());
             })

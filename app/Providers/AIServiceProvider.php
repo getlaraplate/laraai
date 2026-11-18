@@ -6,6 +6,7 @@ namespace Modules\AI\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Modules\AI\Ai\Embeddings\ActiveEmbeddingProfileProvider;
@@ -100,11 +101,11 @@ class AIServiceProvider extends ModuleServiceProvider
         $this->app->singleton(IVectorProfileProvider::class, ActiveEmbeddingProfileProvider::class);
         $this->app->singleton(
             ISearchMaintenanceGuard::class,
-            static fn ($app): ISearchMaintenanceGuard => new EmbeddingSwitchMaintenanceGuard($app->make(EmbeddingSwitchStore::class)),
+            static fn (Application $app): ISearchMaintenanceGuard => new EmbeddingSwitchMaintenanceGuard($app->make(EmbeddingSwitchStore::class)),
         );
         $this->app->singleton(
             IVectorSearchAvailability::class,
-            static fn ($app): IVectorSearchAvailability => new EmbeddingVectorSearchAvailability(
+            static fn (Application $app): IVectorSearchAvailability => new EmbeddingVectorSearchAvailability(
                 $app->make(VectorSearchAvailability::class),
                 $app->make(EmbeddingModelRegistry::class),
                 $app->make(EmbeddingSwitchStore::class),
@@ -130,7 +131,7 @@ class AIServiceProvider extends ModuleServiceProvider
         $this->app->singleton(DocumentationEvaluationService::class);
         $this->app->bind(
             ContextualToolProviderInterface::class,
-            static fn ($app): ContextualToolProviderInterface => new CompositeContextualToolProvider([
+            static fn (Application $app): ContextualToolProviderInterface => new CompositeContextualToolProvider([
                 $app->make(GraphToolProvider::class),
                 $app->make(CrudToolProvider::class),
                 $app->make(ApplicationContentToolProvider::class),
@@ -148,7 +149,7 @@ class AIServiceProvider extends ModuleServiceProvider
         );
         $this->app->singleton(
             AssistantPolicyCompiler::class,
-            static fn ($app): AssistantPolicyCompiler => new AssistantPolicyCompiler(
+            static fn (Application $app): AssistantPolicyCompiler => new AssistantPolicyCompiler(
                 $app->make(AssistantPolicyCatalog::class),
             ),
         );

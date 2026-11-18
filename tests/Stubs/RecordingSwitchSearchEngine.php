@@ -8,10 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
-use Modules\Core\Search\Support\ScoutWheres;
 use Laravel\Scout\Engines\Engine;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ISearchEngine;
+use Modules\Core\Search\Support\ScoutWheres;
 use Modules\Core\Search\Support\VectorProfileContext;
 use RuntimeException;
 

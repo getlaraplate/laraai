@@ -7,6 +7,7 @@ namespace Modules\AI\Services\ApplicationContent;
 use Modules\AI\Enums\ReferenceKind;
 use Modules\AI\Services\ApplicationContent\Data\ApplicationContentRoutingDecision;
 use Modules\AI\Services\ApplicationContent\Enums\ApplicationContentRoutingStatus;
+use Modules\Core\ApplicationContent\Data\ApplicationContentHit;
 use Modules\Core\ApplicationContent\Data\ApplicationContentResult;
 
 final class ApplicationContentCitationMapper
@@ -62,7 +63,7 @@ final class ApplicationContentCitationMapper
      */
     public function citationsFor(ApplicationContentResult $result): array
     {
-        return array_map(static fn ($hit): array => [
+        return array_map(static fn (ApplicationContentHit $hit): array => [
             'kind' => ReferenceKind::Content->value,
             'label' => $hit->label,
             'reference' => $hit->canonicalReference,
@@ -75,7 +76,7 @@ final class ApplicationContentCitationMapper
      */
     public function resultsFor(ApplicationContentResult $result): array
     {
-        return array_map(static fn ($hit): array => array_filter([
+        return array_map(static fn (ApplicationContentHit $hit): array => array_filter([
             'content' => $hit->excerpt,
             'title' => $hit->label,
             'reference' => $hit->canonicalReference,

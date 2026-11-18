@@ -11,6 +11,9 @@ use Modules\AI\Console\Concerns\WritesJsonReport;
 use Modules\AI\Services\ApplicationContent\Evaluation\ApplicationContentEvaluationDataset;
 use Modules\AI\Services\ApplicationContent\Evaluation\ApplicationContentEvaluationService;
 use Modules\Core\ApplicationContent\Contracts\ApplicationContentRetrievalProviderRegistryInterface;
+use Modules\Core\ApplicationContent\Data\ApplicationContentAuthorization;
+use Modules\Core\ApplicationContent\Data\ApplicationContentQuery;
+use Modules\Core\ApplicationContent\Data\ApplicationContentResult;
 use Modules\Core\ApplicationContent\Data\ApplicationContentSourceDescriptor;
 use Nwidart\Modules\Facades\Module;
 use Override;
@@ -81,7 +84,7 @@ final class EvaluateApplicationContentCommand extends Command
                 $dataset,
                 $source,
                 is_string($driver) ? $driver : 'unknown',
-                static fn ($query, $authorization) => $provider->retrieve($query, $authorization),
+                static fn (ApplicationContentQuery $query, ApplicationContentAuthorization $authorization): ApplicationContentResult => $provider->retrieve($query, $authorization),
             );
             $this->writeReport($files, $output_path, $report);
 

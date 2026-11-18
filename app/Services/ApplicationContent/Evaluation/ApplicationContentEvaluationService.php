@@ -8,6 +8,7 @@ use Closure;
 use InvalidArgumentException;
 use Modules\AI\Services\Evaluation\EvaluationStatistics;
 use Modules\Core\ApplicationContent\Data\ApplicationContentAuthorization;
+use Modules\Core\ApplicationContent\Data\ApplicationContentHit;
 use Modules\Core\ApplicationContent\Data\ApplicationContentQuery;
 use Modules\Core\ApplicationContent\Data\ApplicationContentResult;
 use Modules\Core\ApplicationContent\Data\ApplicationContentSourceDescriptor;
@@ -110,8 +111,8 @@ final readonly class ApplicationContentEvaluationService
 
         return [
             'case' => $case,
-            'hit_ids' => array_map(static fn ($hit): string => $hit->id, $hits),
-            'references' => array_map(static fn ($hit): string => $hit->canonicalReference, $hits),
+            'hit_ids' => array_map(static fn (ApplicationContentHit $hit): string => $hit->id, $hits),
+            'references' => array_map(static fn (ApplicationContentHit $hit): string => $hit->canonicalReference, $hits),
             'empty' => $hits === [],
             'unavailable' => $unavailable,
             'latency_ms' => $latency,
