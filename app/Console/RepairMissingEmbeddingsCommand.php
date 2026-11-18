@@ -110,7 +110,8 @@ final class RepairMissingEmbeddingsCommand extends Command
 
         $active = $registry->active();
 
-        if (! $this->verifyService($active)) {
+        // A hosted provider has no server of ours to probe; only the openai_compatible profiles run on one.
+        if ($active->provider === 'openai_compatible' && ! $this->verifyService($active)) {
             return self::FAILURE;
         }
 

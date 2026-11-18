@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings;
 
+use JsonException;
 use Modules\AI\Ai\SelfHosted\AiServer;
 use Modules\AI\Ai\SelfHosted\SelfHostedServiceException;
 use Modules\AI\Ai\SelfHosted\ServiceRequestId;
@@ -111,7 +112,7 @@ final class OpenAiCompatibleEmbeddingsProvider extends OpenAILikeEmbeddings
         $request_id = new ServiceRequestId('embeddings', $uri);
 
         try {
-            $answer = $this->httpClient->request(HttpRequest::post(
+            $response = $this->httpClient->request(HttpRequest::post(
                 uri: $uri,
                 body: [
                     'model' => $this->model,
@@ -120,11 +121,18 @@ final class OpenAiCompatibleEmbeddingsProvider extends OpenAILikeEmbeddings
                     ...($this->dimensions ? ['dimensions' => $this->dimensions] : []),
                 ],
                 headers: [...$this->httpHeaders, ...$request_id->header()],
-            ))->json();
+            ));
         } catch (HttpException $exception) {
             $request_id->logFailure(ServiceRequestId::statusOf($exception));
 
             throw $request_id->exception($exception);
+        }
+
+        try {
+            $answer = $response->json();
+        } catch (JsonException) {
+            // A 2xx page that is not JSON (a proxy's maintenance page): its body is not repeated, it may hold anything.
+            throw new EmbeddingsException("[request_id {$request_id->value}] the embeddings server answered something that is not JSON");
         }
 
         return $this->vectors($answer, count($inputs));
