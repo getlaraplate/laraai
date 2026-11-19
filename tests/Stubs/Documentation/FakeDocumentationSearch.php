@@ -96,12 +96,13 @@ final class FakeDocumentationSearch
         string $classificationVersion = 'in-app-docs-v1',
         string $module = 'core',
         bool $crossCuttingUser = false,
+        ?string $canonicalSource = null,
     ): Document {
         $metadata = [
             'audience' => 'user',
             'module' => $module,
             'locale' => $locale,
-            'canonical_source' => 'core/' . mb_strtolower(str_replace([' · ', ' '], ['/', '-'], $label)),
+            'canonical_source' => $canonicalSource ?? 'core/' . mb_strtolower(str_replace([' · ', ' '], ['/', '-'], $label)),
             'safe_source_label' => $label,
             'version' => '1',
             'policy_classification' => 'user_safe',
@@ -138,7 +139,7 @@ final class FakeDocumentationSearch
     {
         $metadata = $document->getMetadata();
 
-        if (($metadata['locale'] ?? null) !== $context->locale) {
+        if (! in_array($metadata['locale'] ?? null, $context->acceptedLocales(), true)) {
             return false;
         }
 

@@ -54,7 +54,9 @@ final readonly class InAppDocumentationRetrieval
                 ? ($this->search)($embedding, $context)
                 : $this->searchUserIndex($embedding, $context);
 
-            return MinimumSimilarity::filter($this->safeDocuments($documents));
+            return MinimumSimilarity::filter($this->safeDocuments(
+                DocumentationLocalePreference::apply(array_values($documents), $context->locale),
+            ));
         } catch (Throwable) {
             throw new RuntimeException('In-app documentation retrieval is unavailable.');
         }
