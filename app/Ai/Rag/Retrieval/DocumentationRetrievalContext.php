@@ -18,6 +18,12 @@ use Modules\AI\Services\Documentation\PermissionRequirementPatterns;
 final readonly class DocumentationRetrievalContext
 {
     /**
+     * The language the user guides are written in: a caller whose locale has no translation of a guide is shown
+     * this one. A class constant, not a setting; see `2026-11-19-documentation-locale-fallback-design.md`.
+     */
+    public const string FALLBACK_LOCALE = 'en';
+
+    /**
      * @param  list<string>  $effectivePermissions
      */
     private function __construct(
@@ -74,6 +80,16 @@ final readonly class DocumentationRetrievalContext
     }
 
     /**
+     * The locales a guide may be in for this caller: their own, then the fallback.
+     *
+     * @return list<string>
+     */
+    public function acceptedLocales(): array
+    {
+        return $this->locale === self::FALLBACK_LOCALE ? [$this->locale] : [$this->locale, self::FALLBACK_LOCALE];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function elasticsearchFilter(string $classificationVersion): array
@@ -84,7 +100,7 @@ final readonly class DocumentationRetrievalContext
 
         $filter = [
             ['terms' => ['metadata.audience' => ['user', 'shared']]],
-            ['term' => ['metadata.locale' => $this->locale]],
+            ['terms' => ['metadata.locale' => $this->acceptedLocales()]],
             ['term' => ['metadata.policy_classification' => 'user_safe']],
             ['term' => ['metadata.policy_classification_version' => $classificationVersion]],
             ['term' => ['metadata.permissions_metadata_validated' => true]],
