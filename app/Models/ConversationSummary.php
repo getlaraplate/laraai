@@ -10,6 +10,16 @@ use Modules\Core\Contracts\IsPartOfParent;
 use Modules\Core\Overrides\Model;
 use Override;
 
+/**
+ * @property int $id
+ * @property int $conversation_id
+ * @property string $summary Summary text at this point in time
+ * @property int $message_count Number of messages when summary was created
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
+ */
 final class ConversationSummary extends Model implements IsPartOfParent
 {
     /**

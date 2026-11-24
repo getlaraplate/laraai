@@ -10,6 +10,17 @@ use Modules\Core\Contracts\IsPartOfParent;
 use Modules\Core\Overrides\Model;
 use Override;
 
+/**
+ * @property int $id
+ * @property int $conversation_id
+ * @property string $role Message role: system, user, assistant
+ * @property string $content Message content
+ * @property int|null $token_count Token count for cost tracking
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
+ */
 final class Message extends Model implements IsPartOfParent
 {
     /**

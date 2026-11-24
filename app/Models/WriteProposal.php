@@ -31,6 +31,10 @@ use Override;
  * @property array<string, mixed>|null $outcome
  * @property \Carbon\CarbonImmutable $expires_at
  * @property \Carbon\CarbonImmutable|null $resolved_at
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
  */
 final class WriteProposal extends Model implements IsPartOfParent
 {

@@ -12,6 +12,16 @@ use Modules\Core\Models\User;
 use Modules\Core\Overrides\Model;
 use Override;
 
+/**
+ * @property int $id
+ * @property int $user_id
+ * @property string $suggestion AI-generated suggestion text
+ * @property \Carbon\CarbonImmutable|null $dismissed_at When user dismissed the suggestion
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
+ */
 final class ContextualSuggestion extends Model
 {
     use MassPrunable;
