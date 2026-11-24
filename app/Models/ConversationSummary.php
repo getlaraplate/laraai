@@ -19,6 +19,7 @@ use Override;
  * @property \Carbon\CarbonImmutable $updated_at
  * @property \Carbon\CarbonImmutable|null $deleted_at
  * @property bool|null $is_deleted Whether the entity is deleted
+ * @property array<array-key, mixed>|null $facts Extracted key facts from conversation
  */
 final class ConversationSummary extends Model implements IsPartOfParent
 {
