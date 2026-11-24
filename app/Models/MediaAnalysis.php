@@ -30,6 +30,10 @@ use Override;
  * @property MediaAnalysisStatus $analysis_status
  * @property string|null $analysis_model_version
  * @property \Carbon\CarbonImmutable|null $analyzed_at
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
  */
 final class MediaAnalysis extends Model
 {

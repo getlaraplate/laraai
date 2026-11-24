@@ -11,6 +11,19 @@ use Modules\Core\Models\User;
 use Modules\Core\Overrides\Model;
 use Override;
 
+/**
+ * @property int $id
+ * @property int $user_id
+ * @property string|null $title Conversation title (auto-generated or manual)
+ * @property string|null $system_message Custom system prompt for this conversation
+ * @property bool $memory_enabled Whether memory/summary is enabled for this conversation
+ * @property string|null $summary Rolling summary of the conversation
+ * @property \Carbon\CarbonImmutable $created_at
+ * @property \Carbon\CarbonImmutable $updated_at
+ * @property \Carbon\CarbonImmutable|null $deleted_at
+ * @property bool|null $is_deleted Whether the entity is deleted
+ * @property array<array-key, mixed>|null $metadata Additional context data
+ */
 final class Conversation extends Model
 {
     /**
