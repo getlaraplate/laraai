@@ -30,7 +30,7 @@ final readonly class TranslationGate
     {
         return $this->enabled()
             && FeatureModuleGate::allows('translation', $model)
-            && in_array(HasTranslations::class, class_uses_recursive($model), true)
+            && $model instanceof ITranslatableModel
             && $model->autoTranslateEnabledBySettings();
     }
 }
