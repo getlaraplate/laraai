@@ -12,7 +12,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Contracts\IEmbeddableModels;
-use Modules\Core\Models\Concerns\HasTranslations;
+use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Search\Support\VectorProfileContext;
 use Throwable;
 
@@ -90,7 +90,7 @@ final readonly class EmbeddingSwitchPreview
         $instance = new $modelClass();
         $searchable = $modelClass::makeAllSearchableQuery();
 
-        if (! class_uses_trait($instance, HasTranslations::class)) {
+        if (! $instance instanceof ITranslatableModel) {
             return $searchable->count();
         }
 
