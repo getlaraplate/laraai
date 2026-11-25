@@ -2,7 +2,7 @@
   "name": "getlaraplate/laraai",
   "vendor": "getlaraplate",
   "description": "Laraplate AI module: embeddings, vector search, automatic translation, moderation and an in-app assistant.",
-  "version": "v3.2.0",
+  "version": "v3.3.0",
   "keywords": [
     "laravel",
     "laraplate",

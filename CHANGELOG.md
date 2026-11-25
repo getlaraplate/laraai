@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-11-25
+
+### 🚀 Features
+
+- *(ai)* The user documentation falls back to English and a translation wins over it
+
+### 🐛 Bug Fixes
+
+- *(phpstan)* Clear AI's backlog, fix two runtime bugs it was hiding
+- *(phpstan)* Ask the translation contract instead of the trait
+- *(phpstan)* Take searchable models by Core's contract
+
+### 📚 Documentation
+
+- *(ai)* The English fallback of the user documentation
+- *(models)* Every model declares its columns as @property tags
+- *(models)* Declare the json and array columns too
+
+### 🎨 Styling
+
+- *(ai)* Declare the types pest type-coverage was missing
+
+### 🧪 Testing
+
+- *(chat)* Point the chat tests at the routes the module registers
+
 ## [3.2.0] - 2026-11-18
 
 ### 🚀 Features
