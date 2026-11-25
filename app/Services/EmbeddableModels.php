@@ -6,7 +6,7 @@ namespace Modules\AI\Services;
 
 use Illuminate\Database\Eloquent\Model;
 use Modules\AI\Contracts\IEmbeddableModels;
-use Modules\Core\Search\Traits\Searchable;
+use Modules\Core\Contracts\ISearchableModel;
 use Override;
 
 /**
@@ -19,14 +19,18 @@ final readonly class EmbeddableModels implements IEmbeddableModels
     public function __construct(private EmbeddingsGate $gate) {}
 
     /**
-     * @return list<class-string<Model>>
+     * @return list<class-string<Model&ISearchableModel>>
      */
     #[Override]
     public function all(): array
     {
         $embeddable = [];
 
-        foreach (models(false, filter: static fn (string $model): bool => class_uses_trait($model, Searchable::class)) as $class) {
+        foreach (models(false) as $class) {
+            if (! is_a($class, ISearchableModel::class, true)) {
+                continue;
+            }
+
             $instance = new $class();
 
             if ($this->gate->handles($instance)) {

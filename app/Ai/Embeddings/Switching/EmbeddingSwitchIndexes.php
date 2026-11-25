@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Contracts\IRagIndexRebuilder;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Search\Contracts\IProfileVectorIndex;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
@@ -129,11 +130,10 @@ final readonly class EmbeddingSwitchIndexes
             return;
         }
 
-        /** @var class-string<Model> $modelClass */
+        /** @var class-string<Model&ISearchableModel> $modelClass */
         $modelClass = $chunk['model'];
 
         $this->asTarget($target, function () use ($modelClass, $target, $chunk): void {
-            /** @var Model $instance */
             $instance = new $modelClass();
             $engine = $instance->searchableUsing();
 
@@ -208,11 +208,10 @@ final readonly class EmbeddingSwitchIndexes
      * Recreates the index when its vectors have other dimensions, empties it otherwise: documents of
      * records that are no longer searchable must not survive.
      *
-     * @param  class-string<Model>  $modelClass
+     * @param  class-string<Model&ISearchableModel>  $modelClass
      */
     private function resetIndex(string $modelClass, EmbeddingModelProfile $target, ?int $currentDimensions): void
     {
-        /** @var Model $instance */
         $instance = new $modelClass();
         $engine = $instance->searchableUsing();
 

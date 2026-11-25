@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection as BaseCollection;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\AI\Services\ModelEmbeddingSynchronizer;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Helpers\LocaleContext;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Models\ModelEmbedding;
@@ -42,7 +43,7 @@ final readonly class EmbeddingSwitchCorpus
     }
 
     /**
-     * @return list<class-string<Model>>
+     * @return list<class-string<Model&ISearchableModel>>
      */
     public function models(): array
     {
@@ -53,13 +54,12 @@ final readonly class EmbeddingSwitchCorpus
      * Calls `$callback` with each chunk of the searchable records of `$modelClass`, only those whose
      * key is at least `$from` and below `$to` when they are given.
      *
-     * @param  class-string<Model>  $modelClass
-     * @param  Closure(Collection<int, Model>): void  $callback
+     * @param  class-string<Model&ISearchableModel>  $modelClass
+     * @param  Closure(Collection<int, Model&ISearchableModel>): void  $callback
      * @param  array<int|string, string|(Closure(Relation<*, *, *>): mixed)>  $with  Relations to eager-load on each chunk
      */
     public function eachSearchableChunk(string $modelClass, Closure $callback, array $with = [], int|string|null $from = null, int|string|null $to = null): void
     {
-        /** @var Model $instance */
         $instance = new $modelClass();
         $key = $instance->getQualifiedKeyName();
 
@@ -85,12 +85,11 @@ final readonly class EmbeddingSwitchCorpus
      * bound, so every record, also one created after the split, falls in exactly one range; a model
      * with no records has one unbounded range.
      *
-     * @param  class-string<Model>  $modelClass
+     * @param  class-string<Model&ISearchableModel>  $modelClass
      * @return list<array{from: int|string|null, to: int|string|null}>
      */
     public function keyRanges(string $modelClass, int $size): array
     {
-        /** @var Model $instance */
         $instance = new $modelClass();
         $starts = [];
 
@@ -115,7 +114,7 @@ final readonly class EmbeddingSwitchCorpus
     }
 
     /**
-     * @param  class-string<Model>  $modelClass
+     * @param  class-string<Model&ISearchableModel>  $modelClass
      */
     public function searchableCount(string $modelClass): int
     {
@@ -134,7 +133,7 @@ final readonly class EmbeddingSwitchCorpus
      * record's current text for that locale), and the records still missing one. A row written
      * before the record was edited does not count.
      *
-     * @param  class-string<Model>|null  $modelClass
+     * @param  class-string<Model&ISearchableModel>|null  $modelClass
      * @return array{total: int, done: int, pending: list<Model>}
      */
     public function progress(string $modelKey, ?string $modelClass = null): array
@@ -191,8 +190,8 @@ final readonly class EmbeddingSwitchCorpus
     /**
      * The query `scout:import` indexes `$modelClass` with.
      *
-     * @param  class-string<Model>  $modelClass
-     * @return Builder<Model>
+     * @param  class-string<Model&ISearchableModel>  $modelClass
+     * @return Builder<Model&ISearchableModel>
      */
     private function importQuery(string $modelClass): Builder
     {

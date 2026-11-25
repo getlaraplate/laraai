@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
-use Laravel\Scout\Searchable;
 use Modules\AI\Ai\Embeddings\EmbeddingDimensionMismatch;
 use Modules\AI\Ai\Embeddings\EmbeddingInspection;
 use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
@@ -19,6 +18,7 @@ use Modules\AI\Ai\SelfHosted\ServiceRequestId;
 use Modules\AI\Contracts\IEmbeddableModels;
 use Modules\AI\Jobs\GenerateEmbeddingsJob;
 use Modules\AI\Services\EmbeddingsGate;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Models\ModelEmbedding;
 use Modules\Core\Search\Traits\SearchableCommandUtils;
 use Override;
@@ -99,7 +99,7 @@ final class RepairMissingEmbeddingsCommand extends Command
                 return Command::INVALID;
             }
 
-            if (! $this->isRepairable(new $model_class())) {
+            if (! is_a($model_class, ISearchableModel::class, true) || ! $this->isRepairable(new $model_class())) {
                 $this->error("Model {$model_class} is not a searchable embeddable model with vector search enabled");
 
                 return self::FAILURE;
@@ -129,7 +129,7 @@ final class RepairMissingEmbeddingsCommand extends Command
     /**
      * Scans one model and regenerates what is missing or stale; false when a sync run failed on a record.
      *
-     * @param  class-string<Model>  $model_class
+     * @param  class-string<Model&ISearchableModel>  $model_class
      */
     private function repair(string $model_class, EmbeddingModelProfile $active): bool
     {
@@ -279,12 +279,8 @@ final class RepairMissingEmbeddingsCommand extends Command
         return null;
     }
 
-    private function isRepairable(object $instance): bool
+    private function isRepairable(ISearchableModel $instance): bool
     {
-        return $instance instanceof Model
-            && in_array(Searchable::class, class_uses_recursive($instance::class), true)
-            && method_exists($instance, 'isEmbeddable')
-            && method_exists($instance, 'prepareDataToEmbed')
-            && $instance->isEmbeddable();
+        return $instance->isEmbeddable();
     }
 }

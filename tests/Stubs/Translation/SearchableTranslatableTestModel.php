@@ -7,6 +7,7 @@ namespace Modules\AI\Tests\Stubs\Translation;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Modules\AI\Tests\Unit\TranslatableModelStubTranslation;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Search\Traits\Searchable;
@@ -15,7 +16,7 @@ use Override;
 /**
  * A model that is both translatable and searchable, with vector search on and automatic translation on.
  */
-class SearchableTranslatableTestModel extends Model implements ITranslatableModel
+class SearchableTranslatableTestModel extends Model implements ISearchableModel, ITranslatableModel
 {
     use HasFactory;
     use HasTranslations;

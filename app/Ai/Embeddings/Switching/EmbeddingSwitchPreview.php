@@ -12,6 +12,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Ai\Embeddings\EmbeddingServerIdentity;
 use Modules\AI\Ai\SelfHosted\AiServers;
 use Modules\AI\Contracts\IEmbeddableModels;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Search\Support\VectorProfileContext;
 use Throwable;
@@ -82,11 +83,10 @@ final readonly class EmbeddingSwitchPreview
     }
 
     /**
-     * @param  class-string<Model>  $modelClass
+     * @param  class-string<Model&ISearchableModel>  $modelClass
      */
     private function countFor(string $modelClass): int
     {
-        /** @var Model $instance */
         $instance = new $modelClass();
         $searchable = $modelClass::makeAllSearchableQuery();
 

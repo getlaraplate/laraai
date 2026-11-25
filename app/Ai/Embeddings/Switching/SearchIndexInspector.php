@@ -8,6 +8,7 @@ use Elastic\Elasticsearch\Response\Elasticsearch;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Scout\Engines\CollectionEngine;
 use Laravel\Scout\Engines\DatabaseEngine;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Search\Engines\ElasticsearchEngine;
 use Modules\Core\Services\ElasticsearchService;
 use RuntimeException;
@@ -23,7 +24,7 @@ final readonly class SearchIndexInspector
      * own (the database and collection engines search the table itself). Elasticsearch is refreshed
      * first, so documents written a moment ago are counted.
      */
-    public function documentCount(Model $model): ?int
+    public function documentCount(Model&ISearchableModel $model): ?int
     {
         $engine = $model->searchableUsing();
 
@@ -56,7 +57,7 @@ final readonly class SearchIndexInspector
      *
      * @param  list<float>  $vector
      */
-    public function vectorQuery(Model $model, array $vector): void
+    public function vectorQuery(Model&ISearchableModel $model, array $vector): void
     {
         // Through the public API rather than writing into Builder::$wheres: Scout 11 changed that array's
         // shape from a field => value map to a list of field/operator/value triples.
