@@ -26,6 +26,9 @@ use NeuronAI\RAG\Document;
  * and locales that no longer exist are dropped. Extracted from
  * {@see \Modules\AI\Jobs\GenerateEmbeddingsJob} so the single-model job and the
  * bulk indexing path share one store implementation and cannot diverge.
+ *
+ * @phpstan-type StaleItem array{row_locale: string|null, content_hash: string, text_index: int, vectors: null}|array{row_locale: string|null, content_hash: string, text_index: null, vectors: list<mixed>}
+ * @phpstan-type Plan array{model: Model, locale: string|null, stale: list<StaleItem>, processed_locales: list<string|null>, existing: \Illuminate\Support\Collection<int, ModelEmbedding>}
  */
 final readonly class ModelEmbeddingSynchronizer
 {
@@ -146,7 +149,7 @@ final readonly class ModelEmbeddingSynchronizer
      * On pgvector the rows of a profile are searched through its own partial index, so it exists
      * before the first row of the profile is written (once per process and key).
      *
-     * @param  list<array{stale: list<mixed>}>  $plans
+     * @param  list<Plan>  $plans
      */
     private function ensureProfileIndex(array $plans): void
     {
@@ -174,7 +177,7 @@ final readonly class ModelEmbeddingSynchronizer
      * @param  list<string>  $texts
      * @param  array<int, string>  $headers  Context header per index of `$texts`, for the texts that have one
      * @param  array<string, int>  $text_index_by_hash
-     * @return array{model: Model, locale: string|null, stale: list<array{row_locale: string|null, content_hash: string, text_index: int|null, vectors: list<mixed>|null}>, processed_locales: list<string|null>}|null
+     * @return Plan|null
      */
     private function planModel(Model $model, ?string $locale, string $model_key, string $default_locale, array &$texts, array &$headers, array &$text_index_by_hash): ?array
     {
@@ -206,6 +209,10 @@ final readonly class ModelEmbeddingSynchronizer
         $processed_locales = [];
 
         foreach ($by_locale as $loc => $text) {
+            if (! is_string($text)) {
+                continue;
+            }
+
             $row_locale = self::rowLocale((string) $loc, $default_locale, $is_translated);
             $processed_locales[] = $row_locale;
             $header = self::headerFor($model, (string) $loc);
@@ -244,7 +251,7 @@ final readonly class ModelEmbeddingSynchronizer
     }
 
     /**
-     * @param  array{model: Model, locale: string|null, stale: list<array{row_locale: string|null, content_hash: string, text_index: int|null, vectors: list<mixed>|null}>, processed_locales: list<string|null>, existing: \Illuminate\Support\Collection<int, ModelEmbedding>}  $plan
+     * @param  Plan  $plan
      * @param  list<Document[]>  $embedded
      *
      * @throws EmbeddingDimensionMismatch when a vector's length differs from the active profile's dimensions
@@ -257,7 +264,7 @@ final readonly class ModelEmbeddingSynchronizer
             $profile = $this->registry->active();
 
             foreach ($plan['stale'] as $item) {
-                $vectors = $item['vectors'] ?? array_map(
+                $vectors = $item['text_index'] === null ? $item['vectors'] : array_map(
                     static fn (Document $document): mixed => $document->getEmbedding(),
                     $embedded[$item['text_index']],
                 );
@@ -330,6 +337,9 @@ final readonly class ModelEmbeddingSynchronizer
         return $row->model_key === $model_key || ! in_array($row->model_key, $this->registry->keys(), true);
     }
 
+    /**
+     * @param  Builder<ModelEmbedding>|\Illuminate\Database\Eloquent\Relations\Relation<ModelEmbedding, *, *>  $query
+     */
     private function scopeToOwnedRows(Builder|\Illuminate\Database\Eloquent\Relations\Relation $query, string $model_key): void
     {
         $query->where('model_key', $model_key)
@@ -365,7 +375,7 @@ final readonly class ModelEmbeddingSynchronizer
             return null;
         }
 
-        return ModelEmbedding::query()
+        return array_values(ModelEmbedding::query()
             ->where('model_type', $source->model_type)
             ->where('model_id', $source->model_id)
             ->where('locale', $source->locale)
@@ -374,7 +384,6 @@ final readonly class ModelEmbeddingSynchronizer
             ->orderBy('id')
             ->get()
             ->map(static fn (ModelEmbedding $row): mixed => $row->embedding)
-            ->values()
-            ->all();
+            ->all());
     }
 }

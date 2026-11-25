@@ -158,7 +158,8 @@ final class EmbeddingsProbeCommand extends Command
             return self::FAILURE;
         }
 
-        $floor = (float) config('ai.features.embeddings.drift_floor', 0.999);
+        $configured_floor = config('ai.features.embeddings.drift_floor', 0.999);
+        $floor = is_numeric($configured_floor) ? (float) $configured_floor : 0.999;
 
         $this->info('lowest cosine: ' . number_format($lowest['cosine'], 6, '.', '') . " (floor {$floor})");
         $this->info("lowest text: {$lowest['text']}");

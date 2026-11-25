@@ -150,7 +150,7 @@ final class ChatController extends Controller
                 'role' => $message->role,
                 'content' => $message->content,
                 'metadata' => $message->metadata,
-                'created_at' => $message->created_at?->toIso8601String(),
+                'created_at' => $message->created_at->toIso8601String(),
             ])
             ->setStatus(Response::HTTP_CREATED)
             ->json();

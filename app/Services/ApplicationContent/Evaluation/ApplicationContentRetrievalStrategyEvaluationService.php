@@ -18,6 +18,8 @@ use Modules\Core\Search\DTOs\AdvancedSearchResult;
  * per-case denominator convention from {@see ApplicationContentEvaluationService}
  * (sum contributions across cases, divide by the count of cases that carry
  * ground truth).
+ *
+ * @phpstan-type StrategyRecord array{case: ApplicationContentEvaluationCase, orderings: array<'keyword'|'vector'|'hybrid'|'fused'|'reranked', list<string>>, executed: array<'keyword'|'vector'|'hybrid', bool>, reranker_ran: bool, reranker_model: string|null, latency_ms: float}
  */
 final readonly class ApplicationContentRetrievalStrategyEvaluationService
 {
@@ -188,7 +190,7 @@ final readonly class ApplicationContentRetrievalStrategyEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<StrategyRecord>  $records
      * @return array<string, array<string, float>>
      */
     private function metrics(array $records): array
@@ -207,7 +209,7 @@ final readonly class ApplicationContentRetrievalStrategyEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<StrategyRecord>  $records
      */
     private function strategyExecuted(array $records, string $name): bool
     {
@@ -229,7 +231,7 @@ final readonly class ApplicationContentRetrievalStrategyEvaluationService
      * (e.g. vector skipped for cases without an embedding) is not diluted by
      * the cases where it did not run.
      *
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<StrategyRecord>  $records
      */
     private function strategyCaseCount(array $records, string $name): int
     {
@@ -249,7 +251,7 @@ final readonly class ApplicationContentRetrievalStrategyEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<StrategyRecord>  $records
      * @return array<string, float>
      */
     private function strategyMetrics(array $records, string $name): array
@@ -266,7 +268,6 @@ final readonly class ApplicationContentRetrievalStrategyEvaluationService
                 continue;
             }
 
-            /** @var ApplicationContentEvaluationCase $case */
             $case = $record['case'];
             $ids = $record['orderings'][$name];
             $expected = $case->expectedHitIds;

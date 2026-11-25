@@ -45,7 +45,7 @@ final class ActingIdentityBlock
         }
 
         $lines = [
-            sprintf('You act for one person: %s (user id %s). You act only for them and with exactly their permissions: you can do nothing they cannot do.', self::quotedName($user), $user->getKey()),
+            sprintf('You act for one person: %s (user id %s). You act only for them and with exactly their permissions: you can do nothing they cannot do.', self::quotedName($user), $user->id),
             'What you may do for them, and nothing else:',
             ...self::lines('read', $reads),
             ...self::lines('propose changes to', $writes),

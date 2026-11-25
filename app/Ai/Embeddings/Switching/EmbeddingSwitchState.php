@@ -235,6 +235,7 @@ final readonly class EmbeddingSwitchState
      */
     public function with(mixed ...$changes): self
     {
+        // @phpstan-ignore argument.type (a copy by named arguments: the constructor checks each one's type when it runs)
         return new self(...[...get_object_vars($this), ...$changes]);
     }
 

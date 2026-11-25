@@ -230,6 +230,14 @@ class AIServiceProvider extends ModuleServiceProvider
     }
 
     /**
+     * A rate setting, which a stored setting may hold as a numeric string.
+     */
+    private static function perMinute(mixed $value, int $default): int
+    {
+        return is_numeric($value) ? (int) $value : $default;
+    }
+
+    /**
      * The documentation search and read routes, per signed-in user: a search costs an embedding. The route
      * requires a session, so a call without a user is counted per client address. The ceiling is
      * read when a request arrives.
@@ -238,7 +246,7 @@ class AIServiceProvider extends ModuleServiceProvider
     {
         RateLimiter::for('documentation-search', static function (Request $request): Limit {
             $user = $request->user();
-            $limit = Limit::perMinute((int) config('ai.features.faq.search.rate_per_minute', 60));
+            $limit = Limit::perMinute(self::perMinute(config('ai.features.faq.search.rate_per_minute', 60), 60));
 
             return $user === null ? $limit->by($request->ip()) : $limit->by($user->getAuthIdentifier());
         });
@@ -246,7 +254,7 @@ class AIServiceProvider extends ModuleServiceProvider
         // Reading costs an index query and no embedding, and a person turns pages: its own, higher ceiling.
         RateLimiter::for('documentation-read', static function (Request $request): Limit {
             $user = $request->user();
-            $limit = Limit::perMinute((int) config('ai.features.faq.read.rate_per_minute', 120));
+            $limit = Limit::perMinute(self::perMinute(config('ai.features.faq.read.rate_per_minute', 120), 120));
 
             return $user === null ? $limit->by($request->ip()) : $limit->by($user->getAuthIdentifier());
         });

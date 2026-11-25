@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\Embeddings\Switching;
 
+use Elastic\Elasticsearch\Response\Elasticsearch;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Scout\Engines\CollectionEngine;
 use Laravel\Scout\Engines\DatabaseEngine;
 use Modules\Core\Search\Engines\ElasticsearchEngine;
 use Modules\Core\Services\ElasticsearchService;
+use RuntimeException;
 
 /**
  * Reads what a model's search index holds, for the verification of an embedding model switch: how
@@ -34,7 +36,15 @@ final readonly class SearchIndexInspector
             $index = $model->searchableAs();
             $client->indices()->refresh(['index' => $index]);
 
-            return (int) ($client->count(['index' => $index])->asArray()['count'] ?? 0);
+            $response = $client->count(['index' => $index]);
+
+            if (! $response instanceof Elasticsearch) {
+                throw new RuntimeException('The Elasticsearch client answered asynchronously; counting documents needs a synchronous client.');
+            }
+
+            $count = $response->asArray()['count'] ?? null;
+
+            return is_int($count) ? $count : 0;
         }
 
         return (int) $engine->getTotalCount($engine->search($model::search('')));

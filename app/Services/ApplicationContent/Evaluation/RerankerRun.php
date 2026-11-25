@@ -79,10 +79,15 @@ final class RerankerRun
             return null;
         }
 
-        $counts = sprintf('it ran for %d of %d cases', (int) ($run['ran'] ?? 0), (int) ($run['requested'] ?? 0));
+        $counts = sprintf('it ran for %d of %d cases', self::caseCount($run['ran'] ?? null), self::caseCount($run['requested'] ?? null));
 
-        return ($run['status'] ?? null) === 'partial'
+        return $run['status'] === 'partial'
             ? "Reranker ran only partly: {$counts}. For the others the reranked figures are the fused order, so they understate the reranker."
             : "Reranker did not run: {$counts}. The reranked figures are the fused order, not a measure of the reranker; check that the cross-encoder service is up.";
+    }
+
+    private static function caseCount(mixed $value): int
+    {
+        return is_int($value) ? $value : 0;
     }
 }

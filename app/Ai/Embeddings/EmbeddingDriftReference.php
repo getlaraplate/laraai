@@ -131,7 +131,6 @@ final readonly class EmbeddingDriftReference
             }
         }
 
-        /** @var array{cosine: float, text: string} $lowest */
         return $lowest;
     }
 
@@ -145,10 +144,7 @@ final readonly class EmbeddingDriftReference
             throw EmbeddingDriftReferenceException::wrongVectorCount(count(self::SAMPLE), count($vectors));
         }
 
-        return array_map(
-            static fn (array $vector): array => array_map(floatval(...), array_values($vector)),
-            array_values($vectors),
-        );
+        return $vectors;
     }
 
     private static function path(EmbeddingModelProfile $profile): string
@@ -186,12 +182,12 @@ final readonly class EmbeddingDriftReference
             throw EmbeddingDriftReferenceException::differentSample($profile);
         }
 
-        /** @var list<list<float>> $vectors */
-        $vectors = array_map(
-            static fn (mixed $vector): array => array_map(floatval(...), array_values((array) $vector)),
+        return array_map(
+            static fn (mixed $vector): array => array_map(
+                static fn (mixed $component): float => is_numeric($component) ? (float) $component : 0.0,
+                is_array($vector) ? array_values($vector) : [],
+            ),
             array_values($data['vectors']),
         );
-
-        return $vectors;
     }
 }

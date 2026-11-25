@@ -192,6 +192,19 @@ final class TuneRetrievalCommand extends Command
     }
 
     /**
+     * A value of the tuning report as text, the fallback when the report holds none.
+     */
+    private static function reportText(mixed $value, string $fallback): string
+    {
+        return is_string($value) || is_int($value) || is_float($value) ? (string) $value : $fallback;
+    }
+
+    private static function reportCount(mixed $value): int
+    {
+        return is_int($value) ? $value : 0;
+    }
+
+    /**
      * What the numbers were measured on. A profile holds for the embedding model whose vectors it was
      * tuned on and for a corpus of that kind, so a report that does not say which cannot tell a stale
      * profile from a current one. The fingerprint ties the report to a dataset that is never published:
@@ -205,7 +218,8 @@ final class TuneRetrievalCommand extends Command
         $active = app(EmbeddingModelRegistry::class)->active();
 
         // The population the index holds, not query(): a global scope such as LocaleScope hides rows.
-        $corpus = method_exists($model, 'makeAllSearchableQuery') ? $model::makeAllSearchableQuery() : $model::query();
+        $model_class = $model::class;
+        $corpus = method_exists($model_class, 'makeAllSearchableQuery') ? $model_class::makeAllSearchableQuery() : $model->newQuery();
 
         $dataset = is_array($report['dataset'] ?? null) ? $report['dataset'] : [];
         $report['dataset'] = [...$dataset, 'sha256' => hash_file('sha256', $dataset_path)];
@@ -253,7 +267,7 @@ final class TuneRetrievalCommand extends Command
         $margin = $this->numericOption('class-margin', $recommended->classMargin);
 
         $noise = $this->option('noise-margin');
-        $automatic_noise = $noise === null || (is_string($noise) && in_array(mb_strtolower(mb_trim($noise)), ['', 'auto'], true));
+        $automatic_noise = $noise === null || in_array(mb_strtolower(mb_trim($noise)), ['', 'auto'], true);
 
         if ($holdout === null || $min_class_cases === null || $margin === null || $min_class_cases !== floor($min_class_cases)) {
             return null;
@@ -291,13 +305,13 @@ final class TuneRetrievalCommand extends Command
         return match ($validation['status'] ?? null) {
             'passed', 'failed' => sprintf(
                 '// Validation on %d held-out cases: %s (winner %s, committed %s, delta %s).',
-                (int) ($validation['held_out_cases'] ?? 0),
-                (string) $validation['status'],
-                (string) ($validation['winner_metric'] ?? '?'),
-                (string) ($validation['committed_metric'] ?? '?'),
-                (string) ($validation['delta'] ?? '?'),
+                self::reportCount($validation['held_out_cases'] ?? null),
+                self::reportText($validation['status'], '?'),
+                self::reportText($validation['winner_metric'] ?? null, '?'),
+                self::reportText($validation['committed_metric'] ?? null, '?'),
+                self::reportText($validation['delta'] ?? null, '?'),
             ),
-            'skipped' => '// Validation skipped: ' . (string) ($validation['reason'] ?? 'no held-out cases') . '. The profile below is not validated on held-out cases.',
+            'skipped' => '// Validation skipped: ' . self::reportText($validation['reason'] ?? null, 'no held-out cases') . '. The profile below is not validated on held-out cases.',
             default => '// Validation off (--holdout=0). The profile below is not validated on held-out cases.',
         };
     }
@@ -312,15 +326,15 @@ final class TuneRetrievalCommand extends Command
         return match ($noise['status'] ?? null) {
             'passed' => sprintf(
                 '// Noise check: the winner beats the committed profile by %s on %d selection cases, over the %s margin.',
-                (string) ($noise['gain'] ?? '?'),
-                (int) ($noise['selection_cases'] ?? 0),
-                (string) ($noise['margin'] ?? '?'),
+                self::reportText($noise['gain'] ?? null, '?'),
+                self::reportCount($noise['selection_cases'] ?? null),
+                self::reportText($noise['margin'] ?? null, '?'),
             ),
             'within_noise' => sprintf(
                 '// Noise check: the best candidate beats the committed profile by %s on %d selection cases, no more than the %s margin: no winner.',
-                (string) ($noise['gain'] ?? '?'),
-                (int) ($noise['selection_cases'] ?? 0),
-                (string) ($noise['margin'] ?? '?'),
+                self::reportText($noise['gain'] ?? null, '?'),
+                self::reportCount($noise['selection_cases'] ?? null),
+                self::reportText($noise['margin'] ?? null, '?'),
             ),
             default => '// Noise check off (--noise-margin=0). The profile below is not checked against noise.',
         };

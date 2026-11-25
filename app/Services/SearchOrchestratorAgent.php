@@ -52,7 +52,7 @@ final readonly class SearchOrchestratorAgent implements ISearchPlanner
 
             // A fallback plan is cached like any other for ten minutes, so a repeat of the query must still say
             // that the model did not make this plan.
-            if (($plan['meta']['source'] ?? null) === 'fallback_rules') {
+            if (data_get($plan, 'meta.source') === 'fallback_rules') {
                 app(SearchDegradations::class)->note(SearchDegradations::LLM_UNAVAILABLE);
             }
 

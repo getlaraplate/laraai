@@ -36,7 +36,7 @@ final class EvaluationStatistics
     /**
      * Average, median, 95th percentile and maximum of the `latency_ms` of the records, in milliseconds.
      *
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<array{latency_ms: float, ...<string, mixed>}>  $records
      * @return array<string, float>
      */
     public static function latency(array $records): array
@@ -60,10 +60,11 @@ final class EvaluationStatistics
      * The metrics of the records of each locale and of each slice of their cases, keys in order. A
      * record carries its case under `case`, an object with a `locale` and a list of `slices`.
      *
+     * @template TRecord of array{case: object{locale: string, slices: list<string>}, ...<string, mixed>}
      * @template TMetrics
      *
-     * @param  list<array<string, mixed>>  $records
-     * @param  Closure(list<array<string, mixed>>): TMetrics  $metrics
+     * @param  list<TRecord>  $records
+     * @param  Closure(list<TRecord>): TMetrics  $metrics
      * @return array{locale: array<string, TMetrics>, category: array<string, TMetrics>}
      */
     public static function groupBySlices(array $records, Closure $metrics): array

@@ -15,6 +15,6 @@ final class ActingUserName
     {
         $name = $user->getAttribute('name') ?? $user->getAttribute('username') ?? $user->getAttribute('email');
 
-        return is_scalar($name) ? (string) $name : (string) $user->getKey();
+        return is_scalar($name) ? (string) $name : (string) $user->id;
     }
 }

@@ -65,7 +65,7 @@ final readonly class EmbeddingServerIdentity
         return new EmbeddingInspection(
             probeModel: self::name($response->json('model')),
             infoModel: self::name($info['model_id'] ?? null),
-            norm: sqrt(array_sum(array_map(static fn (mixed $component): float => (float) $component ** 2, (array) $vector))),
+            norm: sqrt(array_sum(array_map(static fn (mixed $component): float => is_numeric($component) ? ((float) $component) ** 2 : 0.0, (array) $vector))),
             maxClientBatchSize: is_int($info['max_client_batch_size'] ?? null) ? $info['max_client_batch_size'] : null,
         );
     }

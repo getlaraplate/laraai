@@ -53,7 +53,7 @@ final class GenerateConversationTitleJob implements ShouldQueue
             return;
         }
 
-        $result = $titles->titleFor($question->content, $answer->content, $conversation->user?->lang ?? LocaleContext::getDefault());
+        $result = $titles->titleFor($question->content, $answer->content, $conversation->user->lang ?? LocaleContext::getDefault());
 
         if ($result === null) {
             return;

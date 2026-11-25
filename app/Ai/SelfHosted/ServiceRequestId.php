@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AI\Ai\SelfHosted;
 
-use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
+use GuzzleHttp\Exception\ResponseException as GuzzleResponseException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
 use NeuronAI\Exceptions\HttpException;
@@ -53,8 +53,8 @@ final readonly class ServiceRequestId
             return $exception->response->status();
         }
 
-        if ($exception instanceof GuzzleRequestException) {
-            return $exception->getResponse()?->getStatusCode();
+        if ($exception instanceof GuzzleResponseException) {
+            return $exception->getResponse()->getStatusCode();
         }
 
         if ($exception instanceof HttpException) {

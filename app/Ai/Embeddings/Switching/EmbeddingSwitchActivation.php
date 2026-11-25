@@ -51,7 +51,10 @@ final readonly class EmbeddingSwitchActivation
                 $query->where('model_key', '!=', $target->key)->orWhereNull('model_key');
             });
 
-        $previous_keys = (clone $previous)->whereNotNull('model_key')->distinct()->pluck('model_key')->all();
+        $previous_keys = array_values(array_filter(
+            (clone $previous)->whereNotNull('model_key')->distinct()->pluck('model_key')->all(),
+            is_string(...),
+        ));
 
         $previous->delete();
 

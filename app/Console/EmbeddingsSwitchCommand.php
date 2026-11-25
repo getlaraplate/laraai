@@ -206,7 +206,7 @@ final class EmbeddingsSwitchCommand extends Command
             return 'embeddings';
         }
 
-        return $state->phase === 'verify' ? 'indexes' : $state->phase;
+        return $state->phase === 'verify' ? 'indexes' : ($state->phase ?? 'preflight');
     }
 
     /**

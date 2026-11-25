@@ -62,7 +62,7 @@ final class WriteProposalService
     ): ?WriteProposal {
         if (! $this->budget->take()) {
             $this->audit('refused', null, [
-                'actor_id' => (int) $user->getKey(),
+                'actor_id' => $user->id,
                 'conversation_id' => (int) $conversation_id,
                 'tool' => $tool,
                 'entity' => mb_strtolower($module . '.' . $entity),
@@ -106,7 +106,7 @@ final class WriteProposalService
             /** @var WriteProposal $locked */
             $locked = WriteProposal::query()->lockForUpdate()->findOrFail($proposal->getKey());
 
-            if ((int) $locked->user_id !== (int) $actor->getKey() || ! $locked->status->isOpen()) {
+            if ($locked->user_id !== $actor->id || ! $locked->status->isOpen()) {
                 return null;
             }
 
@@ -157,7 +157,7 @@ final class WriteProposalService
             /** @var WriteProposal $locked */
             $locked = WriteProposal::query()->lockForUpdate()->findOrFail($proposal->getKey());
 
-            if ((int) $locked->user_id === (int) $actor->getKey() && $locked->status->isOpen()) {
+            if ($locked->user_id === $actor->id && $locked->status->isOpen()) {
                 $locked->update(['status' => WriteProposalStatus::Rejected, 'resolved_at' => now()]);
                 $this->audit('rejected', $locked);
             }
@@ -177,7 +177,7 @@ final class WriteProposalService
     private function audit(string $event, ?WriteProposal $proposal, array $extra = []): void
     {
         $context = $proposal instanceof WriteProposal ? [
-            'proposal_id' => (int) $proposal->getKey(),
+            'proposal_id' => $proposal->id,
             'actor_id' => (int) $proposal->user_id,
             'conversation_id' => (int) $proposal->conversation_id,
             'tool' => $proposal->tool,

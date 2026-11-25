@@ -11,6 +11,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Modules\AI\Enums\WriteProposalStatus;
 use Modules\AI\Http\Resources\WriteProposalResource;
+use Modules\AI\Models\Conversation;
 use Modules\AI\Models\WriteProposal;
 use Modules\AI\Services\Assistance\AssistantAccessContextFactory;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
@@ -71,9 +72,12 @@ final class AssistantWriteController extends Controller
             abort(Response::HTTP_UNAUTHORIZED);
         }
 
-        abort_if((int) $proposal->user_id !== (int) $user->getKey(), Response::HTTP_FORBIDDEN, 'You do not have access to this proposal.');
+        abort_if($proposal->user_id !== $user->id, Response::HTTP_FORBIDDEN, 'You do not have access to this proposal.');
 
-        $this->access->forInApp($proposal->conversation, $user);
+        $conversation = $proposal->conversation;
+        abort_unless($conversation instanceof Conversation, Response::HTTP_NOT_FOUND);
+
+        $this->access->forInApp($conversation, $user);
 
         return $user;
     }

@@ -36,7 +36,7 @@ final readonly class EmbeddingSwitchCorpus
      */
     public static function describe(array $models): string
     {
-        $references = array_map(static fn (Model $model): string => class_basename($model) . ' #' . $model->getKey(), array_slice($models, 0, 10));
+        $references = array_map(static fn (Model $model): string => class_basename($model) . ' #' . self::keyOf($model), array_slice($models, 0, 10));
 
         return implode(', ', $references) . (count($models) > 10 ? ', ...' : '');
     }
@@ -179,6 +179,13 @@ final readonly class EmbeddingSwitchCorpus
         }
 
         return ['total' => $total, 'done' => $done, 'pending' => $pending];
+    }
+
+    private static function keyOf(Model $model): string
+    {
+        $key = $model->getKey();
+
+        return is_int($key) || is_string($key) ? (string) $key : '?';
     }
 
     /**

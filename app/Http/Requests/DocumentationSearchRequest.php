@@ -28,7 +28,9 @@ final class DocumentationSearchRequest extends FormRequest
      */
     public function searchText(): string
     {
-        return (string) $this->validated('q');
+        $query = $this->validated('q');
+
+        return is_string($query) ? $query : '';
     }
 
     #[Override]

@@ -96,6 +96,7 @@ class LlmSearchService
         return [
             'keywords' => array_values(array_filter(
                 $intent->keywords ?? [],
+                // @phpstan-ignore function.alreadyNarrowedType (the @var of the structured output is the schema asked of the model; its reply is not checked item by item)
                 static fn (mixed $keyword): bool => is_string($keyword) && $keyword !== '',
             )),
             'filters' => $date_range === null ? [] : ['date_range' => $date_range],
@@ -103,6 +104,14 @@ class LlmSearchService
                 'must' => $expanded !== '' ? $expanded : $query,
             ],
         ];
+    }
+
+    /**
+     * The timeout setting, which a stored setting may hold as an integer or a numeric string.
+     */
+    private static function seconds(mixed $value): float
+    {
+        return is_numeric($value) ? (float) $value : 10.0;
     }
 
     private function createAgent(string $system_prompt): ChatAgent
@@ -115,7 +124,7 @@ class LlmSearchService
             ? ChatAgent::make($this->provider, $system_prompt)
             : ChatAgent::forFeature(AiModelFeature::SearchOrchestration, $system_prompt);
 
-        return $agent->withTimeout(max(0.0, (float) config('ai.features.search_orchestration.timeout', 10)));
+        return $agent->withTimeout(max(0.0, self::seconds(config('ai.features.search_orchestration.timeout', 10.0))));
     }
 
     private function getSearchPlanSystemPrompt(): string

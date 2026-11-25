@@ -122,7 +122,7 @@ final readonly class QueryEmbeddingCache
     }
 
     /**
-     * @phpstan-assert-if-true list<float> $value
+     * @phpstan-assert-if-true non-empty-list<float> $value
      */
     private static function isStorable(mixed $value): bool
     {

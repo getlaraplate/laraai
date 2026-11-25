@@ -221,14 +221,14 @@ final class ProposalSchema
         $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
 
         foreach ((array) ($schema['required'] ?? []) as $name) {
-            if (! array_key_exists($name, $value)) {
+            if (! (is_int($name) || is_string($name)) || ! array_key_exists($name, $value)) {
                 return false;
             }
         }
 
         foreach ($value as $name => $property) {
             if (array_key_exists($name, $properties)) {
-                if (! self::valid($properties[$name], $property)) {
+                if (! is_array($properties[$name]) || ! self::valid($properties[$name], $property)) {
                     return false;
                 }
             } elseif (($schema['additionalProperties'] ?? true) === false) {

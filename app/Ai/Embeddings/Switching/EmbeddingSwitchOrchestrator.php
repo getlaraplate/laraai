@@ -107,6 +107,7 @@ final readonly class EmbeddingSwitchOrchestrator
                 'embeddings' => $this->embed($state),
                 'indexes' => $this->rebuildIndexes($state),
                 'verify' => $this->verify($state),
+                default => throw new EmbeddingSwitchPhaseFailed("The switch is in an unknown phase [{$state->phase}]."),
             });
         } catch (EmbeddingSwitchPhaseFailed $failure) {
             return $this->fail($failure->getMessage());

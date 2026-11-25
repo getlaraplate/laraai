@@ -21,7 +21,7 @@ final class IrMetrics
      */
     public static function firstRank(array $ranked, array $expectedIds): ?int
     {
-        foreach (array_values($ranked) as $position => $id) {
+        foreach ($ranked as $position => $id) {
             if (in_array($id, $expectedIds, true)) {
                 return $position + 1;
             }

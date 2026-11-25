@@ -45,7 +45,7 @@ final class AgentEvent
     /**
      * A message, complete: it is validated before any of it is sent, so the text is one event.
      *
-     * @return list<array<string, mixed>>
+     * @return list<array{type: string, messageId: int|string, role?: string, delta?: string}>
      */
     public static function message(int|string $messageId, string $text): array
     {
@@ -75,7 +75,7 @@ final class AgentEvent
     {
         return [
             'type' => 'ToolCall',
-            'toolCallId' => (string) $proposal['id'],
+            'toolCallId' => self::identifier($proposal['id'] ?? null),
             'toolCallName' => $proposal['kind'] === 'view_state' ? 'propose_view_state' : 'propose_preference_change',
             'args' => $proposal,
         ];
@@ -101,7 +101,7 @@ final class AgentEvent
      * The run ends with the user: one interrupt for each proposal that waits for an answer.
      *
      * @param  list<array<string, mixed>>  $proposals
-     * @return array<string, mixed>
+     * @return array{type: string, threadId: int|string, runId: string, outcome: array<string, mixed>}
      */
     public static function runFinished(int|string $threadId, string $runId, array $proposals): array
     {
@@ -110,7 +110,7 @@ final class AgentEvent
             : [
                 'type' => 'interrupt',
                 'interrupts' => array_map(static fn (array $proposal): array => [
-                    'id' => (string) $proposal['id'],
+                    'id' => self::identifier($proposal['id'] ?? null),
                     'reason' => 'confirm_proposal',
                     'payload' => ['kind' => $proposal['kind'], 'target' => $proposal['target']],
                 ], $proposals),
@@ -125,5 +125,13 @@ final class AgentEvent
     public static function runError(string $code): array
     {
         return ['type' => 'RunError', 'code' => $code, 'message' => self::ERROR_TEXT[$code] ?? self::ERROR_TEXT[RunProgress::PROVIDER_ERROR]];
+    }
+
+    /**
+     * A proposal id as the client receives it; a proposal stored without one gets an empty id, as before.
+     */
+    private static function identifier(mixed $value): string
+    {
+        return is_int($value) || is_string($value) ? (string) $value : '';
     }
 }

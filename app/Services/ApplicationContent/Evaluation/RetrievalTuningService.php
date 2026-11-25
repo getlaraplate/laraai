@@ -32,7 +32,7 @@ use Modules\Core\Search\Services\TextMatchOptionsResolver;
  *
  * @phpstan-import-type StrategyHit from RankFusion
  *
- * @phpstan-type CaseRecord array{case: ApplicationContentEvaluationCase, class: QueryClass, per_strategy: array<string, array<string, StrategyHit>>, baseline: array<string, int|float>, planner: array<string, int|float>, reranked: list<string>}
+ * @phpstan-type CaseRecord array{case: ApplicationContentEvaluationCase, class: QueryClass, per_strategy: array<string, array<string, StrategyHit>>, baseline: array<string, int|float>, planner: array<string, int|float>, reranked: list<string>, reranker_ran: bool, reranker_model: string|null}
  * @phpstan-type Scored array{metrics: array<string, float>, per_class_metrics: array<string, array<string, float>>}
  * @phpstan-type Candidate array{params: array<string, int|float>, metrics: array<string, float>, per_class_metrics: array<string, array<string, float>>, delta_vs_committed: array<string, float>}
  */
@@ -239,9 +239,9 @@ final readonly class RetrievalTuningService
             if (($validation['status'] ?? null) !== 'failed' && ($noise['status'] ?? null) === 'within_noise') {
                 return sprintf(
                     '// No winner: the best candidate beat the committed profile by %s on the selection cases, no more than the noise margin of %s (%d cases); keep the committed profile.',
-                    (string) ($noise['gain'] ?? '?'),
-                    (string) ($noise['margin'] ?? '?'),
-                    (int) ($noise['selection_cases'] ?? 0),
+                    self::reportText($noise['gain'] ?? null, '?'),
+                    self::reportText($noise['margin'] ?? null, '?'),
+                    is_int($noise['selection_cases'] ?? null) ? $noise['selection_cases'] : 0,
                 );
             }
 
@@ -253,7 +253,7 @@ final readonly class RetrievalTuningService
         $lines = [];
 
         if (in_array($validation['status'] ?? null, ['disabled', 'skipped'], true)) {
-            $lines[] = '// This profile was not validated on held-out cases (' . ($validation['reason'] ?? 'held-out validation disabled') . '): treat it as a hint, not a measurement.';
+            $lines[] = '// This profile was not validated on held-out cases (' . self::reportText($validation['reason'] ?? null, 'held-out validation disabled') . '): treat it as a hint, not a measurement.';
         }
 
         $lines[] = "// Cite the report: copy it to docs/evaluations/retrieval-tuning/ in Core and add 'report' => 'docs/evaluations/retrieval-tuning/<file>.json' (a test checks it).";
@@ -270,10 +270,18 @@ final readonly class RetrievalTuningService
         $skipped = is_array($report['class_winners_skipped'] ?? null) ? $report['class_winners_skipped'] : [];
 
         foreach ($skipped as $class => $reason) {
-            $lines[] = "// Class override withheld for {$class}: {$reason}.";
+            $lines[] = "// Class override withheld for {$class}: " . self::reportText($reason, '') . '.';
         }
 
         return implode(PHP_EOL, $lines);
+    }
+
+    /**
+     * A value of a stored report as the text of the profile block, the fallback when it holds none.
+     */
+    private static function reportText(mixed $value, string $fallback): string
+    {
+        return is_string($value) || is_int($value) || is_float($value) ? (string) $value : $fallback;
     }
 
     /**

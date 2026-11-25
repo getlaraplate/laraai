@@ -149,7 +149,7 @@ final readonly class EmbeddingDimensionProbe
      */
     private function embed(EmbeddingModelProfile $profile): array
     {
-        return $this->withProvider($profile, static fn (EmbeddingsProviderInterface $provider): array => $provider->embedText(self::TEXT));
+        return $this->withProvider($profile, static fn (EmbeddingsProviderInterface $provider): array => array_values($provider->embedText(self::TEXT)));
     }
 
     /**

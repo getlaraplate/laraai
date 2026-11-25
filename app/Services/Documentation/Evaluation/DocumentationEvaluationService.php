@@ -11,6 +11,9 @@ use NeuronAI\RAG\Document;
 use RuntimeException;
 use Throwable;
 
+/**
+ * @phpstan-type DocumentationRecord array{case: DocumentationEvaluationCase, labels: list<string>, empty: bool, unavailable: bool, latency_ms: float}
+ */
 final readonly class DocumentationEvaluationService
 {
     private Closure $clock;
@@ -77,7 +80,7 @@ final readonly class DocumentationEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<DocumentationRecord>  $records
      * @return array<string, float>
      */
     private function metrics(array $records): array
@@ -95,7 +98,6 @@ final readonly class DocumentationEvaluationService
         $unavailable = 0;
 
         foreach ($records as $record) {
-            /** @var DocumentationEvaluationCase $case */
             $case = $record['case'];
             $labels = $record['labels'];
             $empty = $record['empty'];

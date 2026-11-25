@@ -214,7 +214,7 @@ final readonly class DocumentationService
         $documents = $this->profileDocuments($this->roots($path), DocumentationIndexProfile::User);
         $names = $this->permissionNames instanceof Closure
             ? ($this->permissionNames)()
-            : Permission::query()->pluck('name')->map(strval(...))->all();
+            : array_filter(Permission::query()->pluck('name')->all(), is_string(...));
 
         return PermissionRequirementAudit::unmatched(array_values($names), $documents);
     }
@@ -377,7 +377,7 @@ final readonly class DocumentationService
      */
     private function passagesFor(string $question): array
     {
-        $documents = array_values(($this->developer_retrieval ?? app(DeveloperDocumentationRetrieval::class))->retrieve($question));
+        $documents = ($this->developer_retrieval ?? app(DeveloperDocumentationRetrieval::class))->retrieve($question);
         $citations = $this->buildCitations($documents);
 
         $lines = ['No answer model is set (features.faq.model), so these are the passages found:'];
@@ -645,9 +645,8 @@ final readonly class DocumentationService
         if ($profile === DocumentationIndexProfile::User) {
             foreach ($documents as $document) {
                 $document->addMetadata('permissions_metadata_validated', true);
-                $document->addMetadata('required_permissions_count', count(
-                    $document->getMetadata()['required_permissions'],
-                ));
+                $required_permissions = $document->getMetadata()['required_permissions'] ?? null;
+                $document->addMetadata('required_permissions_count', is_array($required_permissions) ? count($required_permissions) : 0);
             }
         }
 

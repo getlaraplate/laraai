@@ -72,7 +72,7 @@ final class SuggestionController extends Controller
                 'id' => $suggestion->id,
                 'suggestion' => $suggestion->suggestion,
                 'context' => $suggestion->context,
-                'created_at' => $suggestion->created_at?->toIso8601String(),
+                'created_at' => $suggestion->created_at->toIso8601String(),
             ])
             ->setStatus(Response::HTTP_CREATED)
             ->json();

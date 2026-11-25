@@ -25,6 +25,7 @@ final class ExtractedFacts
     {
         return array_values(array_filter(
             $this->facts,
+            // @phpstan-ignore function.alreadyNarrowedType (the @var of the structured output is the schema asked of the model; its reply is not checked item by item)
             static fn (mixed $fact): bool => is_string($fact) && mb_trim($fact) !== '',
         ));
     }
