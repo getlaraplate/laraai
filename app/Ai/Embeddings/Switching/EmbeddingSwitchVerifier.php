@@ -9,6 +9,7 @@ use Modules\AI\Ai\Embeddings\EmbeddingModelProfile;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
 use Modules\AI\Contracts\IEmbeddingService;
 use Modules\AI\Services\EmbeddingsGate;
+use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Search\Contracts\IReportsVectorDimensions;
 use Modules\Core\Search\Contracts\ITextEmbedder;
 use Modules\Core\Search\Support\VectorProfileContext;
@@ -49,12 +50,11 @@ final readonly class EmbeddingSwitchVerifier
     }
 
     /**
-     * @param  class-string<Model>  $modelClass
+     * @param  class-string<Model&ISearchableModel>  $modelClass
      * @param  list<float>|null  $smokeVector
      */
     private function verifyModel(string $modelClass, EmbeddingModelProfile $target, bool $vectorsOn, ?array $smokeVector): void
     {
-        /** @var Model $instance */
         $instance = new $modelClass();
         $index = $instance->searchableAs();
         $records = $this->corpus->searchableCount($modelClass);

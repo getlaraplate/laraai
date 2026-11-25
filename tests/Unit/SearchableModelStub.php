@@ -6,7 +6,6 @@ namespace Modules\AI\Tests\Unit;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Core\Contracts\ISearchableModel;
 use Modules\Core\Search\Traits\Searchable;
 
@@ -28,10 +27,5 @@ class SearchableModelStub extends Model implements ISearchableModel
     public function prepareDataToEmbed(): ?string
     {
         return null;
-    }
-
-    public function embeddings(): HasMany
-    {
-        return $this->hasMany(Model::class);
     }
 }
