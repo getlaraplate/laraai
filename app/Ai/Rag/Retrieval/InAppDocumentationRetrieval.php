@@ -152,13 +152,15 @@ final readonly class InAppDocumentationRetrieval
             $metadata = $document->getMetadata();
 
             if (($metadata['permissions_metadata_validated'] ?? null) !== true
-                || ($metadata['required_permissions_count'] ?? null) !== count($metadata['required_permissions'])) {
+                || ! is_array($metadata['required_permissions'] ?? null)
+                || ($metadata['required_permissions_count'] ?? null) !== count($metadata['required_permissions'])
+                || ! is_string($metadata['safe_source_label'] ?? null)) {
                 throw new RuntimeException;
             }
 
             $safe_documents[] = (new Document($document->getContent()))
                 ->setSourceType('documentation')
-                ->setSourceName((string) $metadata['safe_source_label'])
+                ->setSourceName($metadata['safe_source_label'])
                 ->setMetadata(array_intersect_key($metadata, array_flip([
                     'audience',
                     'document_key',

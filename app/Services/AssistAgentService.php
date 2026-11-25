@@ -34,13 +34,13 @@ final readonly class AssistAgentService
      * for the user, so only a proposal interrupts the run: an object is shown, never confirmed.
      *
      * @param  array<string, mixed>|null  $context
-     * @return Generator<int, array<string, mixed>>
+     * @return Generator<int, array{type: string, ...<string, mixed>}>
      */
     public function events(Conversation $conversation, User $user, string $message, ?array $context = null): Generator
     {
         $run_id = (string) Str::uuid();
 
-        yield AgentEvent::runStarted($conversation->getKey(), $run_id);
+        yield AgentEvent::runStarted($conversation->id, $run_id);
 
         $refusal = null;
         $progress_callback = static function (string $kind, string $detail) use (&$refusal): void {
@@ -58,9 +58,11 @@ final readonly class AssistAgentService
             $progress = $fiber->start();
 
             while (! $fiber->isTerminated()) {
-                yield $progress[0] === RunProgress::STARTED
-                    ? AgentEvent::stepStarted($progress[1])
-                    : AgentEvent::stepFinished($progress[1]);
+                [$kind, $detail] = self::progress($progress);
+
+                yield $kind === RunProgress::STARTED
+                    ? AgentEvent::stepStarted($detail)
+                    : AgentEvent::stepFinished($detail);
 
                 $progress = $fiber->resume();
             }
@@ -76,7 +78,7 @@ final readonly class AssistAgentService
             return;
         }
 
-        yield from AgentEvent::message($reply->getKey(), (string) $reply->content);
+        yield from AgentEvent::message($reply->id, (string) $reply->content);
 
         if ($refusal !== null) {
             yield AgentEvent::runError($refusal);
@@ -85,7 +87,7 @@ final readonly class AssistAgentService
         }
 
         $citations = $reply->metadata['citations'] ?? [];
-        $proposals = $reply->metadata['proposals'] ?? [];
+        $proposals = self::records($reply->metadata['proposals'] ?? null);
 
         if ($citations !== []) {
             yield AgentEvent::stateDelta(['citations' => $citations]);
@@ -95,10 +97,69 @@ final readonly class AssistAgentService
             yield AgentEvent::proposal($proposal);
         }
 
-        foreach ($reply->metadata['objects'] ?? [] as $object) {
+        foreach (self::objects($reply->metadata['objects'] ?? null) as $object) {
             yield AgentEvent::object($object);
         }
 
-        yield AgentEvent::runFinished($conversation->getKey(), $run_id, $proposals);
+        yield AgentEvent::runFinished($conversation->id, $run_id, $proposals);
+    }
+
+    /**
+     * What the progress callback suspended the fiber with: a kind and its detail.
+     *
+     * @return array{string, string}
+     */
+    private static function progress(mixed $progress): array
+    {
+        if (! is_array($progress) || ! is_string($progress[0] ?? null) || ! is_string($progress[1] ?? null)) {
+            throw new LogicException('The assistance run suspended without a progress step.');
+        }
+
+        return [$progress[0], $progress[1]];
+    }
+
+    /**
+     * The records stored in one entry of the message metadata, keyed by name.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function records(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $records = [];
+
+        foreach ($value as $record) {
+            if (is_array($record)) {
+                $records[] = array_filter($record, is_string(...), ARRAY_FILTER_USE_KEY);
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * The objects the message cites, skipping one stored without its id, type, title or reference.
+     *
+     * @return list<array{id: string, type: string, title: string, ref: array<string, mixed>}>
+     */
+    private static function objects(mixed $value): array
+    {
+        $objects = [];
+
+        foreach (self::records($value) as $object) {
+            $id = $object['id'] ?? null;
+            $type = $object['type'] ?? null;
+            $title = $object['title'] ?? null;
+            $ref = $object['ref'] ?? null;
+
+            if (is_string($id) && is_string($type) && is_string($title) && is_array($ref)) {
+                $objects[] = ['id' => $id, 'type' => $type, 'title' => $title, 'ref' => array_filter($ref, is_string(...), ARRAY_FILTER_USE_KEY)];
+            }
+        }
+
+        return $objects;
     }
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
 use GuzzleHttp\Exception\ServerException;
 use GuzzleHttp\Psr7\Request as GuzzleRequest;
 use GuzzleHttp\Psr7\Response as GuzzleResponse;
@@ -56,6 +57,7 @@ it('reads the status of a failed call from the exception, or none when the servi
     'a guzzle error answer' => [new ServerException('boom', new GuzzleRequest('POST', 'embed'), new GuzzleResponse(500)), 500],
     'an http client connection failure' => [new ConnectionException('refused'), null],
     'a guzzle connection failure' => [new ConnectException('refused', new GuzzleRequest('POST', 'embed')), null],
+    'a guzzle request failure without an answer' => [new GuzzleRequestException('aborted', new GuzzleRequest('POST', 'embed')), null],
     'a neuron error answer' => [HttpException::statusError(HttpRequest::post('http://st.test/v1/embeddings'), new HttpResponse(429, 'slow down')), 429],
     'a neuron network failure' => [HttpException::networkError(HttpRequest::post('http://st.test/v1/embeddings'), 'refused'), null],
 ]);

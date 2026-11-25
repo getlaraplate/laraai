@@ -6,10 +6,11 @@ namespace Modules\AI\Tests\Stubs;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Override;
 
-class TranslatableTestModel extends Model
+class TranslatableTestModel extends Model implements ITranslatableModel
 {
     use HasFactory;
     use HasTranslations;

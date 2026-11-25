@@ -95,7 +95,7 @@ final class RepairMissingEmbeddingsCommand extends Command
         } else {
             $model_class = $this->getModelClass();
 
-            if (in_array($model_class, ['', '0', false], true)) {
+            if (in_array($model_class, ['', '0', false], true) || ! is_a($model_class, Model::class, true)) {
                 return Command::INVALID;
             }
 
@@ -183,8 +183,10 @@ final class RepairMissingEmbeddingsCommand extends Command
                     try {
                         dispatch_sync(new GenerateEmbeddingsJob($model)->unthrottled());
                     } catch (Throwable $exception) {
-                        $failures[$model->getKey()] = $exception->getMessage();
-                        $this->warn('Embedding failed for ' . $model::class . " #{$model->getKey()}: {$exception->getMessage()}");
+                        $key = $model->getKey();
+                        $id = is_int($key) || is_string($key) ? (string) $key : '?';
+                        $failures[$id] = $exception->getMessage();
+                        $this->warn('Embedding failed for ' . $model::class . " #{$id}: {$exception->getMessage()}");
 
                         return;
                     }

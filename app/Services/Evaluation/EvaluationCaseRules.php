@@ -50,7 +50,7 @@ final class EvaluationCaseRules
         }
 
         foreach ($values as $value) {
-            if (preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $value) !== 1) {
+            if (! is_string($value) || preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $value) !== 1) {
                 return false;
             }
         }

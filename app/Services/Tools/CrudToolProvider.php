@@ -208,7 +208,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         $entityKey = mb_strtolower($proposal->module . '.' . $proposal->entity);
 
         $offered = $user instanceof User
-            && (int) $user->getKey() === (int) $proposal->user_id
+            && $user->id === $proposal->user_id
             && $model instanceof Model
             && $this->isOperationStillListed($entityKey, $proposal->operation)
             && $this->isOperationOffered($entityKey, $model, $proposal->operation);
@@ -224,7 +224,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             'create' => $this->singleResult($this->runCreate($proposal->module, $proposal->entity, $attributes)),
             'update' => $this->singleResult($this->runUpdate($proposal->module, $proposal->entity, $payload['id'] ?? null, $attributes)),
             'delete' => $this->singleResult($this->runDelete($proposal->module, $proposal->entity, $payload['id'] ?? null)),
-            'bulk_update', 'bulk_delete' => $this->applyBulk($proposal->operation, $proposal->module, $proposal->entity, is_array($payload['ids'] ?? null) ? $payload['ids'] : [], $attributes),
+            'bulk_update', 'bulk_delete' => $this->applyBulk($proposal->operation, $proposal->module, $proposal->entity, is_array($payload['ids'] ?? null) ? array_values($payload['ids']) : [], $attributes),
             default => new WriteApplyResult(WriteProposalStatus::Failed, ['error' => 'Unsupported operation.']),
         };
     }
@@ -265,6 +265,25 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     }
 
     /**
+     * The filters of a bulk proposal, each one a field map; an entry that is not one is dropped.
+     *
+     * @param  array<mixed>  $filters
+     * @return list<array<string, mixed>>
+     */
+    private static function filterList(array $filters): array
+    {
+        $list = [];
+
+        foreach ($filters as $filter) {
+            if (is_array($filter)) {
+                $list[] = array_filter($filter, is_string(...), ARRAY_FILTER_USE_KEY);
+            }
+        }
+
+        return $list;
+    }
+
+    /**
      * Whether this operation is offered to the acting user on this entity: opted in by the operator,
      * allowed as a write where it is one, and permitted to the user. The same answer decides what a
      * tool is built for and whether a stored proposal may still be applied.
@@ -298,7 +317,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             return false;
         }
 
-        return in_array(mb_strtolower($entityKey), array_map(static fn (mixed $key): string => mb_strtolower((string) $key), $unmoderated), true);
+        return in_array(mb_strtolower($entityKey), array_map(static fn (mixed $key): string => is_scalar($key) ? mb_strtolower((string) $key) : '', $unmoderated), true);
     }
 
     /**
@@ -1211,7 +1230,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             return ['error' => 'Bulk operations require at least one filter to scope the affected records.'];
         }
 
-        $ids = $this->matchedIds($module, $entity, $filters, $this->primaryKey($module, $entity));
+        $ids = $this->matchedIds($module, $entity, self::filterList($filters), $this->primaryKey($module, $entity));
 
         if ($ids === []) {
             return ['error' => 'No record matches those filters.'];
@@ -1473,12 +1492,14 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
         $ids = is_numeric($author) ? [(int) $author] : [];
 
         try {
-            $matched = user_class()::query()
-                ->where('name', 'like', "%{$author}%")
-                ->orWhere('email', 'like', "%{$author}%")
-                ->pluck('id')
-                ->map(static fn (mixed $id): int => (int) $id)
-                ->all();
+            $matched = array_values(array_filter(
+                user_class()::query()
+                    ->where('name', 'like', "%{$author}%")
+                    ->orWhere('email', 'like', "%{$author}%")
+                    ->pluck('id')
+                    ->all(),
+                is_int(...),
+            ));
             $ids = array_merge($ids, $matched);
         } catch (Throwable) {
             // Fall through to whatever numeric id was provided.
@@ -1519,11 +1540,14 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
     }
 
     /**
+     * @template TRequest of Request
+     *
+     * @param  class-string<TRequest>  $requestClass
      * @param  array<string, mixed>  $routeParameters
+     * @return TRequest
      */
     private function makeRequest(string $requestClass, array $routeParameters = []): Request
     {
-        /** @var Request $request */
         $request = $requestClass::create('/app/ai/crud-tool', 'POST');
         $request->setUserResolver(fn (): mixed => $this->request->user());
 
@@ -1548,9 +1572,7 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
 
     private function primaryKey(string $module, string $entity): string
     {
-        $key = DynamicEntity::resolve($entity, request: $this->request, module: $module)->getKeyName();
-
-        return is_array($key) ? (string) head($key) : $key;
+        return DynamicEntity::resolve($entity, request: $this->request, module: $module)->getKeyName();
     }
 
     /**

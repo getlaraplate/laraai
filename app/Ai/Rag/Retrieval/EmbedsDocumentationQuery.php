@@ -25,6 +25,6 @@ trait EmbedsDocumentationQuery
             throw new RuntimeException;
         }
 
-        return array_values($embedding);
+        return $embedding;
     }
 }

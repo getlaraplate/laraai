@@ -12,6 +12,9 @@ use Modules\AI\Services\Evaluation\EvaluationStatistics;
 use RuntimeException;
 use Throwable;
 
+/**
+ * @phpstan-type AssistantRecord array{case: AssistantEvaluationCase, content: string, labels: list<string>, refused: bool, proposals: int, unavailable: bool, latency_ms: float}
+ */
 final readonly class AssistantEvaluationService
 {
     private Closure $clock;
@@ -37,11 +40,8 @@ final readonly class AssistantEvaluationService
 
         foreach ($dataset->cases as $case) {
             $started_at = ($this->clock)();
-            $content = '';
             $labels = [];
-            $refused = false;
             $unavailable = false;
-            $proposals = 0;
 
             try {
                 $message = $runner($case);
@@ -99,7 +99,7 @@ final readonly class AssistantEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<AssistantRecord>  $records
      * @return array<string, float>
      */
     private function metrics(array $records): array
@@ -119,7 +119,6 @@ final readonly class AssistantEvaluationService
         $pending_ok = 0;
 
         foreach ($records as $record) {
-            /** @var AssistantEvaluationCase $case */
             $case = $record['case'];
             $labels = $record['labels'];
             $content = $record['content'];

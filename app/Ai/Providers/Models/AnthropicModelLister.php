@@ -52,7 +52,7 @@ final readonly class AnthropicModelLister implements ModelLister
     }
 
     /**
-     * @param  array<string, mixed>  $item
+     * @param  array<array-key, mixed>  $item  one model of the decoded list
      * @return list<ModelCapability>
      */
     private static function capabilities(array $item): array

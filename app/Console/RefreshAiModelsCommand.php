@@ -99,7 +99,7 @@ final class RefreshAiModelsCommand extends Command
         if ($choices === []) {
             $this->warn("{$name}: no configured provider offers a model");
         } elseif ($setting->isValueOutsideChoices()) {
-            $this->warn("{$name}: current value {$setting->value} is no longer offered");
+            $this->warn("{$name}: current value " . json_encode($setting->value) . ' is no longer offered');
         }
     }
 }

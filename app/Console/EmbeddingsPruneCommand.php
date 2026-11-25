@@ -59,7 +59,7 @@ final class EmbeddingsPruneCommand extends Command
             $indexes->drop($connection, $modelKey);
         }
 
-        $this->info("Deleted {$deleted} embedding row(s) of \"{$modelKey}\".");
+        $this->info('Deleted ' . (is_int($deleted) ? $deleted : 0) . " embedding row(s) of \"{$modelKey}\".");
 
         return self::SUCCESS;
     }

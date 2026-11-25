@@ -35,7 +35,7 @@ final readonly class EvaluationDatasetReader
      * The decoded content of a dataset file: a readable file of at most 2,000,000 bytes holding JSON
      * nested at most 32 levels, with an array at its root.
      *
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     public function readFile(string $path): array
     {
@@ -45,7 +45,7 @@ final readonly class EvaluationDatasetReader
 
         $contents = file_get_contents($path);
 
-        if (! is_string($contents) || mb_strlen($contents) > self::MAX_BYTES) {
+        if (! is_string($contents) || mb_strlen($contents, '8bit') > self::MAX_BYTES) {
             throw $this->invalid('dataset');
         }
 
@@ -63,7 +63,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      * @param  list<string>  $keys
      */
     public function assertExactKeys(array $data, array $keys): void
@@ -80,7 +80,7 @@ final readonly class EvaluationDatasetReader
     /**
      * Every required key and no key outside the required and optional ones.
      *
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      * @param  list<string>  $required
      * @param  list<string>  $optional
      */
@@ -94,7 +94,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function string(array $data, string $key): string
     {
@@ -108,7 +108,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function integer(array $data, string $key): int
     {
@@ -122,7 +122,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function boolean(array $data, string $key): bool
     {
@@ -136,7 +136,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      * @return list<string>
      */
     public function stringList(array $data, string $key): array
@@ -147,17 +147,21 @@ final readonly class EvaluationDatasetReader
             throw $this->invalid('value');
         }
 
+        $strings = [];
+
         foreach ($value as $item) {
             if (! is_string($item)) {
                 throw $this->invalid('value');
             }
+
+            $strings[] = $item;
         }
 
-        return $value;
+        return $strings;
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      * @return array<array-key, mixed>|null
      */
     public function optionalObject(array $data, string $key): ?array
@@ -172,7 +176,7 @@ final readonly class EvaluationDatasetReader
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function optionalInteger(array $data, string $key): ?int
     {

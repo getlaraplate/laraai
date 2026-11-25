@@ -19,6 +19,8 @@ final class ToolRegistry
     /**
      * Build request-local tools without adding them to the global action registry.
      *
+     * @param  list<string>|null  $allowedToolNames
+     * @param  list<string>  $deniedToolNames
      * @return list<Tool>
      */
     public function getContextualNeuronTools(

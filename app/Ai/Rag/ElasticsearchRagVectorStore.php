@@ -13,6 +13,8 @@ use function min;
 use Elastic\Elasticsearch\Client;
 use Elastic\Elasticsearch\Exception\ClientResponseException;
 use Elastic\Elasticsearch\Exception\ServerResponseException;
+use Elastic\Elasticsearch\Response\Elasticsearch;
+use Http\Promise\Promise;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Modules\AI\Ai\Embeddings\EmbeddingModelRegistry;
@@ -163,7 +165,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
     public function hasDocuments(): bool
     {
         try {
-            $response = $this->client->count(['index' => $this->indexProfile->indexName()])->asArray();
+            $response = self::responseBody($this->client->count(['index' => $this->indexProfile->indexName()]));
             $count = $response['count'] ?? 0;
 
             return is_numeric($count) && (int) $count > 0;
@@ -218,7 +220,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         $this->ensureIndexReady();
 
         try {
-            $response = $this->client->search([
+            $response = self::responseBody($this->client->search([
                 'index' => $this->indexProfile->indexName(),
                 'body' => [
                     'size' => 0,
@@ -231,7 +233,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
                         ],
                     ],
                 ],
-            ])->asArray();
+            ]));
         } catch (Throwable $throwable) {
             throw new VectorStoreException(
                 'Failed to read the indexed sources from Elasticsearch: ' . $throwable->getMessage(),
@@ -240,14 +242,14 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             );
         }
 
-        $aggregation = $response['aggregations']['sources'] ?? [];
+        $aggregation = data_get($response, 'aggregations.sources', []);
 
         if (! is_array($aggregation)) {
             return [];
         }
 
         throw_if(
-            (int) ($aggregation['sum_other_doc_count'] ?? 0) > 0,
+            self::count($aggregation['sum_other_doc_count'] ?? null) > 0,
             VectorStoreException::class,
             sprintf('The index holds more than %d sources: a diff cannot read them all.', self::MAX_SOURCES),
         );
@@ -259,10 +261,11 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
                 continue;
             }
 
-            $chunks = (int) ($bucket['doc_count'] ?? 0);
-            $hashes = (array) ($bucket['hashes']['buckets'] ?? []);
+            $chunks = self::count($bucket['doc_count'] ?? null);
+            $hash_aggregation = $bucket['hashes'] ?? null;
+            $hashes = is_array($hash_aggregation) && is_array($hash_aggregation['buckets'] ?? null) ? array_values($hash_aggregation['buckets']) : [];
             $only = count($hashes) === 1 && is_array($hashes[0]) ? $hashes[0] : null;
-            $hash = $only !== null && is_string($only['key'] ?? null) && $chunks === (int) ($only['doc_count'] ?? 0)
+            $hash = $only !== null && is_string($only['key'] ?? null) && $chunks === self::count($only['doc_count'] ?? null)
                 ? $only['key']
                 : null;
 
@@ -290,13 +293,13 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         $this->ensureIndexReady();
 
         try {
-            $response = $this->client->deleteByQuery([
+            $response = self::responseBody($this->client->deleteByQuery([
                 'index' => $this->indexProfile->indexName(),
                 'conflicts' => 'proceed',
                 'body' => [
-                    'query' => ['bool' => ['must_not' => [['terms' => ['sourceName' => array_values($source_names)]]]]],
+                    'query' => ['bool' => ['must_not' => [['terms' => ['sourceName' => $source_names]]]]],
                 ],
-            ])->asArray();
+            ]));
         } catch (Throwable $throwable) {
             throw new VectorStoreException(
                 'Failed to delete the removed sources from Elasticsearch: ' . $throwable->getMessage(),
@@ -305,7 +308,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             );
         }
 
-        return (int) ($response['deleted'] ?? 0);
+        return self::count($response['deleted'] ?? null);
     }
 
     public function addDocument(Document $document): VectorStoreInterface
@@ -334,7 +337,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         try {
-            $response = $this->client->bulk(['body' => $body])->asArray();
+            $response = self::responseBody($this->client->bulk(['body' => $body]));
 
             if (($response['errors'] ?? false) === true) {
                 throw new VectorStoreException('Elasticsearch bulk indexing reported errors.');
@@ -461,10 +464,10 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         try {
-            $response = $this->client->search([
+            $response = self::responseBody($this->client->search([
                 'index' => $this->indexProfile->indexName(),
                 'body' => $body,
-            ])->asArray();
+            ]));
         } catch (Throwable $throwable) {
             throw new VectorStoreException(
                 'Elasticsearch RAG document read failed: ' . $throwable->getMessage(),
@@ -473,12 +476,45 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             );
         }
 
-        $last = $response['aggregations']['last_section']['value'] ?? null;
+        $last = data_get($response, 'aggregations.last_section.value');
 
         return [
             'documents' => $this->mapHitsToDocuments($response),
             'total' => is_numeric($last) ? (int) $last + 1 : null,
         ];
+    }
+
+    /**
+     * The decoded body of a client answer. The client is built without the async option, so it always
+     * answers with a response; a promise means it was configured for another use.
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function responseBody(Elasticsearch|Promise $response): array
+    {
+        return self::synchronous($response)->asArray();
+    }
+
+    private static function responseExists(Elasticsearch|Promise $response): bool
+    {
+        return self::synchronous($response)->asBool();
+    }
+
+    private static function synchronous(Elasticsearch|Promise $response): Elasticsearch
+    {
+        if (! $response instanceof Elasticsearch) {
+            throw new VectorStoreException('The Elasticsearch client answered asynchronously; the RAG vector store needs a synchronous client.');
+        }
+
+        return $response;
+    }
+
+    /**
+     * A document count from an aggregation, zero when the answer carries none.
+     */
+    private static function count(mixed $value): int
+    {
+        return is_int($value) ? $value : 0;
     }
 
     /**
@@ -503,14 +539,14 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         $index = $this->indexProfile->indexName();
 
         try {
-            if (! $this->client->indices()->exists(['index' => $index])->asBool()) {
+            if (! self::responseExists($this->client->indices()->exists(['index' => $index]))) {
                 $this->client->indices()->create(['index' => $index, 'body' => ['mappings' => self::indexMappings($this->embedding_dims)]]);
                 $this->indexReady = true;
 
                 return;
             }
 
-            $mapping = $this->client->indices()->getMapping(['index' => $index])->asArray();
+            $mapping = self::responseBody($this->client->indices()->getMapping(['index' => $index]));
         } catch (Throwable $throwable) {
             throw new VectorStoreException(
                 'Failed to prepare the Elasticsearch RAG index: ' . $throwable->getMessage(),
@@ -522,7 +558,8 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         $properties = [];
 
         foreach ($mapping as $definition) {
-            $properties = is_array($definition['mappings']['properties'] ?? null) ? $definition['mappings']['properties'] : [];
+            $definition_properties = data_get($definition, 'mappings.properties');
+            $properties = is_array($definition_properties) ? $definition_properties : [];
 
             break;
         }
@@ -578,13 +615,13 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
         }
 
         try {
-            $response = $this->client->search([
+            $response = self::responseBody($this->client->search([
                 'index' => $this->indexProfile->indexName(),
                 'body' => [
                     'size' => $topK,
                     'knn' => $knn,
                 ],
-            ])->asArray();
+            ]));
         } catch (Throwable $throwable) {
             throw new VectorStoreException(
                 'Elasticsearch RAG similarity search failed: ' . $throwable->getMessage(),
@@ -662,7 +699,7 @@ final class ElasticsearchRagVectorStore implements VectorStoreInterface
             $embedding = $source['embedding'] ?? null;
 
             if (is_array($embedding) && $embedding !== []) {
-                $document->setEmbedding(array_map(floatval(...), $embedding));
+                $document->setEmbedding(array_map(static fn (mixed $component): float => is_numeric($component) ? (float) $component : 0.0, array_values($embedding)));
             }
 
             if (is_string($source['neuron_id'] ?? null)) {

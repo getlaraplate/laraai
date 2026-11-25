@@ -119,7 +119,8 @@ if (! function_exists('rag_paths')) {
 
         if (class_exists($module_class)) {
             $ai_module = $module_class::find('AI');
-            $native_vendor = (string) $ai_module->getComposerAttr('vendor', '');
+            $vendor = $ai_module->getComposerAttr('vendor', '');
+            $native_vendor = is_string($vendor) ? $vendor : '';
         }
 
         if ($native_vendor === '') {
@@ -181,7 +182,8 @@ if (! function_exists('rag_paths')) {
                 $module = $module_class::find($module_name);
 
                 $module_path = normalize_path((string) $module->getPath());
-                $module_vendor = (string) ($module->getComposerAttr('vendor', ''));
+                $vendor = $module->getComposerAttr('vendor', '');
+                $module_vendor = is_string($vendor) ? $vendor : '';
 
                 if ($native_vendor !== '' && $module_vendor === $native_vendor) {
                     $native_module_paths[] = mb_rtrim($module_path, '/');

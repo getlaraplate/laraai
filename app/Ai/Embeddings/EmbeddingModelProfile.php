@@ -63,7 +63,7 @@ final readonly class EmbeddingModelProfile
             }
 
             $code = mb_strtolower(mb_trim($locale));
-            $code = $code === '*' ? $code : (string) preg_split('/[-_]/', $code, 2)[0];
+            $code = $code === '*' ? $code : explode('-', str_replace('_', '-', $code), 2)[0];
 
             if ($code === '*') {
                 return ['*'];

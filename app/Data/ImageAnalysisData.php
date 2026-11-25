@@ -36,7 +36,11 @@ final class ImageAnalysisData
     {
         return new MediaVisionResult(
             caption: self::nullable($this->caption),
-            entities: array_values(array_filter($this->entities, static fn (mixed $entity): bool => is_string($entity) && $entity !== '')),
+            entities: array_values(array_filter(
+                $this->entities,
+                // @phpstan-ignore function.alreadyNarrowedType (the @var of the structured output is the schema asked of the model; its reply is not checked item by item)
+                static fn (mixed $entity): bool => is_string($entity) && $entity !== '',
+            )),
             idea: self::nullable($this->idea),
             intent: self::nullable($this->intent),
             ocrText: self::nullable($this->ocr_text),

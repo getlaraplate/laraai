@@ -14,6 +14,9 @@ use Modules\Core\ApplicationContent\Data\ApplicationContentResult;
 use Modules\Core\ApplicationContent\Data\ApplicationContentSourceDescriptor;
 use Throwable;
 
+/**
+ * @phpstan-type ApplicationContentRecord array{case: ApplicationContentEvaluationCase, hit_ids: list<string>, references: list<string>, empty: bool, unavailable: bool, latency_ms: float}
+ */
 final readonly class ApplicationContentEvaluationService
 {
     /**
@@ -99,7 +102,7 @@ final readonly class ApplicationContentEvaluationService
     }
 
     /**
-     * @return array<string, mixed>
+     * @return ApplicationContentRecord
      */
     private function record(
         ApplicationContentEvaluationCase $case,
@@ -120,7 +123,7 @@ final readonly class ApplicationContentEvaluationService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $records
+     * @param  list<ApplicationContentRecord>  $records
      * @return array<string, float>
      */
     private function metrics(array $records): array
@@ -141,7 +144,6 @@ final readonly class ApplicationContentEvaluationService
         $ndcg_sum = array_fill_keys(self::CUTOFFS, 0.0);
 
         foreach ($records as $record) {
-            /** @var ApplicationContentEvaluationCase $case */
             $case = $record['case'];
             $hit_ids = $record['hit_ids'];
             $references = $record['references'];

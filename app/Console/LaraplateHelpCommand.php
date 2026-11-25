@@ -51,10 +51,6 @@ final class LaraplateHelpCommand extends Command
         while (true) {
             $input = text('You');
 
-            if (! is_string($input)) {
-                continue;
-            }
-
             $trimmed = mb_trim($input);
 
             if ($trimmed === '') {
@@ -110,7 +106,7 @@ final class LaraplateHelpCommand extends Command
      * The citations of one answer by source, in the order the sources first appear: a page that supplies
      * several passages is one line, not one line per passage.
      *
-     * @param  list<array{source: string, score: float|null}>  $citations
+     * @param  list<array{source: string, excerpt: string, score: float|null}>  $citations
      * @return list<array{source: string, passages: int, best: float|null}>
      */
     private function groupBySource(array $citations): array
@@ -120,19 +116,19 @@ final class LaraplateHelpCommand extends Command
         foreach ($citations as $citation) {
             $source = $citation['source'];
             $score = $citation['score'];
-            $index = array_search($source, array_column($groups, 'source'), true);
 
-            if ($index === false) {
-                $groups[] = ['source' => $source, 'passages' => 1, 'best' => $score];
+            if (! isset($groups[$source])) {
+                $groups[$source] = ['source' => $source, 'passages' => 1, 'best' => $score];
 
                 continue;
             }
 
-            $groups[$index]['passages']++;
-            $groups[$index]['best'] = is_float($score) ? max($score, $groups[$index]['best'] ?? $score) : $groups[$index]['best'];
+            $best = $groups[$source]['best'];
+            $groups[$source]['passages']++;
+            $groups[$source]['best'] = is_float($score) ? max($score, $best ?? $score) : $best;
         }
 
-        return $groups;
+        return array_values($groups);
     }
 
     private function describeGroup(int $passages, ?float $best): string

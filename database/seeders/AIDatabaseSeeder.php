@@ -18,7 +18,7 @@ class AIDatabaseSeeder extends Seeder
 {
     /**
      * @param  ?string  $servingModel  the model that serves search, when already stored (see {@see self::storedServingModel()})
-     * @return array<int, array{name: string, value: mixed, encrypted: bool, choices: ?array<int, mixed>, type: SettingTypeEnum, group_name: string, description: string}>
+     * @return list<array{name: string, value: mixed, encrypted: bool, choices: ?array<int, mixed>, type: SettingTypeEnum, group_name: string, description: string, managed?: bool}>
      */
     public static function runtimeSettingDefinitions(?string $servingModel = null): array
     {
@@ -124,7 +124,7 @@ class AIDatabaseSeeder extends Seeder
      * that serves search. The choices are the configured profiles, and the serving model is always
      * among them.
      *
-     * @return list<array<string, mixed>>
+     * @return list<array{name: string, value: mixed, encrypted: bool, choices: ?array<int, mixed>, type: SettingTypeEnum, group_name: string, description: string, managed?: bool}>
      */
     private static function embeddingModelSettings(?string $servingModel): array
     {

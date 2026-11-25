@@ -43,11 +43,12 @@ final class AgentController extends Controller
         $access->forInApp($conversation, $user);
 
         $validated = $request->validated();
-        $context = is_array($validated['context'] ?? null) ? $validated['context'] : null;
+        $context = is_array($validated['context'] ?? null) ? array_filter($validated['context'], is_string(...), ARRAY_FILTER_USE_KEY) : null;
+        $message = $request->string('message')->value();
 
-        return response()->eventStream(function () use ($agent, $conversation, $user, $validated, $context) {
-            foreach ($agent->events($conversation, $user, (string) $validated['message'], $context) as $event) {
-                yield new StreamedEvent(event: (string) $event['type'], data: $event);
+        return response()->eventStream(function () use ($agent, $conversation, $user, $message, $context) {
+            foreach ($agent->events($conversation, $user, $message, $context) as $event) {
+                yield new StreamedEvent(event: $event['type'], data: $event);
             }
         }, endStreamWith: null);
     }

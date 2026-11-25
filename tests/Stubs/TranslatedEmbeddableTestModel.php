@@ -6,6 +6,7 @@ namespace Modules\AI\Tests\Stubs;
 
 use Illuminate\Database\Eloquent\Model;
 use Modules\Core\Contracts\ISearchableModel;
+use Modules\Core\Contracts\ITranslatableModel;
 use Modules\Core\Models\Concerns\HasTranslations;
 use Modules\Core\Search\Traits\Searchable;
 use Override;
@@ -18,7 +19,7 @@ use Override;
  * Fallback is disabled so a locale with no real translation row yields no
  * entry, instead of silently reusing the default locale's text.
  */
-class TranslatedEmbeddableTestModel extends Model implements ISearchableModel
+class TranslatedEmbeddableTestModel extends Model implements ISearchableModel, ITranslatableModel
 {
     use HasTranslations;
     use Searchable;
