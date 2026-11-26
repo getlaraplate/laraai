@@ -6,6 +6,8 @@ use Illuminate\Database\QueryException;
 use Modules\AI\Enums\MediaAnalysisStatus;
 use Modules\AI\Models\MediaAnalysis;
 
+uses()->group('db2');
+
 it('casts status to the enum and json columns to arrays', function (): void {
     $analysis = MediaAnalysis::factory()->create([
         'entities' => ['lion', 'elephant'],
