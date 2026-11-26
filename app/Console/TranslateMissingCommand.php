@@ -87,10 +87,10 @@ final class TranslateMissingCommand extends Command
         foreach ($locales_to_check as $check_locale) {
             $query = $model_class::query()
                 ->whereHas('translations', function (\Illuminate\Database\Eloquent\Builder $q) use ($default_locale): void {
-                    $q->whereRaw('locale = ?', [$default_locale]);
+                    $q->where('locale', $default_locale);
                 })
                 ->whereDoesntHave('translations', function (\Illuminate\Database\Eloquent\Builder $q) use ($check_locale): void {
-                    $q->whereRaw('locale = ?', [$check_locale]);
+                    $q->where('locale', $check_locale);
                 });
 
             foreach ($query->lazyById(100, $key_name) as $model) {

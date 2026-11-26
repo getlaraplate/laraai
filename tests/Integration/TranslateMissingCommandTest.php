@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use Modules\AI\Console\TranslateMissingCommand;
 use Modules\AI\Tests\Stubs\TranslatableMissingTestModel;
 use Modules\AI\Tests\Stubs\Translation\FixedTranslatableModelClassNames;
+use Modules\Core\Tests\Stubs\Database\Db2PretendConnection;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
@@ -73,4 +74,19 @@ it('returns success with no missing translations', function (): void {
 
     expect($tester->getStatusCode())->toBe(TranslateMissingCommand::SUCCESS);
     Queue::assertNothingPushed();
+});
+
+it('filters the translations by locale through the builder, which quotes the reserved locale column on Db2', function (): void {
+    $sql = Db2PretendConnection::capture(static function (): void {
+        $command = translate_missing_command_with_models([TranslatableMissingTestModel::class]);
+        $command->setLaravel(app());
+
+        (new CommandTester($command))->execute(['model' => 'TranslatableMissingTestModel', '--locale' => 'it']);
+    });
+
+    $lookup = collect($sql)->first(static fn (string $query): bool => str_contains($query, 'translation_stub'));
+
+    expect($lookup)->toBeString()
+        ->and((string) $lookup)->toContain('"LOCALE" = ?')
+        ->and((string) $lookup)->not->toContain(' locale = ?');
 });
