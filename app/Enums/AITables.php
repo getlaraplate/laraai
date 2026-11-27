@@ -16,4 +16,7 @@ enum AITables: string
     case ContextualSuggestions = 'ai_contextual_suggestions';
     case MediaAnalyses = 'ai_media_analyses';
     case WriteProposals = 'ai_write_proposals';
+    case AssistantTurns = 'ai_assistant_turns';
+    case AgentMessages = 'ai_agent_messages';
+    case AgentWorkflowRecords = 'ai_agent_workflow_records';
 }

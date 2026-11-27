@@ -102,6 +102,15 @@ return [
         // the setting `features.chat.summary.enabled`; MemoryService is not reached by the assistant today.
         'chat' => [
             'summary_threshold' => 20,
+            // A turn of the in-app assistant runs durably (Neuron's EloquentPersistence and EloquentMessageStore
+            // on the module's tables) and replays no earlier turn. `summarization.max_tokens` is the size its
+            // conversation (the question, the tool calls and their results) may reach before the older messages
+            // are replaced by a summary (Neuron's Summarization middleware); 0 leaves it to the context window,
+            // which drops the oldest messages. `messages_to_keep` are the latest messages never summarized.
+            'summarization' => [
+                'max_tokens' => (int) env('AI_CHAT_SUMMARIZATION_MAX_TOKENS', 0),
+                'messages_to_keep' => (int) env('AI_CHAT_SUMMARIZATION_MESSAGES_TO_KEEP', 5),
+            ],
         ],
 
         // Media LLM analysis (M1-M21 in the media spec). The master switch is the
@@ -197,6 +206,13 @@ return [
             ],
         ],
         'tools' => [
+            // Tool search (Neuron's ToolSearchMiddleware): above `threshold` tools offered in one turn, the tools
+            // that act on one entity wait in a pool the model searches with `tool_search`, a local keyword
+            // search with no model call, and `top_n` is how many a search returns. 0 offers every tool directly.
+            'search' => [
+                'threshold' => (int) env('AI_TOOLS_SEARCH_THRESHOLD', 30),
+                'top_n' => (int) env('AI_TOOLS_SEARCH_TOP_N', 5),
+            ],
             // Default CRUD tools exposed to the in-app assistant, opt-in per entity.
             // Empty = no CRUD tools (default). Each key is "module.entity"; the value
             // lists the allowed operations. A tool is exposed only for an operation
@@ -267,6 +283,14 @@ return [
                 'min_sources' => 3,
                 'excerpt_chars' => 600,
                 'timeout' => 10.0,
+            ],
+            // The documentation search the model calls itself during the answer of the in-app assistant
+            // (Neuron's RetrievalTool, as `search_documentation`), besides the retrieval that runs before it:
+            // the same scoped retrieval, each passage guarded like a tool result and cited. Off by default;
+            // `max_runs` is how many searches one turn may make.
+            'retrieval_tool' => [
+                'enabled' => (bool) env('AI_RAG_RETRIEVAL_TOOL_ENABLED', false),
+                'max_runs' => (int) env('AI_RAG_RETRIEVAL_TOOL_MAX_RUNS', 3),
             ],
         ],
         'moderation' => [

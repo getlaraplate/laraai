@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\Auth;
 use Modules\AI\Enums\WriteProposalStatus;
 use Modules\AI\Http\Resources\WriteProposalResource;
 use Modules\AI\Models\Conversation;
+use Modules\AI\Models\Message;
 use Modules\AI\Models\WriteProposal;
 use Modules\AI\Services\Assistance\AssistantAccessContextFactory;
+use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\Tools\CrudToolProvider;
 use Modules\Core\Helpers\ResponseBuilder;
@@ -28,6 +30,7 @@ final class AssistantWriteController extends Controller
     public function __construct(
         private readonly WriteProposalService $proposals,
         private readonly AssistantAccessContextFactory $access,
+        private readonly InAppAssistanceServiceInterface $assistance,
     ) {}
 
     public function show(Request $request, WriteProposal $proposal): JsonResponse
@@ -45,7 +48,7 @@ final class AssistantWriteController extends Controller
         $done = in_array($resolved->status, [WriteProposalStatus::Applied, WriteProposalStatus::PendingApproval, WriteProposalStatus::Failed], true);
 
         return new ResponseBuilder($request)
-            ->setData(new WriteProposalResource($resolved))
+            ->setData($this->withFollowUp($resolved, $user, $done))
             ->setStatus($done ? Response::HTTP_OK : Response::HTTP_CONFLICT)
             ->json();
     }
@@ -54,10 +57,11 @@ final class AssistantWriteController extends Controller
     {
         $user = $this->authorizeProposal($proposal);
         $resolved = $this->proposals->reject($proposal, $user);
+        $done = $resolved->status === WriteProposalStatus::Rejected;
 
         return new ResponseBuilder($request)
-            ->setData(new WriteProposalResource($resolved))
-            ->setStatus($resolved->status === WriteProposalStatus::Rejected ? Response::HTTP_OK : Response::HTTP_CONFLICT)
+            ->setData($this->withFollowUp($resolved, $user, $done))
+            ->setStatus($done ? Response::HTTP_OK : Response::HTTP_CONFLICT)
             ->json();
     }
 
@@ -80,6 +84,28 @@ final class AssistantWriteController extends Controller
         $this->access->forInApp($conversation, $user);
 
         return $user;
+    }
+
+    /**
+     * The proposal as the interface shows it, and, once the person's decision settled the last write its turn
+     * waited for, the assistant's follow-up message under `follow_up` (null otherwise).
+     *
+     * @return array<string, mixed>
+     */
+    private function withFollowUp(WriteProposal $resolved, User $user, bool $decided): array
+    {
+        $follow_up = $decided ? $this->assistance->continueAfterDecision($resolved, $user) : null;
+
+        return [
+            ...new WriteProposalResource($resolved)->resolve(),
+            'follow_up' => $follow_up instanceof Message ? [
+                'id' => $follow_up->id,
+                'role' => $follow_up->role,
+                'content' => $follow_up->content,
+                'metadata' => $follow_up->metadata,
+                'created_at' => $follow_up->created_at?->toIso8601String(),
+            ] : null,
+        ];
     }
 
     private function expireIfDue(WriteProposal $proposal): WriteProposal

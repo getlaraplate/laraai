@@ -53,10 +53,31 @@ Cross-module pipelines are documented with **Mermaid** diagrams in dedicated gui
 | `AgentController` | `Http/Controllers/AgentController.php` | `POST /app/ai/agent`: the run as an event stream, the answer sent whole |
 | `InAppAssistanceService` | `Services/Assistance/InAppAssistanceService.php` | Every message: policy, guardrails, scope, documentation and tools, one validated answer |
 | `ChatService` | `Services/ChatService.php` | Conversation lifecycle and the protected agent |
-| `Conversation`, `Message` | `Models/` | Persistence |
+| `DocumentationPipeline` | `Ai/Rag/Pipeline/DocumentationPipeline.php` | The documentation half of the turn on Neuron's RAG contracts: a retrieval strategy, then the post-processors |
+| `WriteApprovalGate` | `Services/Assistance/Writes/WriteApprovalGate.php` | Where a run paused on a write meets the proposal the person decides on |
+| `AgentRunStorage` | `Ai/Runs/AgentRunStorage.php` | Neuron's `EloquentPersistence` and `EloquentMessageStore` on the module's tables |
+| `Conversation`, `Message`, `AssistantTurn` | `Models/` | Persistence |
 
 Every message goes through `InAppAssistanceService::respond()`, which is policy-compiled, guardrailed,
-scope-resolved and stateless per message: no history is replayed to the model. No token of the model is
+scope-resolved and stateless across messages: no earlier turn is replayed to the model. Each message is one
+**turn** (`AssistantTurn`, `ai_assistant_turns`) whose id is the Neuron thread of a durable run: its records live
+in `ai_agent_workflow_records` (`EloquentPersistence`) and its working conversation (the question, the tool calls and
+their results, the answer) in `ai_agent_messages` (`EloquentMessageStore`). That is what lets a turn paused on a write
+resume in a later request; the next message starts a new turn, with a new thread. Turns are pruned with their
+records seven days after their last change, and purged with the conversation.
+
+The instructions of the agent are the compiled policy and are marked for the provider's prompt cache
+(`SystemMessage::cache()`); they stay the same from one turn to the next for the same person. The authorized
+context of the turn (citations, authorized results, presentation preferences) is Neuron's turn context
+(`Agent::setContext()`): it is sent after the question, on every request of the turn, and never stored.
+
+When the tools of a turn exceed `ai.features.tools.search.threshold` (30), the tools that act on one entity wait
+behind Neuron's `tool_search` (`ToolSearchOffer`, `ToolSearchMiddleware`): a local keyword search, no model call. A
+tool the model finds is offered for the rest of the turn. With `ai.features.rag.retrieval_tool.enabled` the model
+may also search the user documentation itself (`search_documentation`, Neuron's `RetrievalTool` over the same scoped
+retrieval, each passage guarded like a tool result and cited); the retrieval before the answer still runs.
+
+No token of the model is
 streamed: `POST /app/ai/agent` streams lifecycle events and one validated message, and
 `POST .../messages` answers the same message as JSON. The stream route `POST .../stream/...` answers 422
 (`in_app_streaming_unavailable`).
@@ -67,8 +88,8 @@ flowchart TD
     controller["ChatController::insertMessage() / AgentController::run()"]
     respond["InAppAssistanceService::respond()"]
     input["policy and input guardrails (AssistanceGuardrailPipeline)"]
-    retrieval["scope, documentation retrieval (DocumentationService::retrieveForInApp)"]
-    agent["ChatAgent with the tools the policy allows (reads inline, writes as proposals, figures, charts and relation maps as requests)"]
+    retrieval["scope, DocumentationPipeline: scoped retrieval, relevance judge"]
+    agent["ChatAgent, durable on the turn's thread, with the tools the policy allows (reads inline, writes gated by approval, figures, charts and relation maps as requests)"]
     output["output guardrails, citations"]
     store["conversation.addMessage('assistant', answer, metadata: citations, proposals, writes, objects)"]
     request --> controller --> respond --> input --> retrieval --> agent --> output --> store
@@ -78,7 +99,9 @@ flowchart TD
 
 ## Tool System (governed writes)
 
-The assistant never changes data by itself. A write tool (`crud_create_*`, `crud_update_*`, `crud_delete_*`, `crud_bulk_update_*`, `crud_bulk_delete_*`) only stores a **write proposal** (`ai_write_proposals`) and tells the model that nothing has changed. The person confirms or rejects the proposal through an authenticated action the model cannot perform, and only then is the stored payload applied, as that person, through `CrudService`. Whether the write is also sent for a vote is decided by Core approvals at the model (`HasApprovals`), not by the assistant.
+The assistant never changes data by itself. A write tool (`crud_create_*`, `crud_update_*`, `crud_delete_*`, `crud_bulk_update_*`, `crud_bulk_delete_*`) waits for approval (Neuron's tool approval): when the model calls one, the run of the turn pauses before anything is written, and `WriteApprovalGate` runs the tool's handler, which validates the call and stores a **write proposal** (`ai_write_proposals`) linked to the turn and to the call. A call that produced no proposal (invalid arguments, the write budget) is approved at once: there is nothing to decide, and it answers the model with why, so the model can correct itself in the same turn. The person confirms or rejects the proposal through an authenticated action the model cannot perform, and only then is the stored payload applied, as that person, through `CrudService`. Whether the write is also sent for a vote is decided by Core approvals at the model (`HasApprovals`), not by the assistant.
+
+Once every proposal the turn waits for is decided (confirmed, rejected or expired), the decision endpoint resumes the run (`InAppAssistanceService::continueAfterDecision()`): Neuron carries out the approved calls, which answer with what came of the proposal (the write is never applied twice), hands the rejections to the model as such, and the model writes a **follow-up** message, validated like any answer and returned under `follow_up`. The agent is rebuilt for the person deciding, with the data tools of the same question and application context; the page proposals and the widgets of the first answer are not offered again. A follow-up that cannot be written leaves the decision as it is.
 
 ```mermaid
 sequenceDiagram
@@ -86,17 +109,19 @@ sequenceDiagram
     participant S as Server
     participant P as Person (UI)
     M->>S: calls crud_update_core_role
-    S->>S: proposal stored (status proposed)
-    S-->>M: tool result: nothing has changed
+    S->>S: run pauses (approval), proposal stored for the call (status proposed)
     S->>P: assistant message, metadata.writes
     Note over P: shows what would change, as whom
     alt confirm
         P->>S: POST .../assistant-writes/{id}/confirm
-        S-->>P: stored payload applied as the signed-in user: applied, pending_approval or failed
+        S->>S: stored payload applied as the signed-in user: applied, pending_approval or failed
     else reject
         P->>S: POST .../assistant-writes/{id}/reject
-        S-->>P: rejected
+        S->>S: rejected
     end
+    S->>M: run resumes: the outcome, or the rejection, as the tool result
+    M-->>S: follow-up answer
+    S-->>P: the proposal, and follow_up once the turn's last decision is in
 ```
 
 Read tools (`crud_list_*`, `crud_detail_*`, ...) run inline, under the permissions and row-level ACL of the person. Which tools exist for a person is the intersection of three things: the operator's opt-in (`ai.features.tools.crud.entities`, plus `unmoderated_writes` for entities without approvals), the person's permissions, and the policy capabilities `crud_reads` and `governed_writes` of the in-app profile. `approve` and `disapprove` are never offered: a decision on a pending change is made by a person in the panel. A read result whose text reads like an instruction is withheld from the model (`ToolResultGuard`).

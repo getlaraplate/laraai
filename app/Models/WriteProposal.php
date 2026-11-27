@@ -27,6 +27,8 @@ use Override;
  * @property array<string, mixed> $payload
  * @property array<string, mixed> $summary
  * @property bool $requires_approval
+ * @property string|null $turn_id
+ * @property string|null $tool_call_id
  * @property WriteProposalStatus $status
  * @property array<string, mixed>|null $outcome
  * @property \Carbon\CarbonImmutable $expires_at
@@ -56,7 +58,9 @@ final class WriteProposal extends Model implements IsPartOfParent
     protected $fillable = [
         'user_id',
         'conversation_id',
+        'turn_id',
         'tool',
+        'tool_call_id',
         'module',
         'entity',
         'operation',
@@ -92,6 +96,17 @@ final class WriteProposal extends Model implements IsPartOfParent
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(Conversation::class);
+    }
+
+    /**
+     * The turn whose run waits for the decision on this proposal; null for a proposal made before turns
+     * were durable.
+     *
+     * @return BelongsTo<AssistantTurn, $this>
+     */
+    public function turn(): BelongsTo
+    {
+        return $this->belongsTo(AssistantTurn::class, 'turn_id');
     }
 
     public function hasExpired(): bool

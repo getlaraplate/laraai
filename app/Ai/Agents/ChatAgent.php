@@ -24,7 +24,7 @@ use Throwable;
  * General-purpose chat agent powered by NeuronAI.
  * Supports multi-provider configuration via ProviderFactory.
  *
- * @method static static make(?string $providerName = null, ?string $systemPrompt = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null, ?float $temperature = null)
+ * @method static static make(?string $providerName = null, ?string $systemPrompt = null, ?string $model = null, ?int $maxOutputTokens = null, ?float $timeout = null, ?float $temperature = null, ?string $threadId = null)
  */
 class ChatAgent extends Agent
 {
@@ -35,20 +35,22 @@ class ChatAgent extends Agent
         protected ?int $maxOutputTokens = null,
         protected ?float $timeout = null,
         protected ?float $temperature = null,
+        ?string $threadId = null,
     ) {
-        // Neuron runs nothing without a thread id; the application keeps its own conversations, so each agent gets a throwaway one.
-        parent::__construct(workflowId: (string) Str::uuid7());
+        // Neuron runs nothing without a thread id. A durable run names its own (an assistant turn); any other call
+        // keeps nothing after it ends, so it gets a throwaway one.
+        parent::__construct(workflowId: $threadId ?? (string) Str::uuid7());
     }
 
     /**
      * An agent on the provider and model chosen in Settings for this feature, limited to
      * `$maxOutputTokens` of output when given.
      */
-    public static function forFeature(AiModelFeature $feature, ?string $systemPrompt = null, ?int $maxOutputTokens = null): static
+    public static function forFeature(AiModelFeature $feature, ?string $systemPrompt = null, ?int $maxOutputTokens = null, ?string $threadId = null): static
     {
         $choice = AiModelChoice::forFeature($feature);
 
-        return static::make($choice->provider, $systemPrompt, $choice->model, $maxOutputTokens);
+        return static::make($choice->provider, $systemPrompt, $choice->model, $maxOutputTokens, threadId: $threadId);
     }
 
     /**
@@ -110,9 +112,12 @@ class ChatAgent extends Agent
         return ProviderFactory::make($this->providerName, $this->model, $this->maxOutputTokens, $this->timeout, $this->temperature);
     }
 
+    /**
+     * The instructions, marked for the provider's prompt cache: a provider without one ignores the mark.
+     */
     #[Override]
     protected function instructions(): SystemMessage
     {
-        return new SystemMessage($this->systemPrompt ?? 'You are a helpful AI assistant.');
+        return new SystemMessage($this->systemPrompt ?? 'You are a helpful AI assistant.')->cache();
     }
 }

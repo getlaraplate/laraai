@@ -57,6 +57,7 @@ final readonly class ToolResultGuard
             maxRuns: $definition->maxRuns,
             entity: $definition->entity,
             operation: $definition->operation,
+            onApproval: $definition->onApproval,
         );
     }
 }

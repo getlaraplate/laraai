@@ -57,6 +57,8 @@ The assistant can **propose** to create, update, or delete a record when you hav
 
 When you confirm, the change is made as you, with your permissions checked again at that moment. On entities that require **approval**, your confirmed change is then captured as a pending change for a reviewer, exactly as if you had made it yourself in the application: the confirmation card tells you in advance when that will happen, and afterwards says "sent for approval" rather than "done".
 
+Once you have decided on every change the assistant proposed in a message (confirmed, rejected, or let it expire), the assistant picks up where it stopped and writes a **follow-up** message: what came of each change, and what it does next with it, for example a second change that depended on the first. If it cannot write the follow-up, your decision still stands.
+
 ### Bulk changes list what they will touch
 
 When you ask to change many records at once ("mark all of these as archived", "delete last year's drafts"):

@@ -16,14 +16,37 @@ use ReflectionParameter;
  */
 final class CallbackTool extends Tool
 {
-    public function __construct(string $name, string $description, private readonly Closure $handler)
-    {
+    /**
+     * @param  (Closure(string): mixed)|null  $onApproval  what runs, with the call id, when the tool is gated by
+     *                                                     approval and Neuron carries out the approved call
+     */
+    public function __construct(
+        string $name,
+        string $description,
+        private readonly Closure $handler,
+        private readonly ?Closure $onApproval = null,
+    ) {
         $this->name = $name;
         $this->description = $description;
+
+        if ($onApproval instanceof Closure) {
+            $this->requireApproval();
+        }
     }
 
+    /**
+     * A tool gated by approval is only carried out by Neuron's tool step once the call was approved, and that
+     * step always gives the call its id: then the outcome of the decision answers. Invoked without a call id,
+     * outside a run, the tool does what its handler does, which for a write is to prepare the proposal.
+     */
     public function __invoke(mixed ...$arguments): mixed
     {
+        $call_id = $this->getCallId();
+
+        if ($this->onApproval instanceof Closure && $call_id !== null && $call_id !== '') {
+            return ($this->onApproval)($call_id);
+        }
+
         return ($this->handler)(...$arguments);
     }
 
