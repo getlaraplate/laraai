@@ -7,6 +7,7 @@ namespace Modules\AI\Services\Assistance\Contracts;
 use Closure;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\Message;
+use Modules\AI\Models\WriteProposal;
 use Modules\AI\Services\Assistance\Stream\RunProgress;
 use Modules\Core\Models\User;
 
@@ -23,4 +24,10 @@ interface InAppAssistanceServiceInterface
         ?array $request_context = null,
         ?Closure $progress = null,
     ): Message;
+
+    /**
+     * The assistant's follow-up once the person decided on every write a turn paused on: null when the turn
+     * waits for more decisions or cannot go on. The decision stands either way.
+     */
+    public function continueAfterDecision(WriteProposal $proposal, User $authenticated_user): ?Message;
 }

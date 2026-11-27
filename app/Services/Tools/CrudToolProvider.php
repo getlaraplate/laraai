@@ -384,6 +384,11 @@ final readonly class CrudToolProvider implements ContextualToolProviderInterface
             maxRuns: self::MAX_RUNS,
             entity: $label,
             operation: $operation,
+            // A write waits for the person (Neuron's tool approval): the handler prepares the proposal when the
+            // run pauses, and once the person decided, the call answers with what came of it.
+            onApproval: in_array($operation, self::WRITE_OPERATIONS, true)
+                ? fn (string $call_id): array => $this->proposals->outcomeOfCall($call_id)
+                : null,
         );
     }
 

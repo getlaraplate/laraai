@@ -11,8 +11,8 @@ use Modules\AI\Ai\Providers\ProviderFactory;
 use Modules\AI\Ai\Rag\DocumentationIndexProfile;
 use Modules\AI\Ai\Rag\ElasticsearchRagVectorStore;
 use Modules\AI\Ai\Rag\FaqVectorStoreConfig;
+use Modules\AI\Ai\Rag\Pipeline\DocumentationPipeline;
 use Modules\AI\Ai\Rag\RecordingPostProcessor;
-use Modules\AI\Ai\Rag\Retrieval\MinimumSimilarity;
 use Modules\AI\Enums\AiModelFeature;
 use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Providers\AIProviderInterface;
@@ -76,17 +76,16 @@ class DocumentationAgent extends RAG
     }
 
     /**
-     * The same threshold as the retrieval that `test:ai:evaluate-documentation` measures, then the recorder.
+     * The post-processors every documentation path shares ({@see DocumentationPipeline}), unjudged: the same
+     * threshold as the retrieval that `test:ai:evaluate-documentation` measures, then the recorder.
      *
      * @return list<PostProcessorInterface>
      */
     #[Override]
     protected function postProcessors(): array
     {
-        $threshold = MinimumSimilarity::postProcessor();
-
         return [
-            ...($threshold === null ? [] : [$threshold]),
+            ...DocumentationPipeline::standardPostProcessors(),
             $this->recorder(),
         ];
     }
@@ -110,7 +109,7 @@ You are a documentation assistant. Answer questions based on the provided contex
 If the context doesn't contain enough information, say so honestly.
 Always reference specific documents when possible.
 Respond in the same language as the question.
-PROMPT);
+PROMPT)->cache();
     }
 
     /**

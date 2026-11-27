@@ -71,6 +71,7 @@ final class ToolRegistry
             $definition->name,
             $definition->description,
             Closure::fromCallable($definition->handler),
+            $definition->onApproval === null ? null : Closure::fromCallable($definition->onApproval),
         );
 
         if ($definition->maxRuns !== null) {

@@ -134,6 +134,14 @@ AI_FAQ_ES_INDEX=laraplate_rag_docs   # Elasticsearch index name when the vector 
 AI_FAQ_QUERY_LOG_INDEX=laraplate_rag_queries   # Elasticsearch index of the documentation query log (ai:create-rag-query-index); the switch, the question mode and the retention are the settings features.faq.query_logging.* in Filament
 # (AI_FAQ_ES_EMBEDDING_DIMS was removed: the RAG vector length is the active embedding profile's `dimensions`)
 
+# In-app assistant runs (Neuron workflows)
+AI_TOOLS_SEARCH_THRESHOLD=30         # Above this many tools in one turn, the entity tools wait behind Neuron's tool_search (local keyword search, no model call); 0 = every tool offered directly
+AI_TOOLS_SEARCH_TOP_N=5              # Tools one tool_search returns
+AI_CHAT_SUMMARIZATION_MAX_TOKENS=0   # Tokens a turn's conversation (question, tool calls and results) may reach before Neuron's Summarization replaces the older messages with a summary; 0 = off (the context window drops the oldest)
+AI_CHAT_SUMMARIZATION_MESSAGES_TO_KEEP=5  # Latest messages of a turn never summarized
+AI_RAG_RETRIEVAL_TOOL_ENABLED=false  # Let the model search the user documentation itself during the answer (search_documentation, Neuron's RetrievalTool), besides the retrieval before it
+AI_RAG_RETRIEVAL_TOOL_MAX_RUNS=3     # Documentation searches one turn may make
+
 ```
 
 Removed on 2026-09-29, now settings in Filament > Settings (see above): `AI_CHAT_PROVIDER`, `AI_TEXT_GENERATION_PROVIDER`, `AI_TEXT_GENERATION_MODEL`, `AI_MODERATION_PROVIDER`, `AI_COMMENT_MOD_PROVIDER`, `AI_SEARCH_ORCHESTRATION_PROVIDER`, `AI_TRANSLATION_PROVIDER`, `ANTHROPIC_MODEL`, `AI_MEDIA_ANALYSIS_ENABLED`, `AI_MEDIA_VISION_MODEL`, `AI_MEDIA_VISION_OLLAMA_MODEL`, `AI_MEDIA_TRANSCRIPTION_MODEL`, `AI_MEDIA_WHISPER_LOCAL_MODEL`.
@@ -263,6 +271,11 @@ a user clicks. The instance keeps only what a user's own request or setting crea
     figure, a chart or a relation map and the title the assistant gave it; the computed figures and the records of a
     map are not stored), summaries and title;
 -   **contextual suggestions** (off by default): the page and the action they are about, pruned after 7 days.
+-   the **runs of the assistant's turns**: each message is a durable Neuron run (`ai_assistant_turns`, with its
+    records in `ai_agent_workflow_records` and its working conversation in `ai_agent_messages`: the question, the
+    tool calls and what they returned, the answer). It is what lets a turn paused on a write resume once the user
+    decides; it is never replayed to a later turn, and it is pruned with the turn 7 days after its last change
+    (`AssistantTurn::RETENTION_DAYS`, `model:prune`). The write proposals stay: they are the audit record.
 
 A deleted conversation takes its messages, summaries and title with it, and a deleted user takes their
 conversations and suggestions. Details, the wire contract and the purge rules:

@@ -6,6 +6,7 @@ namespace Modules\AI\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\AI\Ai\Runs\AgentRunStorage;
 use Modules\AI\Enums\AITables;
 use Modules\Core\Models\User;
 use Modules\Core\Overrides\Model;
@@ -67,14 +68,21 @@ final class Conversation extends Model
     }
 
     /**
-     * Remove for good what the conversation holds: its messages, its summaries, and the title, the
-     * summary, the system message and the metadata on its own row. The row stays, soft deleted or
-     * not, and holds nothing.
+     * Remove for good what the conversation holds: its messages, its summaries, the runs of its assistant
+     * turns with their Neuron records, and the title, the summary, the system message and the metadata on its
+     * own row. The row stays, soft deleted or not, and holds nothing.
      */
     public function purgeContent(): void
     {
         Message::query()->withTrashed()->where('conversation_id', $this->getKey())->forceDelete();
         ConversationSummary::query()->withTrashed()->where('conversation_id', $this->getKey())->forceDelete();
+        $runs = app(AgentRunStorage::class);
+
+        foreach (AssistantTurn::query()->where('conversation_id', $this->getKey())->get(['id']) as $turn) {
+            $runs->forget($turn->id);
+        }
+
+        AssistantTurn::query()->where('conversation_id', $this->getKey())->delete();
 
         self::query()->withTrashed()->whereKey($this->getKey())->update([
             'title' => null,

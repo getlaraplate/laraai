@@ -31,6 +31,7 @@ use Modules\AI\Contracts\IEmbeddingService;
 use Modules\AI\Contracts\IRagIndexRebuilder;
 use Modules\AI\Contracts\ITranslatableModelClassNames;
 use Modules\AI\Filament\MediaAnalysisSchemaContributor;
+use Modules\AI\Models\AssistantTurn;
 use Modules\AI\Models\ContextualSuggestion;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Observers\MediaAnalysisRefcountObserver;
@@ -214,9 +215,10 @@ class AIServiceProvider extends ModuleServiceProvider
                 ->onOneServer();
 
             // Retention of the contextual suggestions: older rows are stale data about what a user
-            // was doing. The limit is ContextualSuggestion::RETENTION_DAYS, in code.
+            // was doing. The limit is ContextualSuggestion::RETENTION_DAYS, in code. The assistant turns go
+            // with their Neuron records after AssistantTurn::RETENTION_DAYS.
             $this->app->make(Schedule::class)
-                ->command('model:prune', ['--model' => [ContextualSuggestion::class]])
+                ->command('model:prune', ['--model' => [ContextualSuggestion::class, AssistantTurn::class]])
                 ->daily()
                 ->onOneServer();
 
