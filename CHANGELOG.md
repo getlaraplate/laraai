@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.4.0] - 2026-11-27
+
+### 🚀 Features
+
+- *(ai)* Assistant turns on Neuron workflows: cached instructions, shared RAG pipeline, durable runs with native write approval, tool search, documentation search tool, live evaluation
+- *(ai)* Conversation memory, the recent turns of a conversation as data in the authorized context
+
+### 🎨 Styling
+
+- *(ai)* Pint and PHPStan on the Neuron workflow changes
+
+### 🧪 Testing
+
+- *(ai)* The authorized context assertion reads the context, not the rule that names it
+
 ## [3.3.0] - 2026-11-25
 
 ### 🚀 Features
