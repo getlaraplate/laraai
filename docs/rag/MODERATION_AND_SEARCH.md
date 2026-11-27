@@ -48,6 +48,8 @@ When embeddings enabled (`features.embeddings.enabled`, the single switch of vec
 
 On `TranslatedModelSaved`: if `translations.auto.{table}` enabled, may attach `translation` to pending `model_indexing:*` cache or run standalone `TranslateModelJob`. On a versioned record the job writes all its locales as one revision of its own, reason `ai-translation` and no actor (`withinRevision()`), so a machine translation never merges with the revision of whoever wrote the source; a locale that fails leaves the others written.
 
+A save that is part of a revert is never translated: the event carries `fromRevert` (Core sets it at emission, inside a version set of kind `Revert`), and the listener does nothing for it, since translating the restored text again would overwrite the translations the revert put back. Indexing still follows the revert through Core.
+
 If AI does not handle indexing, Core `IndexModelFallbackListener` still runs `IndexInSearchJob`.
 
 ## Configuration
