@@ -29,12 +29,16 @@ final readonly class AssistantPromptContext
      * @param  array<string, mixed>  $presentationPreferences
      * @param  list<array<string, mixed>>  $safeCitations
      * @param  list<array<string, mixed>>  $authorizedResults
+     * @param  list<array{speaker: string, content: string}>  $recentTurns  the earlier turns of the conversation the
+     *                                                                      person saw, oldest first, when conversation
+     *                                                                      memory is on ({@see History\ConversationHistory})
      */
     public function __construct(
         public string $policyVersion,
         public array $presentationPreferences,
         public array $safeCitations,
         public array $authorizedResults,
+        public array $recentTurns = [],
     ) {
         if (mb_trim($policyVersion) === '') {
             throw new InvalidArgumentException('Assistant policy version cannot be blank.');
@@ -51,6 +55,7 @@ final readonly class AssistantPromptContext
         AssistantControlPlaneData::assertPromptSafe($presentationPreferences);
         AssistantControlPlaneData::assertPromptSafe($safeCitations);
         AssistantControlPlaneData::assertPromptSafe($authorizedResults);
+        AssistantControlPlaneData::assertPromptSafe($recentTurns);
     }
 
     /**

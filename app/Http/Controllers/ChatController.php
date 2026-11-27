@@ -13,9 +13,11 @@ use Modules\AI\Http\Requests\InsertConversationRequest;
 use Modules\AI\Http\Requests\ListConversationsRequest;
 use Modules\AI\Http\Requests\ListMessagesRequest;
 use Modules\AI\Http\Requests\SendMessageRequest;
+use Modules\AI\Http\Requests\UpdateConversationMemoryRequest;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Services\Assistance\AssistantAccessContextFactory;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
+use Modules\AI\Services\MemoryService;
 use Modules\Core\Helpers\ResponseBuilder;
 use Modules\Core\Models\User;
 
@@ -39,6 +41,10 @@ final class ChatController extends Controller
             title: $this->optionalString($validated, 'title'),
             metadata: $this->optionalArray($validated, 'metadata'),
         );
+
+        if (is_bool($validated['memory_enabled'] ?? null)) {
+            $conversation->update(['memory_enabled' => $validated['memory_enabled']]);
+        }
 
         return new ResponseBuilder($request)
             ->setData($conversation->load('messages'))
@@ -98,6 +104,21 @@ final class ChatController extends Controller
             ->setCurrentPage($messages->currentPage())
             ->setTotalPages($messages->lastPage())
             ->setPagination($messages->perPage())
+            ->json();
+    }
+
+    /**
+     * Whether the assistant reads the earlier turns of this conversation before answering, when the setting
+     * `features.chat.history.enabled` lets it. Turning it off also forgets the conversation's summaries.
+     */
+    public function updateConversationMemory(UpdateConversationMemoryRequest $request, Conversation $conversation, MemoryService $memory): JsonResponse
+    {
+        $this->authorizeConversationAccess($conversation);
+
+        $memory->setMemoryEnabled($conversation, $request->boolean('memory_enabled'));
+
+        return new ResponseBuilder($request)
+            ->setData($conversation->refresh())
             ->json();
     }
 

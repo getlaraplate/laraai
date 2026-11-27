@@ -37,7 +37,7 @@ The AI Module provides artificial intelligence capabilities for embeddings gener
 - 💬 AI Chat with conversation history and streaming
 - 📚 RAG (Retrieval-Augmented Generation) for FAQ/documentation
 - 🛠️ Assistant tools: reads under the user's permissions, writes as proposals the user confirms, figures, charts and relation maps as requests the backend emits and a client renders
-- 🧠 Conversation memory with automatic summarization
+- 🧠 Conversation memory: a window of recent turns, off by default
 - 🛡️ In-app assistance guardrails: policy, input and output limits, a deterministic injection classifier, tool results checked before the model reads them
 - 🔄 Event-driven architecture for seamless integration
 - 🎯 Zero dependencies from Core/Cms modules (Core never depends on AI)
@@ -76,7 +76,7 @@ php artisan module:install AI
 
 The AI module configuration is automatically mapped as `ai.*` when the module is active. Configuration file: `Modules/AI/config/config.php`.
 
-Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.read.rate_per_minute` (config only, default 120: the per-user limit of `GET /app/crud/detail/{module}/documentation`) and `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off) and `features.media_analysis.near_duplicate_distance` (0 = off; see *Near-duplicate images*), the relevance judge `features.rag.judge.{enabled,max_rounds,min_sources,excerpt_chars}` and its model `features.rag.judge.model` (seeded off, 3, 3 and 600; see *Relevance judge*), `features.search_orchestration.enabled` and `features.search_orchestration.timeout` (seeded on and 10 seconds; see *Search modes and the AI overlay*), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
+Feature switches and tuning are runtime settings managed from Filament > Settings, not env vars: `features.{embeddings,translation,faq,contextual_suggestions,moderation}.enabled` (seeded off: they need a configured provider), `features.chat.enabled` (the in-app assistant, seeded off) and `features.chat.summary.enabled`, `features.faq.{max_documents,min_similarity,format_citations}`, `features.faq.read.rate_per_minute` (config only, default 120: the per-user limit of `GET /app/crud/detail/{module}/documentation`) and `features.faq.search.rate_per_minute` (config only, default 60: the per-user limit of `GET /app/crud/search/{module}/documentation`, the documentation passages of the command palette; see [docs/SEARCH_AND_TRANSLATION.md](docs/SEARCH_AND_TRANSLATION.md)), `features.faq.splitter.*`, the `features.moderation.*` thresholds and `features.moderation.queue` (the queue of the moderation jobs, read when a job is dispatched), `features.text_generation.{enabled,max_output_chars,cache_ttl_seconds}` and `features.text_generation.rate_limit.{max,per_seconds}` (seeded off, 500, 0, 60 and 60), `features.faq.vector_store` (`elasticsearch` or `filesystem`, seeded `elasticsearch`) and `features.faq.policy_classification_version` (seeded `in-app-docs-v1`), `features.media_analysis.enabled` (seeded off) and `features.media_analysis.near_duplicate_distance` (0 = off; see *Near-duplicate images*), conversation memory `features.chat.history.{enabled,turns}` (seeded off and 6; see *Conversation Memory*), the relevance judge `features.rag.judge.{enabled,max_rounds,min_sources,excerpt_chars}` and its model `features.rag.judge.model` (seeded off, 3, 3 and 600; see *Relevance judge*), `features.search_orchestration.enabled` and `features.search_orchestration.timeout` (seeded on and 10 seconds; see *Search modes and the AI overlay*), and the model of each AI feature, `features.*.model` (value `provider:model`, choices refreshed from the providers by `ai:models:refresh`, nightly or from the setting row; see `docs/rag/AI_MODEL_SELECTION_DEVELOPER.md`). Settings are listed without the module prefix (the module is a column) and read from config as `ai.<name>`. A value managed by a setting has no env variable: its default lives in code.
 
 ```env
 # AI Features
@@ -270,6 +270,8 @@ a user clicks. The instance keeps only what a user's own request or setting crea
 -   the user's **conversations**: messages with their citations, proposals and objects (the request behind a
     figure, a chart or a relation map and the title the assistant gave it; the computed figures and the records of a
     map are not stored), summaries and title;
+-   nothing about the user **across conversations**. With conversation memory on (off by default), the assistant
+    re-reads the recent messages of the same conversation before answering; it stores nothing new for that.
 -   **contextual suggestions** (off by default): the page and the action they are about, pruned after 7 days.
 -   the **runs of the assistant's turns**: each message is a durable Neuron run (`ai_assistant_turns`, with its
     records in `ai_agent_workflow_records` and its working conversation in `ai_agent_messages`: the question, the
@@ -378,11 +380,10 @@ The AI Module includes built-in features such as:
     - `GET /app/ai/capabilities` lists the types in `features.objects` and the ceilings in `limits.aggregate`. See [docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md](docs/rag/ASSISTANT_WIDGETS_DEVELOPER.md).
 
 -   **Conversation Memory:**
-    - Automatic summarization after N messages
-    - Key facts extraction
-    - Summary snapshots for history
-    - Opt-in/opt-out per conversation
-    - "Forget" functionality
+    - Off by default (`features.chat.history.enabled`): the assistant reads the last `features.chat.history.turns` turns (6) of the same conversation before answering, as data in its authorized context. Only the questions and answers the user saw, never tool results; refused turns and instruction-like texts are left out
+    - Per conversation: `memory_enabled`, changed with `POST /app/crud/update/ai/conversations/{id}/memory`; `GET /app/ai/capabilities` returns `features.history`
+    - Nothing is remembered across conversations: memory of the user is not provided. Threat model and reasons: [docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md](docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md)
+    - `MemoryService` (summaries and key facts) is kept but not called by the assistant
 
 -   **Guardrails (in-app assistance):**
     - `AssistanceGuardrailPipeline` checks the input, the retrieved context, the citations and the output, fail-closed, with the limits `ai.features.guardrails.in_app_*`; they are mandatory and have no switch
@@ -567,7 +568,7 @@ The locked retrieval direction is documented in `docs/superpowers/specs/2026-07-
 
 - [x] **Chat System** - Protected in-app assistant: a JSON answer, or the run as an event stream, the answer sent whole
 - [x] **RAG/FAQ** - Documentation indexing and question answering
-- [x] **Memory/Summarization** - Automatic conversation summarization
+- [x] **Conversation memory** - Recent turns of the same conversation, off by default
 - [x] **Guardrails** - In-app assistance guardrails and a deterministic injection classifier (the optional Lakera and LLM injection check, `GuardrailsService`, was removed 2026-10-07: nothing called it)
 - [x] **Contextual Suggestions** - Proactive AI suggestions with rate limiting
 - [x] **Governed assistant writes** - Write proposals the person confirms outside the model, over Core approvals (the earlier ActionRequest/risk-classification path was retired 2026-10-07)

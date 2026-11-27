@@ -17,7 +17,8 @@ The boundaries of this module are **contracts, not folders**. `AI` is not one sy
 | **Tools and governed writes** | tools offered by `CrudToolProvider` to `respond()`, and `show_widget`; `AssistantWriteController` for the person's confirmation | policy capabilities `crud_reads` / `governed_writes` / `widget_objects`, Core approvals at the model | live; writes are proposals the person confirms, figures, charts and relation maps are requests the client runs |
 | **Contextual suggestions** | `SuggestionController` | per-context generation | live |
 | **Moderation and translation** | queued jobs | asynchronous, no HTTP surface | live |
-| **Conversation memory** | none | none | dormant |
+| **Conversation memory** | `ConversationHistory`, from `respond()` | earlier turns in the authorized context, capability `conversation_memory` | off by default, pending review |
+| **Memory of the user across conversations** | none | none | not provided |
 
 **Search is not a chat feature, and it does not live here.** The perimeter belongs to `Modules/Core/Search`. A search asks for a mode per request, `fast`, `balanced` or `deep`, and Core resolves the components for it through one contract, `ISearchStrategyResolver`. Core binds a resolver that always returns its own cheap components (`FallbackSearchPlanner`, `HeuristicReranker`, `SimpleQueryIntentParser`). When the AI module is installed it replaces that single binding with `AiSearchStrategyResolver` (`AIServiceProvider`): `balanced` adds the query embedding (`SearchEmbedder`), and `deep` adds `SearchOrchestratorAgent`, `LlmQueryIntentParser`, `CrossEncoderService` and up to two retries. It does not rebind `ISearchPlanner`, `IReranker` or `IQueryIntentParser`, so a `fast` search never builds an AI class. Anything that prevents the requested mode is served by a cheaper one and reported in `meta.search.degraded_reason`. Query planning, embedding and reranking are therefore an **optional upgrade to Core search**, which keeps working without AI. They meet the assistant only when it runs a search, through the same contract the CRUD layer uses.
 
@@ -26,14 +27,15 @@ The boundaries of this module are **contracts, not folders**. `AI` is not one sy
 #### Two perimeters worth a caveat
 
 - **Writes are proposals.** The in-app assistant can propose a create, update, delete or bulk change; it never applies one. See *Writes through the assistant* below. The earlier `ActionRequest` path (`ActionRequestService`, `RiskClassifier`, `ExecuteActionRequestJob`, the global tool registry) had no producer and duplicated Core approvals; it was retired on 2026-10-07 together with its table `ai_action_requests`.
-- **Conversation memory is dormant, not broken.** `MemoryService` summarizes conversations and extracts facts, but its hook lived in the superseded chat, so it never runs. `respond()` is also stateless across messages: it sends only the current input, with no earlier turn and no summary. Within a turn, the run is durable (see *Durable turns* below), and Neuron's `Summarization` middleware can shorten a long tool loop (`ai.features.chat.summarization.max_tokens`, 0 = off).
+- **Conversation memory is a window of recent turns, off by default.** With `features.chat.history.enabled` on, and `memory_enabled` true on the conversation, `respond()` puts the last `features.chat.history.turns` turns (6, at most 20) of the same conversation in the authorized context as `recent_turns`: who spoke and the text the person saw, never tool results or metadata, a refused turn or one with an instruction-like text left out. The policy gains the capability `conversation_memory`. Off, `respond()` sends only the current input, as before. The threat model and the decision requested are in `ASSISTANT_HISTORY_SECURITY_REVIEW.md`. Within a turn, the run is durable (see *Durable turns* below), and Neuron's `Summarization` middleware can shorten a long tool loop (`ai.features.chat.summarization.max_tokens`, 0 = off). `MemoryService` (summaries and facts) stays dormant: its hook lived in the superseded chat, and the window of recent turns does not use it.
+- **Memory of the user across conversations is not provided.** Nothing is remembered about a person from one conversation to the next. Why, and the draft design it would follow, are in *Out of scope* of `ASSISTANT_HISTORY_SECURITY_REVIEW.md`.
 
 #### Durable turns
 
 Each message of the in-app assistant is one turn (`AssistantTurn`, `ai_assistant_turns`): its id is the Neuron thread of a durable run. `AgentRunStorage` gives the agent Neuron's `EloquentPersistence` (`AgentWorkflowRecord`, `ai_agent_workflow_records`) and `EloquentMessageStore` (`AgentMessage`, `ai_agent_messages`), on the application's connection. No existing table fits Neuron's two stores, so the module owns two tables shaped as Neuron documents them (byte-wise identifiers on MySQL and MariaDB, no soft delete, no version); everything else is what the application already has: the connection, the migrations, Eloquent.
 
 - **What the turn keeps.** The question as the guardrails let it through, the application context the server resolved, the status (`running`, `awaiting_decisions`, `completed`, `failed`), the reply and the follow-up message ids, and the answer of each write call that produced no proposal (`call_answers`). Never a value of the model outside Neuron's own records.
-- **Why.** A turn that pauses on a write the person has to confirm resumes in another request. The next message starts a new turn with a new thread, so no earlier turn reaches the model.
+- **Why.** A turn that pauses on a write the person has to confirm resumes in another request. The next message starts a new turn with a new thread: Neuron's history of a turn never reaches another one. What conversation memory replays is read from the conversation's messages, not from these threads.
 - **Retention.** `model:prune` deletes a turn seven days after its last change (`AssistantTurn::RETENTION_DAYS`) together with its Neuron records; a deleted conversation takes its turns and their records with it (`Conversation::purgeContent()`). The write proposals stay, with `turn_id` set to null: they are the audit record.
 - **Caching.** The instructions are the compiled policy, marked for the provider's prompt cache; the authorized context of the turn is Neuron's turn context, sent after the question and never stored.
 
@@ -254,7 +256,7 @@ Every message sent over HTTP goes through `InAppAssistanceService::respond()`. I
 Two properties of this path are easy to assume wrongly:
 
 - **There is no question detection and no `use_rag` flag.** Whether documentation is retrieved is decided by the compiled policy and the resolved scope, not by heuristics on the message text.
-- **The path is stateless per message.** A fresh agent receives the current input only, with no prior turns and no conversation summary, so the assistant does not recall earlier messages in the same conversation.
+- **The path replays no earlier turn unless conversation memory is on.** A fresh agent receives the current input; with conversation memory on, the authorized context also carries the recent turns of the same conversation as data (`recent_turns`). There is never a conversation summary and never anything from another conversation.
 
 #### Why this path does not stream, and what to do about it
 

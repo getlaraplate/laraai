@@ -37,6 +37,7 @@ use Modules\AI\Models\WriteProposal;
 use Modules\AI\Services\ApplicationContent\ApplicationContentCitationMapper;
 use Modules\AI\Services\ApplicationContent\Data\ApplicationContentRequestContext;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
+use Modules\AI\Services\Assistance\History\ConversationHistory;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCompiler;
 use Modules\AI\Services\Assistance\Policies\CompiledAssistantPolicy;
 use Modules\AI\Services\Assistance\Proposals\ProposableTargets;
@@ -127,7 +128,8 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             // With the documentation setting off the assistant still serves what its tools reach: it
             // neither reads the documentation nor is told to answer from it.
             $reads_documentation = app(AssistantCapabilities::class)->help();
-            $policy = $this->compilePolicy($reads_documentation);
+            $remembers_conversation = app(ConversationHistory::class)->enabledFor($conversation);
+            $policy = $this->compilePolicy($reads_documentation, $remembers_conversation);
             $input = $this->guardrails->validateInput($user_input);
             $this->report($progress, RunProgress::STARTED, RunProgress::STEP_RETRIEVE);
             $module_context = $this->serverApplicationContext();
@@ -141,7 +143,12 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $retrieval_latency_ms = $documentation->retrievalMs;
             $judge_run = $documentation->judgeRun;
             $prompt_context = $this->guardrails->validateContext(
-                $this->promptContext($policy, $documents, $request_context),
+                $this->promptContext(
+                    $policy,
+                    $documents,
+                    $request_context,
+                    $remembers_conversation ? app(ConversationHistory::class)->recentTurns($conversation) : [],
+                ),
             );
             // DataAccess::None is currently unreachable via respond() (forInApp always resolves InAppAssistance profile);
             // reserved as a seam for future guest/superadmin profiles routed through this service (see docs/rag/ASSISTANT_SCOPE.md).
@@ -305,7 +312,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             $this->applicationContentCitations()->reset();
 
             $module_context = $this->turnApplicationContext($turn);
-            $policy = $this->compilePolicy(app(AssistantCapabilities::class)->help());
+            $policy = $this->compilePolicy(app(AssistantCapabilities::class)->help(), app(ConversationHistory::class)->enabledFor($conversation));
             $scope = $this->scope_resolver->resolve($access->profile, $module_context?->module);
             $definitions = $scope->dataAccess === DataAccess::None
                 ? []
@@ -484,19 +491,22 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             presentationPreferences: $context->presentationPreferences,
             safeCitations: array_slice($citations, 0, 10),
             authorizedResults: $context->authorizedResults,
+            recentTurns: $context->recentTurns,
         ));
     }
 
     /**
-     * The policy of the in-app assistant, with the documentation corpus only when the assistant reads it.
+     * The policy of the in-app assistant, with the documentation corpus only when the assistant reads it and the
+     * rule on earlier turns only while the conversation replays them.
      */
-    private function compilePolicy(bool $reads_documentation): CompiledAssistantPolicy
+    private function compilePolicy(bool $reads_documentation, bool $remembers_conversation): CompiledAssistantPolicy
     {
         return $this->policy_compiler->compile(
             AssistantProfile::InAppAssistance,
             [
                 'application_content',
                 ...($reads_documentation ? ['in_app_rag'] : []),
+                ...($remembers_conversation ? [ConversationHistory::CAPABILITY] : []),
                 AssistantCapabilities::GRAPH_CAPABILITY,
                 AssistantCapabilities::PROPOSALS_CAPABILITY,
                 AssistantCapabilities::READS_CAPABILITY,
@@ -713,6 +723,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
                 ...$applicationContent->results(),
                 ...$context->authorizedResults,
             ], 0, 50),
+            recentTurns: $context->recentTurns,
         ));
     }
 
@@ -745,11 +756,13 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
     /**
      * @param  list<Document>  $documents
      * @param  array<string, mixed>|null  $request_context
+     * @param  list<array{speaker: string, content: string}>  $recent_turns
      */
     private function promptContext(
         CompiledAssistantPolicy $policy,
         array $documents,
         ?array $request_context,
+        array $recent_turns = [],
     ): AssistantPromptContext {
         $citations = [];
         $authorized_results = [];
@@ -792,6 +805,7 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             presentationPreferences: $this->presentationPreferences($request_context),
             safeCitations: $citations,
             authorizedResults: $authorized_results,
+            recentTurns: $recent_turns,
         );
     }
 

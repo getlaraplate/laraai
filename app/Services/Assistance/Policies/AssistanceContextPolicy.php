@@ -14,6 +14,12 @@ use Throwable;
 final readonly class AssistanceContextPolicy
 {
     /**
+     * The messages of earlier turns a context may carry: a turn is a question and its answers, a follow-up
+     * included, and conversation memory replays twenty turns at most.
+     */
+    private const int MAX_RECENT_TURN_MESSAGES = 60;
+
+    /**
      * @var list<string>
      */
     private const array CITATION_KEYS = ['excerpt', 'kind', 'label', 'reference', 'score', 'section'];
@@ -92,6 +98,7 @@ final readonly class AssistanceContextPolicy
         }
 
         $this->assertAuthorizedResultSchema($context->authorizedResults);
+        $this->assertRecentTurnsSchema($context->recentTurns);
 
         foreach ($context->safeCitations as $citation) {
             unset($citation['reference']);
@@ -104,6 +111,7 @@ final readonly class AssistanceContextPolicy
             'presentation_preferences' => $context->presentationPreferences,
             'safe_citations' => $context->safeCitations,
             'authorized_results' => $context->authorizedResults,
+            'recent_turns' => $context->recentTurns,
         ]);
 
         if (! is_string($serialized) || mb_strlen($serialized) > 100_000) {
@@ -173,6 +181,27 @@ final readonly class AssistanceContextPolicy
         }
 
         return true;
+    }
+
+    /**
+     * Earlier turns are who spoke and a text each, and no more of them than conversation memory replays at most.
+     *
+     * @param  array<mixed>  $turns
+     */
+    private function assertRecentTurnsSchema(array $turns): void
+    {
+        if (count($turns) > self::MAX_RECENT_TURN_MESSAGES) {
+            throw new AssistancePolicyViolationException('context_bounds');
+        }
+
+        foreach ($turns as $turn) {
+            if (! is_array($turn)
+                || ['speaker', 'content'] !== array_keys($turn)
+                || ! in_array($turn['speaker'], ['person', 'assistant'], true)
+                || ! is_string($turn['content'])) {
+                throw new AssistancePolicyViolationException('unsafe_context_schema');
+            }
+        }
     }
 
     /**

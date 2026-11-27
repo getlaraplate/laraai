@@ -30,6 +30,8 @@ class AIDatabaseSeeder extends Seeder
             self::setting('features.media_analysis.near_duplicate_distance', 0, SettingTypeEnum::Integer, 'ai', 'Reuse the analysis of an earlier image when the new one looks like it, up to this many of the 64 bits of their fingerprints apart (0 = off, 4 = the same picture resized, 10 = similar pictures); never one made with another media model', [0, 2, 4, 6, 8, 10]),
             self::setting('features.chat.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable the in-app assistant (conversations, messages, agent and the decisions on what it proposes)'),
             self::setting('features.chat.summary.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable chat summarization'),
+            self::setting('features.chat.history.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Let the assistant read the recent turns of a conversation before answering (only the questions and answers the user saw). Read docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md first'),
+            self::setting('features.chat.history.turns', 6, SettingTypeEnum::Integer, 'ai', 'Earlier turns of a conversation the assistant reads before answering, when that is on'),
             self::setting('features.faq.enabled', false, SettingTypeEnum::Boolean, 'ai', 'Enable FAQ/RAG answers: the assistant reads the user documentation to answer how the application works'),
             self::setting('features.faq.max_documents', 5, SettingTypeEnum::Integer, 'ai', 'Maximum FAQ documents to retrieve'),
             self::setting('features.faq.min_similarity', 0.7, SettingTypeEnum::Float, 'ai', 'Minimum FAQ similarity score'),

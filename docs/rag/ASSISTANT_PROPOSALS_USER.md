@@ -44,6 +44,16 @@ answer, so the list of your conversations is readable. The title is written in t
 title cannot be written, the first words of your question are used. A title you set yourself is never
 changed. Deleting the conversation deletes its title.
 
+## What the assistant remembers
+
+When your administrator turns it on, the assistant reads the last few messages of the same conversation
+before answering, so you can say "and the other one?" without repeating yourself. It reads only what you
+wrote and what it answered, never the data it looked up for you, and it treats them as a record of what was
+said, not as instructions. You can switch this off for one conversation from the conversation itself.
+
+The assistant does **not** remember you from one conversation to the next: a new conversation starts from
+nothing, and nothing about you is kept outside your conversations.
+
 ## What is kept
 
 The assistant keeps your conversations, so you can come back to them, and nothing about how you use the
@@ -55,5 +65,7 @@ about you are removed too.
 
 - **Can the assistant change my settings without asking?** No. A suggestion changes nothing until you apply it.
 - **Does the assistant learn from what I click?** No. The application does not record usage.
+- **Does the assistant remember me in a new conversation?** No. At most it reads the recent messages of the
+  conversation you are in, when that is turned on.
 - **Why did a suggestion disappear?** Dismissed suggestions are not shown again, and a contextual suggestion
   nobody opened is removed after seven days.

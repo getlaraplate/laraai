@@ -59,7 +59,10 @@ Cross-module pipelines are documented with **Mermaid** diagrams in dedicated gui
 | `Conversation`, `Message`, `AssistantTurn` | `Models/` | Persistence |
 
 Every message goes through `InAppAssistanceService::respond()`, which is policy-compiled, guardrailed,
-scope-resolved and stateless across messages: no earlier turn is replayed to the model. Each message is one
+scope-resolved and, by default, stateless across messages: no earlier turn is replayed to the model. With
+conversation memory on (`features.chat.history.enabled`, off by default; `memory_enabled` on the conversation),
+the authorized context carries the last turns of the same conversation as data (`ConversationHistory`,
+`docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md`). Nothing is remembered across conversations. Each message is one
 **turn** (`AssistantTurn`, `ai_assistant_turns`) whose id is the Neuron thread of a durable run: its records live
 in `ai_agent_workflow_records` (`EloquentPersistence`) and its working conversation (the question, the tool calls and
 their results, the answer) in `ai_agent_messages` (`EloquentMessageStore`). That is what lets a turn paused on a write
@@ -194,8 +197,9 @@ sequenceDiagram
 
 `MemoryService` summarises a conversation and extracts its key facts (a Neuron structured output,
 `ExtractedFacts`), and keeps the snapshots in `ConversationSummary`. It is kept for the persistent user
-memory plan, which reuses it; the in-app assistant does not call it today, because the assistant is
-stateless and replays no history until a security review accepts it.
+memory plan, which is not planned at present; the in-app assistant does not call it. Conversation memory is a
+window of recent turns read from the conversation's messages (`ConversationHistory`, off by default, see
+`docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md`), with no summary.
 
 ```php
 // MemoryService::shouldSummarize()
@@ -293,4 +297,5 @@ routes also require the in-app assistance profile (`AssistantAccessContextFactor
 | Governed writes | Active | Propose, then the person confirms (`ai_write_proposals`) |
 | Widget objects | Active (backend) | `show_widget` emits figures and charts as aggregate requests, and relation maps as graph requests, in `metadata.objects`; a client renders them |
 | Contextual Suggestions | Active | Setting `features.contextual_suggestions.enabled` (seeded off) |
-| Memory/Summarization | Kept, not called | Setting `features.chat.summary.enabled`; reused by the persistent user memory plan |
+| Memory/Summarization | Kept, not called | Setting `features.chat.summary.enabled`; for the persistent user memory plan, not planned at present |
+| Conversation memory | Off by default | Settings `features.chat.history.{enabled,turns}`; `memory_enabled` per conversation |
