@@ -12,7 +12,8 @@ use Modules\Core\Helpers\MigrateUtils;
 /**
  * The durable side of an assistant turn: the turn itself, the conversation Neuron keeps for it
  * (`EloquentMessageStore`) and the records of its run (`EloquentPersistence`), so that a turn paused on a write
- * the person has to confirm resumes in a later request.
+ * the person has to confirm resumes in a later request. Dated before `ai_write_proposals`, whose `turn_id`
+ * references the turns.
  */
 return new class extends Migration
 {
@@ -78,27 +79,10 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['partition', 'key'], "{$records}_partition_key_UQ");
         });
-
-        $proposals = AITables::WriteProposals->value;
-
-        Schema::table($proposals, static function (Blueprint $table) use ($proposals, $turns): void {
-            $table->uuid('turn_id')->nullable()->after('conversation_id')->comment('The turn whose run waits for this decision');
-            $table->string('tool_call_id', 255)->nullable()->after('tool')->comment('The call of the model the decision answers');
-            $table->foreign('turn_id', "{$proposals}_turn_id_FK")->references('id')->on($turns)->nullOnDelete();
-            $table->index(['turn_id', 'status'], "{$proposals}_turn_status_IDX");
-        });
     }
 
     public function down(): void
     {
-        $proposals = AITables::WriteProposals->value;
-
-        Schema::table($proposals, static function (Blueprint $table) use ($proposals): void {
-            $table->dropForeign("{$proposals}_turn_id_FK");
-            $table->dropIndex("{$proposals}_turn_status_IDX");
-            $table->dropColumn(['turn_id', 'tool_call_id']);
-        });
-
         Schema::dropIfExists(AITables::AgentWorkflowRecords->value);
         Schema::dropIfExists(AITables::AgentMessages->value);
         Schema::dropIfExists(AITables::AssistantTurns->value);

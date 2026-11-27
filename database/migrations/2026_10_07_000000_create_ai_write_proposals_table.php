@@ -19,7 +19,10 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained(CoreTables::Users->value, 'id', "{$table_name}_user_id_FK")->cascadeOnDelete();
             $table->foreignId('conversation_id')->constrained(AITables::Conversations->value, 'id', "{$table_name}_conversation_id_FK")->cascadeOnDelete();
+            $table->uuid('turn_id')->nullable()->comment('The turn whose run waits for this decision');
+            $table->foreign('turn_id', "{$table_name}_turn_id_FK")->references('id')->on(AITables::AssistantTurns->value)->nullOnDelete();
             $table->string('tool')->comment('Name of the tool the model called');
+            $table->string('tool_call_id', 255)->nullable()->comment('The call of the model the decision answers');
             $table->string('module', 64)->comment('Module of the target entity');
             $table->string('entity', 128)->comment('Target entity');
             $table->string('operation', 20)->comment('create|update|delete|bulk_update|bulk_delete');
@@ -41,6 +44,7 @@ return new class extends Migration
 
             $table->index(['conversation_id', 'status'], "{$table_name}_conversation_status_IDX");
             $table->index(['user_id', 'status'], "{$table_name}_user_status_IDX");
+            $table->index(['turn_id', 'status'], "{$table_name}_turn_status_IDX");
         });
     }
 
