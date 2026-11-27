@@ -49,3 +49,25 @@ it('does not dispatch translation job when auto translate is disabled for the mo
     Bus::assertNothingDispatched();
     expect($event->isHandled())->toBeFalse();
 });
+
+it('dispatches no translation job for a save that is part of a revert (D36)', function (): void {
+    Bus::fake();
+
+    $model = new FakeTranslatableModel();
+
+    Setting::factory()->persistedWithoutApprovalCapture()->create([
+        'name' => 'translations.auto.' . $model->getTable(),
+        'value' => true,
+        'type' => SettingTypeEnum::Boolean,
+        'group_name' => 'translations',
+        'description' => 'test',
+    ]);
+
+    app(PerModelSettingResolver::class)->flush();
+
+    $event = new TranslatedModelSaved($model, [], true, fromRevert: true);
+    (app(HandleModelTranslationListener::class))->handle($event);
+
+    Bus::assertNothingDispatched();
+    expect($event->isHandled())->toBeFalse();
+});

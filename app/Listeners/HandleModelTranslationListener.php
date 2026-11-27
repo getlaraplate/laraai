@@ -18,7 +18,8 @@ final readonly class HandleModelTranslationListener
 
     public function handle(TranslatedModelSaved $event): void
     {
-        if (! $this->shouldHandle($event->model)) {
+        // A revert puts the translations back as they were: translating them again would overwrite them (D36).
+        if ($event->fromRevert || ! $this->shouldHandle($event->model)) {
             return;
         }
 
