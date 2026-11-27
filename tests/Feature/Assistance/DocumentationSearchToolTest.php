@@ -89,9 +89,10 @@ it('sends the authorized context with the question and keeps it out of the cache
     ])->respond($this->conversation, $this->user, 'How do I change the layout?');
 
     $request = $model->getRecorded()[0];
-    $question = end($request->messages);
+    $messages = $request->messages;
+    $question = end($messages);
 
-    expect($request->systemPrompt?->getContent())->not->toContain('<authorized_context>')
+    expect($request->systemPrompt?->getContent())->not->toContain('Open Settings to change how the application looks.')
         ->and($request->systemPrompt?->isCached())->toBeTrue()
         ->and($question->getContent())->toContain('How do I change the layout?')
         ->and($question->getContent())->toContain('<authorized_context>')
