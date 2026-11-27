@@ -10,6 +10,7 @@ use InvalidArgumentException;
 use Modules\AI\Ai\Providers\ProviderFactory;
 use Modules\AI\Data\WidgetObject;
 use Modules\AI\Enums\AssistantProfile;
+use Modules\AI\Services\Assistance\History\ConversationHistory;
 use Modules\AI\Services\Assistance\Policies\AssistantPolicyCompiler;
 use Modules\AI\Services\Assistance\Widgets\WidgetObjectCollector;
 use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
@@ -141,6 +142,15 @@ final readonly class AssistantCapabilities
     }
 
     /**
+     * The assistant reads the earlier turns of a conversation before answering
+     * (`features.chat.history.enabled`); a conversation can still turn it off for itself (`memory_enabled`).
+     */
+    public function history(): bool
+    {
+        return ConversationHistory::enabled();
+    }
+
+    /**
      * `POST /app/ai/agent` streams the run as lifecycle events and complete validated messages.
      */
     public function streaming(): bool
@@ -149,7 +159,7 @@ final readonly class AssistantCapabilities
     }
 
     /**
-     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool, objects: list<string>}, limits: array{aggregate: array{max_measures: int, max_groups: int, max_points: int, max_period_days: int}}}
+     * @return array{enabled: bool, configured: bool, features: array{help: bool, proposals: bool, writes: bool, streaming: bool, history: bool, objects: list<string>}, limits: array{aggregate: array{max_measures: int, max_groups: int, max_points: int, max_period_days: int}}}
      */
     public function toArray(): array
     {
@@ -161,6 +171,7 @@ final readonly class AssistantCapabilities
                 'proposals' => $this->proposals(),
                 'writes' => $this->writes(),
                 'streaming' => $this->streaming(),
+                'history' => $this->history(),
                 'objects' => $this->objects(),
             ],
             'limits' => [

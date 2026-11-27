@@ -20,7 +20,7 @@ token stream route answers 422 (`in_app_streaming_unavailable`). The previous `C
 
 The assistant never changes data by itself. A write tool (`crud_create_*`, `crud_update_*`, `crud_delete_*`, `crud_bulk_update_*`, `crud_bulk_delete_*`) only stores a **write proposal** (`ai_write_proposals`) and tells the model that nothing has changed. The person confirms or rejects the proposal through an authenticated action the model cannot perform, and only then is the stored payload applied, as that person, through `CrudService`. Whether the write is also sent for a vote is decided by Core approvals at the model (`HasApprovals`), not by the assistant.
 
-**Why the person confirms outside the model.** The assistant is stateless (each `respond()` is one message, no history), so a model cannot carry a confirmation from one turn to the next, and a confirmation the model reads in a message can be influenced by text it retrieved. A proposal is applied only by an authenticated HTTP action of the person it was proposed to. The model cannot perform it, and neither can text it read.
+**Why the person confirms outside the model.** Each `respond()` is one message, and even with conversation memory on an earlier turn reaches the model only as data, so a model cannot carry a confirmation from one turn to the next, and a confirmation the model reads in a message can be influenced by text it retrieved. A proposal is applied only by an authenticated HTTP action of the person it was proposed to. The model cannot perform it, and neither can text it read.
 
 **Why there is no risk level.** An earlier design classified tools by name (`delete_*` high, `update_*` medium, the rest low) and routed them through `ActionRequest`. It had no production caller, read no argument and defaulted to low, and it duplicated the approvals that Core enforces at the model for every surface. It was removed. Whether a write needs a vote is `wouldRequireApproval()` of the model; whether the person is asked is always yes.
 
@@ -36,8 +36,10 @@ The assistant never changes data by itself. A write tool (`crud_create_*`, `crud
 
 `MemoryService` summarises a conversation after a number of messages, extracts its key facts (a Neuron
 structured output) and keeps snapshots in `ConversationSummary`, to keep long conversations inside the
-context window. It is kept for the persistent user memory plan, which reuses it. The in-app assistant does
-not call it today: the assistant is stateless and replays no history until a security review accepts it.
+context window. It is kept for the persistent user memory plan, which is not planned at present. The in-app
+assistant does not call it. What the assistant can remember is a window of recent turns of the same
+conversation (`ConversationHistory`), off by default and replayed as data, never summarised; nothing is
+remembered across conversations. See `docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md`.
 
 - Switch: the setting `features.chat.summary.enabled` in Filament (seeded off).
 - Threshold: `ai.features.chat.summary_threshold` in `config.php` (20 messages), a fixed value.
@@ -89,7 +91,7 @@ No HTTP endpoint needed - use services directly.
 | In-app assistant | Active | One switch, setting `features.chat.enabled` (seeded off), enforced by `EnsureAssistantEnabled` on every assistant route; apart from the documentation, so an assistant may serve its tools only |
 | RAG/FAQ | Active | Documentation answers; setting `features.faq.enabled` |
 | Contextual suggestions | Active | Proactive AI suggestions with rate limiting; setting `features.contextual_suggestions.enabled` |
-| Memory/Summary | Kept, not called | Setting `features.chat.summary.enabled`; for the persistent user memory plan |
+| Memory/Summary | Kept, not called | Setting `features.chat.summary.enabled`; for the persistent user memory plan, not planned at present |
 | Guardrails | Active | In-app assistance guardrails, mandatory, no switch |
 
 ### Key Design Principles

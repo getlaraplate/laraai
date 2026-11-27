@@ -60,7 +60,7 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
   "data": {
     "enabled": true,
     "configured": true,
-    "features": { "help": true, "proposals": true, "writes": false, "streaming": true, "objects": ["kpi", "chart", "graph"] },
+    "features": { "help": true, "proposals": true, "writes": false, "streaming": true, "history": false, "objects": ["kpi", "chart", "graph"] },
     "limits": { "aggregate": { "max_measures": 3, "max_groups": 50, "max_points": 400, "max_period_days": 1096 } },
     "actions": []
   }
@@ -75,6 +75,7 @@ whole `context`: a key such as `profile`, `tools`, `permissions`, `roles`, `tena
 | `features.proposals` | The policy compiled for the in-app profile with `ui_proposals` still allows a tool. |
 | `features.writes` | The policy compiled with `governed_writes` allows a tool and an entity is opted into a write operation (`TOOLS_USAGE_EXAMPLE.md`). |
 | `features.streaming` | `POST /app/ai/agent` exists. |
+| `features.history` | The setting `features.chat.history.enabled`: the assistant reads the recent turns of the same conversation before answering. A conversation turns it off for itself with `POST /app/crud/update/ai/conversations/{conversation}/memory` (`{"memory_enabled": false}`); a client offers that switch only when this is true (`ASSISTANT_HISTORY_SECURITY_REVIEW.md`). |
 | `features.objects` | The object types the backend can put in a message, `[]` unless the policy compiled with `widget_objects` allows a tool: then `kpi` and `chart` when an entity is opted into `summarize`, and `graph` when the policy compiled with `read_only_graph` allows `graph_expand` (`ASSISTANT_WIDGETS_DEVELOPER.md`). |
 | `limits.aggregate` | The ceilings of the aggregate requests the objects carry: `max_measures`, `max_groups`, `max_points`, `max_period_days`. |
 | `actions` | What the assistant may do for the signed-in person (`TOOLS_USAGE_EXAMPLE.md`). |

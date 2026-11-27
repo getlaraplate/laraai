@@ -17,6 +17,7 @@ class InsertConversationRequest extends FormRequest
     {
         return [
             'title' => ['nullable', 'string', 'max:255'], // conversation title
+            'memory_enabled' => ['sometimes', 'boolean'], // whether the assistant reads the earlier turns
             'system_message' => ['prohibited'],
             'system_prompt' => ['prohibited'],
             'profile' => ['prohibited'],

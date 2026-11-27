@@ -51,6 +51,7 @@ class ChatService implements IChatService
             'presentation_preferences' => $context->presentationPreferences,
             'safe_citations' => $context->safeCitations,
             'authorized_results' => $context->authorizedResults,
+            ...($context->recentTurns === [] ? [] : ['recent_turns' => $context->recentTurns]),
         ], JSON_THROW_ON_ERROR);
 
         return new TextContent("<authorized_context>\n{$encoded_context}\n</authorized_context>");

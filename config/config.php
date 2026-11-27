@@ -111,6 +111,15 @@ return [
                 'max_tokens' => (int) env('AI_CHAT_SUMMARIZATION_MAX_TOKENS', 0),
                 'messages_to_keep' => (int) env('AI_CHAT_SUMMARIZATION_MESSAGES_TO_KEEP', 5),
             ],
+            // The earlier turns the assistant reads before answering (ConversationHistory). `enabled` and `turns`
+            // are the settings `features.chat.history.*`; these are the defaults until they are seeded. Off, and
+            // off for a conversation whose `memory_enabled` is false. Only the texts the person saw are replayed,
+            // each cut at `max_chars` (config only); see docs/rag/ASSISTANT_HISTORY_SECURITY_REVIEW.md.
+            'history' => [
+                'enabled' => false,
+                'turns' => 6,
+                'max_chars' => 2000,
+            ],
         ],
 
         // Media LLM analysis (M1-M21 in the media spec). The master switch is the

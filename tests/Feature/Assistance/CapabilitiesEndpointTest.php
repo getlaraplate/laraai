@@ -72,7 +72,7 @@ it('tells a signed-in user what the assistant offers', function (): void {
         ->assertJsonPath('data', [
             'enabled' => true,
             'configured' => true,
-            'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true, 'objects' => ['graph']],
+            'features' => ['help' => true, 'proposals' => true, 'writes' => false, 'streaming' => true, 'history' => false, 'objects' => ['graph']],
             'limits' => ['aggregate' => ['max_measures' => 3, 'max_groups' => 50, 'max_points' => 400, 'max_period_days' => 1096]],
             'actions' => [],
         ]);

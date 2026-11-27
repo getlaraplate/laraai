@@ -37,6 +37,7 @@ Route::prefix('crud')->name('crud.')->group(function (): void {
         Route::get('select/ai/conversations', 'listConversations')->name('conversations.list');
         Route::post('insert/ai/conversations', 'insertConversation')->name('conversations.insert');
         Route::get('detail/ai/conversations/{conversation}', 'detailConversation')->name('conversations.detail');
+        Route::post('update/ai/conversations/{conversation}/memory', 'updateConversationMemory')->name('conversations.memory');
         Route::delete('delete/ai/conversations/{conversation}', 'deleteConversation')->name('conversations.delete');
         Route::get('select/ai/conversations/{conversation}/messages', 'listMessages')->name('messages.list');
         Route::post('stream/ai/conversations/{conversation}/messages', 'streamMessage')->middleware(ResolveAssistantApplicationContext::class)->name('messages.stream');
