@@ -103,6 +103,7 @@ No Core setting is needed: turning on `features.embeddings.enabled` is enough.
 - `config('ai.features.translation.enabled')` is true
 - Model uses `HasTranslations`
 - `autoTranslateEnabledBySettings()` is true (setting `translations.auto.{table}` or model property)
+- the event is not from a revert (`fromRevert` false): a revert restores the translations and must not have them redone
 
 ### Flow
 
