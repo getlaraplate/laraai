@@ -255,6 +255,20 @@ Off by default. The setting `features.media_analysis.near_duplicate_distance` (c
 
 The documentation indexes (`ai:index-rag-docs`) are not affected by any of these.
 
+### Upgrading to durable assistant turns (v3.4)
+
+The turns of the assistant run durably on three new tables (`ai_assistant_turns`, `ai_agent_messages`,
+`ai_agent_workflow_records`, migration `2026_10_06_000000_create_ai_agent_persistence_tables`), and
+`ai_write_proposals` gains `turn_id` and `tool_call_id` in its create migration. A fresh install or
+`php artisan migrate:fresh --seed` needs nothing else. An existing database:
+
+| Database | What to do |
+|----------|------------|
+| Migrated with v3.4.0, which shipped the same tables and columns in a migration dated `2026_11_27_000000` | nothing to create: rename its row in `migrations` so the dated file is not run again, `UPDATE migrations SET migration = '2026_10_06_000000_create_ai_agent_persistence_tables' WHERE migration = '2026_11_27_000000_create_ai_agent_persistence_tables';` |
+| Migrated before v3.4.0 | `php artisan migrate` creates the three tables; add `turn_id` (nullable uuid, foreign key to `ai_assistant_turns.id`, null on delete), `tool_call_id` (nullable string) and the index `(turn_id, status)` to `ai_write_proposals`, or migrate fresh |
+
+Seed the AI module for the conversation memory settings (`features.chat.history.*`).
+
 ### Module Priority
 
 The AI module has priority **999** (loaded after Core and Cms) to ensure proper event listener registration order.
