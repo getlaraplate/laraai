@@ -81,7 +81,7 @@ final class WriteProposalService
             $this->callId = null;
         }
 
-        if (count($this->proposedInTurn) > $before) {
+        if ($before < count($this->proposedInTurn)) {
             return $this->proposedInTurn[array_key_last($this->proposedInTurn)];
         }
 

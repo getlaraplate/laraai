@@ -28,20 +28,6 @@ final readonly class LiveAssistantRunner
         private Request $request,
     ) {}
 
-    /**
-     * Binds the request the assistant reads to `$user`: call once, before the assistant is resolved.
-     */
-    public static function forUser(User $user): self
-    {
-        $request = Request::create('/app/ai/agent', 'POST');
-        $request->setUserResolver(static fn (): User => $user);
-        app()->instance('request', $request);
-        app()->instance(Request::class, $request);
-        Auth::setUser($user);
-
-        return new self($user, $request);
-    }
-
     public function __invoke(AssistantEvaluationCase $case): LiveAssistantRun
     {
         $this->prepareRequest($case);
@@ -62,6 +48,20 @@ final readonly class LiveAssistantRunner
                 // Nothing was left open to roll back.
             }
         }
+    }
+
+    /**
+     * Binds the request the assistant reads to `$user`: call once, before the assistant is resolved.
+     */
+    public static function forUser(User $user): self
+    {
+        $request = Request::create('/app/ai/agent', 'POST');
+        $request->setUserResolver(static fn (): User => $user);
+        app()->instance('request', $request);
+        app()->instance(Request::class, $request);
+        Auth::setUser($user);
+
+        return new self($user, $request);
     }
 
     private function prepareRequest(AssistantEvaluationCase $case): void

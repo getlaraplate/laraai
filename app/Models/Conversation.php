@@ -78,8 +78,8 @@ final class Conversation extends Model
         ConversationSummary::query()->withTrashed()->where('conversation_id', $this->getKey())->forceDelete();
         $runs = app(AgentRunStorage::class);
 
-        foreach (AssistantTurn::query()->where('conversation_id', $this->getKey())->pluck('id') as $turn_id) {
-            $runs->forget((string) $turn_id);
+        foreach (AssistantTurn::query()->where('conversation_id', $this->getKey())->get(['id']) as $turn) {
+            $runs->forget($turn->id);
         }
 
         AssistantTurn::query()->where('conversation_id', $this->getKey())->delete();

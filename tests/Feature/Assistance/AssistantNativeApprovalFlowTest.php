@@ -14,8 +14,10 @@ use Modules\AI\Models\AgentWorkflowRecord;
 use Modules\AI\Models\AssistantTurn;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\WriteProposal;
+use Modules\AI\Services\Assistance\AssistantPromptContext;
 use Modules\AI\Services\Assistance\Contracts\InAppAssistanceServiceInterface;
 use Modules\AI\Services\Assistance\InAppAssistanceService;
+use Modules\AI\Services\Assistance\Policies\CompiledAssistantPolicy;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\ChatService;
 use Modules\AI\Services\Tools\CrudToolProvider;
@@ -30,6 +32,7 @@ use Modules\Core\Services\Export\TabularCsvExporter;
 use Modules\Core\Services\Export\TabularPdfExporter;
 use Modules\Core\Support\PermissionName;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Testing\FakeAIProvider;
 
@@ -133,11 +136,11 @@ it('resumes the turn once the person confirms, applies the write once and writes
     $model->assertCallCount(2);
 
     $result = collect(new ChatService()->buildProtectedAgent(
-        new Modules\AI\Services\Assistance\Policies\CompiledAssistantPolicy('v', 'p', [], [], []),
-        new Modules\AI\Services\Assistance\AssistantPromptContext('v', [], [], []),
+        new CompiledAssistantPolicy('v', 'p', [], [], []),
+        new AssistantPromptContext('v', [], [], []),
         'ollama',
         $turn->id,
-    )->getChatHistory()->getMessages())->first(static fn ($message): bool => $message instanceof ToolResultMessage);
+    )->getChatHistory()->getMessages())->first(static fn (Message $message): bool => $message instanceof ToolResultMessage);
 
     expect($result)->toBeInstanceOf(ToolResultMessage::class)
         ->and((string) $result->getToolCalls()[0]->getResult())->toContain('"status":"applied"');

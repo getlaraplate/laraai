@@ -23,7 +23,7 @@ it('runs every case of the dataset on Neuron\'s runner and passes when the assis
     $asked = [];
     $evaluator = new LiveAssistantEvaluator(
         liveEvaluationDataset(),
-        static function (AssistantEvaluationCase $case) use (&$asked, $guardrails): LiveAssistantRun {
+        static function (AssistantEvaluationCase $case) use (&$asked): LiveAssistantRun {
             $asked[] = $case->id;
 
             return $case->expectRefusal

@@ -104,7 +104,7 @@ final class LiveAssistantEvaluator extends BaseEvaluator
             $expected = $case->expectedProposals;
             $this->assert(new LiveCaseAssertion(
                 'proposal_accuracy',
-                static fn (LiveAssistantRun $run): bool => $run->proposalCount() === $expected,
+                static fn (LiveAssistantRun $run): bool => $expected === $run->proposalCount(),
                 "The message does not carry {$expected} proposal(s).",
             ), $output);
         }

@@ -34,7 +34,7 @@ final readonly class ToolSearchOffer
         $pool = [];
 
         foreach ($tools as $tool) {
-            if ($threshold > 0 && count($tools) > $threshold && isset($searchable[$tool->getName()])) {
+            if ($threshold > 0 && $threshold < count($tools) && isset($searchable[$tool->getName()])) {
                 $pool[] = $tool;
 
                 continue;

@@ -18,9 +18,9 @@ final readonly class ToolDefinition
      * @param  string|null  $entity  `module.entity` when the tool acts on one entity, so the person can be told what the assistant may do
      * @param  string|null  $operation  the operation on that entity (`list`, `update`, ...)
      * @param  (callable(string): mixed)|null  $onApproval  when set, the tool waits for a person's decision
-     *                                                     (Neuron's tool approval): `$handler` then runs when the
-     *                                                     run pauses, to prepare what the person decides on, and
-     *                                                     `$onApproval` runs with the call id once it is approved
+     *                                                      (Neuron's tool approval): `$handler` then runs when the
+     *                                                      run pauses, to prepare what the person decides on, and
+     *                                                      `$onApproval` runs with the call id once it is approved
      */
     public function __construct(
         public string $name,

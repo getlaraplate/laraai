@@ -103,7 +103,7 @@ final class AssistantWriteController extends Controller
                 'role' => $follow_up->role,
                 'content' => $follow_up->content,
                 'metadata' => $follow_up->metadata,
-                'created_at' => $follow_up->created_at?->toIso8601String(),
+                'created_at' => $follow_up->created_at->toIso8601String(),
             ] : null,
         ];
     }

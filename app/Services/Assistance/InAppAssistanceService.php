@@ -25,16 +25,12 @@ use Modules\AI\Data\UiProposal;
 use Modules\AI\Data\WidgetObject;
 use Modules\AI\Enums\AssistantProfile;
 use Modules\AI\Enums\AssistantTurnStatus;
-use Modules\AI\Enums\WriteProposalStatus;
-use Modules\AI\Models\AssistantTurn;
-use Modules\AI\Services\Assistance\Writes\WriteApprovalGate;
-use NeuronAI\Agent\AgentState;
-use NeuronAI\Agent\Interrupt\Action;
-use NeuronAI\Chat\Messages\ToolCallMessage;
 use Modules\AI\Enums\ReferenceKind;
+use Modules\AI\Enums\WriteProposalStatus;
 use Modules\AI\Exceptions\AssistancePolicyViolationException;
 use Modules\AI\Http\Resources\WriteProposalResource;
 use Modules\AI\Jobs\GenerateConversationTitleJob;
+use Modules\AI\Models\AssistantTurn;
 use Modules\AI\Models\Conversation;
 use Modules\AI\Models\Message;
 use Modules\AI\Models\WriteProposal;
@@ -52,6 +48,7 @@ use Modules\AI\Services\Assistance\Stream\RunProgress;
 use Modules\AI\Services\Assistance\Widgets\RenderableObjectTypes;
 use Modules\AI\Services\Assistance\Widgets\WidgetObjectCollector;
 use Modules\AI\Services\Assistance\Writes\ActingIdentityBlock;
+use Modules\AI\Services\Assistance\Writes\WriteApprovalGate;
 use Modules\AI\Services\Assistance\Writes\WriteProposalService;
 use Modules\AI\Services\ChatService;
 use Modules\AI\Services\Documentation\Analytics\RagQueryRecorder;
@@ -71,6 +68,9 @@ use Modules\AI\Services\Tools\ToolSearchOffer;
 use Modules\Core\Graph\Contracts\GraphToolGatewayInterface;
 use Modules\Core\Models\User;
 use Modules\Core\Services\Crud\Aggregate\AggregateLimits;
+use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Interrupt\Action;
+use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\RAG\Document;
 use NeuronAI\Tools\Tool;
@@ -364,6 +364,19 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
     }
 
     /**
+     * @param  array<string, mixed>  $citation
+     */
+    private static function citationKey(array $citation): string
+    {
+        return implode("\0", [
+            is_string($citation['label'] ?? null) ? $citation['label'] : '',
+            is_string($citation['reference'] ?? null) ? $citation['reference'] : '',
+            is_scalar($citation['section'] ?? null) ? (string) $citation['section'] : '',
+            is_string($citation['excerpt'] ?? null) ? $citation['excerpt'] : '',
+        ]);
+    }
+
+    /**
      * The decision of every write the turn waits for, by call id, in Neuron's words; null while one of them
      * is still open. An open proposal whose time ran out is expired here: it counts as declined.
      *
@@ -472,19 +485,6 @@ final readonly class InAppAssistanceService implements InAppAssistanceServiceInt
             safeCitations: array_slice($citations, 0, 10),
             authorizedResults: $context->authorizedResults,
         ));
-    }
-
-    /**
-     * @param  array<string, mixed>  $citation
-     */
-    private static function citationKey(array $citation): string
-    {
-        return implode("\0", [
-            is_string($citation['label'] ?? null) ? $citation['label'] : '',
-            is_string($citation['reference'] ?? null) ? $citation['reference'] : '',
-            is_scalar($citation['section'] ?? null) ? (string) $citation['section'] : '',
-            is_string($citation['excerpt'] ?? null) ? $citation['excerpt'] : '',
-        ]);
     }
 
     /**
